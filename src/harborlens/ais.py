@@ -15,6 +15,7 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from harborlens.io_safe import stream_rows, AISInputError
 
 BBOX_HOUSTON = (-95.70, 29.10, -94.20, 30.10)  # west, south, east, north
 ALIASES = {
@@ -39,33 +40,6 @@ def header_alias(header, name, required=True):
         raise ValueError(f"Missing {name} in CSV columns: {header}")
     return None
 
-def stream_rows(path):
-    suffix=path.suffix.lower()
-    if suffix==".csv":
-        with path.open("r",newline="",encoding="utf-8-sig") as f:
-            yield from csv.DictReader(f)
-    elif suffix==".gz":
-        with gzip.open(path,"rt",newline="",encoding="utf-8-sig") as f:
-            yield from csv.DictReader(f)
-    elif suffix==".zip":
-        with zipfile.ZipFile(path) as z:
-            csv_members=[x for x in z.namelist() if x.lower().endswith(".csv")]
-            if len(csv_members)!=1:
-                raise ValueError("ZIP input must contain exactly one CSV")
-            with z.open(csv_members[0]) as raw:
-                with io.TextIOWrapper(raw,newline="",encoding="utf-8-sig") as f:
-                    yield from csv.DictReader(f)
-    elif suffix==".zst":
-        try:
-            import zstandard
-        except ImportError as exc:
-            raise SystemExit("Install zstandard to read NOAA .csv.zst") from exc
-        with path.open("rb") as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
-            with io.TextIOWrapper(reader,newline="",encoding="utf-8-sig") as f:
-                yield from csv.DictReader(f)
-    else:
-        raise ValueError("Input must end in .csv, .gz, .zip or .zst")
-
 def sha256(path):
     h=hashlib.sha256()
     with path.open("rb") as source:
@@ -80,6 +54,14 @@ def parse_time(value):
     return t.astimezone(timezone.utc)
 
 def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
+    if max_rows is not None and max_rows < 0:
+        raise AISInputError("max_rows must not be negative")
+    if len(bbox) != 4 or not all(math.isfinite(float(x)) for x in bbox):
+        raise AISInputError("Bounding box must have four finite numbers")
+    if not (-180 <= bbox[0] < bbox[2] <= 180 and -90 <= bbox[1] < bbox[3] <= 90):
+        raise AISInputError("Bounding box must be ordered west,south,east,north")
+    if source.resolve() == output.resolve():
+        raise AISInputError("Input and output paths must be different")
     output.parent.mkdir(parents=True,exist_ok=True)
     counts=dict(total=0,in_bbox=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
     seen=set()
@@ -101,7 +83,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                 sog=float(row[cols["sog"]])
                 if not mmsi.isdigit() or len(mmsi) not in (8,9):
                     raise ValueError("invalid MMSI")
-                if not (-90<=lat<=90 and -180<=lon<=180 and 0<=sog<=100):
+                if not (math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)) or not (-90<=lat<=90 and -180<=lon<=180 and 0<=sog<=100):
                     raise ValueError("coordinate or speed out of range")
             except (ValueError,TypeError,KeyError,OverflowError):
                 counts["invalid"]+=1

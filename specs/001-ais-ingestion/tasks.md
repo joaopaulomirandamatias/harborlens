@@ -3,7 +3,7 @@
 **State:** IMPLEMENTED — SYNTHETIC ONLY. Checking a task requires traceable PR/test evidence.
 
 - [ ] Preserve synthetic unit tests and CLI smoke test
-- [ ] Add malformed file, ZIP bomb and streaming memory tests
+- [x] Add malformed input, ZIP expansion and finite-number tests; full memory benchmarks remain pending
 - [ ] Implement output hashes and rights metadata
 - [ ] Run a real NOAA archived file only after dataset rights review
 

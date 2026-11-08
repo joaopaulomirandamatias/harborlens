@@ -16,3 +16,7 @@ Current implementation: Python standard-library CSV/gzip/ZIP, optional zstandard
 ## Decisions and tradeoffs
 
 Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible uncertainty and independent reproducibility over premature complex infrastructure. Schema-breaking changes require a migration note and regression tests.
+
+## SPEC-001 input protection (proposed change)
+
+Bounded readers check compressed bytes, ZIP entries, expansion ratio, decompressed data cap, header shape, malformed rows and finite numeric payloads. These are defensive CLI controls, not a secure user-upload service. Test synthetic adversarial examples first. Large real-data stress and streaming-memory benchmarks remain outstanding.
