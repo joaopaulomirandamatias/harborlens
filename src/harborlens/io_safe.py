@@ -22,10 +22,11 @@ class AISInputError(ValueError):
     """Input does not meet the research CLI ingestion safety contract."""
 
 
-class LimitedReader:
+class LimitedReader(io.RawIOBase):
     """A binary reader that refuses to emit more bytes than its cap."""
 
     def __init__(self, stream, cap: int):
+        super().__init__()
         self.stream = stream
         self.cap = cap
         self.total = 0
