@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/stationary-candidate.schema.json",
+  "title": "Unvalidated provisional low-speed candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "mmsi",
+    "start_utc",
+    "end_utc",
+    "duration_min",
+    "point_count",
+    "centroid_lon",
+    "centroid_lat",
+    "maximum_distance_m",
+    "type",
+    "method_version",
+    "confidence_label"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{18}$"
+    },
+    "mmsi": {
+      "type": "string",
+      "pattern": "^[0-9]{8,9}$"
+    },
+    "start_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_min": {
+      "type": "number",
+      "minimum": 0
+    },
+    "point_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "centroid_lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "centroid_lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "maximum_distance_m": {
+      "type": "number",
+      "minimum": 0
+    },
+    "type": {
+      "const": "stationary_candidate"
+    },
+    "method_version": {
+      "const": "stationary-v0.1"
+    },
+    "confidence_label": {
+      "const": "unvalidated"
+    }
+  }
+}

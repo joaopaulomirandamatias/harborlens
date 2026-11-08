@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: HarborLens Research API — DESIGN ONLY
+  version: 0.1.0
+  description: No HTTP API is implemented. Historical research access is non-operational.
+servers:
+  - url: https://api.example.invalid/v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        '200':
+          description: Proposed service health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+  /runs/{runId}/candidates:
+    get:
+      operationId: listCandidates
+      summary: Provisional stationary candidates (NOT verified port calls)
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Unvalidated research candidates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run_id, validation_state, candidates]
+                properties:
+                  run_id: {type: string}
+                  validation_state: {type: string, const: unvalidated}
+                  candidates:
+                    type: array
+                    items:
+                      $ref: '../../schemas/v1/stationary-candidate.schema.json'
+        '404': {description: Run not found}

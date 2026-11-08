@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/source-snapshot.schema.json",
+  "title": "Proposed source snapshot; NOT IMPLEMENTED",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_id",
+    "agency",
+    "dataset_name",
+    "source_url",
+    "retrieved_at_utc",
+    "file_sha256",
+    "rights_status"
+  ],
+  "properties": {
+    "source_id": {
+      "type": "string"
+    },
+    "agency": {
+      "type": "string"
+    },
+    "dataset_name": {
+      "type": "string"
+    },
+    "dataset_version": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "file_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rights_status": {
+      "enum": [
+        "review_required",
+        "approved_research_only",
+        "approved_commercial_use",
+        "restricted"
+      ]
+    },
+    "restrictions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

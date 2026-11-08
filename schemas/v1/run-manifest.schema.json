@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/run-manifest.schema.json",
+  "title": "Actual v0.1 local run manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "input_file",
+    "input_sha256",
+    "output",
+    "bbox_lon_lat",
+    "counts",
+    "note",
+    "events",
+    "method_parameters"
+  ],
+  "properties": {
+    "input_file": {
+      "type": "string"
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "output": {
+      "type": "string"
+    },
+    "bbox_lon_lat": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "items": false
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "total",
+        "in_bbox",
+        "invalid",
+        "outside_bbox",
+        "duplicate",
+        "written"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_bbox": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outside_bbox": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "written": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "note": {
+      "type": "string"
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vessels",
+        "points",
+        "moving_or_invalid_points",
+        "stationary_candidates",
+        "warning"
+      ],
+      "properties": {
+        "vessels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "moving_or_invalid_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stationary_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warning": {
+          "type": "string"
+        }
+      }
+    },
+    "method_parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_sog_knots",
+        "min_duration_minutes",
+        "max_gap_minutes",
+        "max_radius_m",
+        "min_points"
+      ],
+      "properties": {
+        "max_sog_knots": {
+          "type": "number"
+        },
+        "min_duration_minutes": {
+          "type": "number"
+        },
+        "max_gap_minutes": {
+          "type": "number"
+        },
+        "max_radius_m": {
+          "type": "number"
+        },
+        "min_points": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

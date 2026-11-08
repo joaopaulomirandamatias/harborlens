@@ -1,0 +1,39 @@
+name: Specification implementation
+description: Implement one accepted spec slice with measurable acceptance evidence
+title: "[SPEC-###] "
+labels: ["type:feature"]
+body:
+  - type: input
+    id: spec
+    attributes:
+      label: Specification path
+      placeholder: specs/001-ais-ingestion/spec.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem, users, proposed behavior and non-goals
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Given / When / Then acceptance criteria
+    validations:
+      required: true
+  - type: textarea
+    id: test
+    attributes:
+      label: Verification steps, data rights and security constraints
+    validations:
+      required: true
+  - type: checkboxes
+    id: done
+    attributes:
+      label: Definition of Done
+      options:
+        - label: Spec and architecture reviewed
+        - label: Requirement/test traceability updated
+        - label: CI and boundary tests pass
+        - label: License/security constraints documented
