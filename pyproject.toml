@@ -18,6 +18,7 @@ dev = ["pytest>=8", "jsonschema>=4"]
 [project.scripts]
 harborlens = "harborlens.cli:main"
 harborlens-download-noaa = "harborlens.download:main"
+harborlens-verify = "harborlens.provenance:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

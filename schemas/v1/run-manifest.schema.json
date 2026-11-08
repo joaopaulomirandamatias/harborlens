@@ -12,7 +12,12 @@
     "counts",
     "note",
     "events",
-    "method_parameters"
+    "method_parameters",
+    "run_id",
+    "provenance_schema_version",
+    "source_metadata",
+    "artifacts",
+    "provenance_warning"
   ],
   "properties": {
     "input_file": {
@@ -143,6 +148,106 @@
           "type": "number"
         }
       }
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provenance_schema_version": {
+      "const": "1.1"
+    },
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_url",
+        "metadata_origin",
+        "rights_status"
+      ],
+      "properties": {
+        "source_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "metadata_origin": {
+          "const": "user_declared"
+        },
+        "rights_status": {
+          "const": "review_required"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "houston_clean.csv",
+        "stationary_candidates.csv",
+        "stationary_candidates.geojson"
+      ],
+      "properties": {
+        "houston_clean.csv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "stationary_candidates.csv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "stationary_candidates.geojson": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "provenance_warning": {
+      "type": "string",
+      "minLength": 10
     }
   }
 }
