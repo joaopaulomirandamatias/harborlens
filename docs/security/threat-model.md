@@ -3,7 +3,7 @@
 | Risk | Consequence | Current control / gap |
 | --- | --- | --- |
 | Malformed CSV or timestamps | Wrong records or crash | Per-row validation; fuzz/property tests remain pending |
-| ZIP bomb / large datasets | Unbounded CPU/RAM | No hardened decompression cap in v0.1; do not accept untrusted uploads |
+| ZIP bomb / large datasets | Unbounded CPU/RAM | Reader byte caps and ZIP ratio check are proposed in #4; not an upload sandbox; stress testing remains pending |
 | MMSI reuse, AIS spoofing | Incorrect vessel identity and event inference | Unvalidated stationary-candidate label only; identity resolution pending |
 | Corrupted archives/results | Failed reproducibility | Input SHA-256; output hashes and immutability pending |
 | Spreadsheet formula injection | Malicious formula execution | Export sanitization pending before spreadsheet workflows |
