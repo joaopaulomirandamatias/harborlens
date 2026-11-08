@@ -3,6 +3,8 @@
 **State:** PROPOSED. Checking a task requires traceable PR/test evidence.
 
 - [ ] Ingest and checksum authorized NOAA sample
+- [ ] Review and merge output-hash and local-verification implementation (PR pending)
+- [ ] Independently confirm source rights and dataset provenance before distribution
 - [ ] Create annotation guide and >=100 pilot samples with negatives
 - [ ] Implement metrics and confidence intervals
 - [ ] Cross-validate independent period/port with permission

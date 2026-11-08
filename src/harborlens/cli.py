@@ -10,8 +10,9 @@ def main():
     p.add_argument("--out", default="results")
     p.add_argument("--bbox", type=float, nargs=4, default=BBOX_HOUSTON, metavar=("W","S","E","N"))
     p.add_argument("--max-rows", type=int, default=None)
+    p.add_argument("--source-url", default=None, help="Unverified user-declared dataset URL")
     a = p.parse_args()
-    print(json.dumps(run(Path(a.input),Path(a.out),tuple(a.bbox),a.max_rows),indent=2))
+    print(json.dumps(run(Path(a.input),Path(a.out),tuple(a.bbox),a.max_rows,a.source_url),indent=2))
 
 if __name__ == "__main__":
     main()

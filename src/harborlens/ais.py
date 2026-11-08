@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from harborlens.io_safe import stream_rows, AISInputError
+from harborlens.provenance import add_provenance
 
 BBOX_HOUSTON = (-95.70, 29.10, -94.20, 30.10)  # west, south, east, north
 ALIASES = {
@@ -182,7 +183,7 @@ def write_events(events,out):
                "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
     (out/"stationary_candidates.geojson").write_text(json.dumps({"type":"FeatureCollection","features":features},indent=2),encoding="utf-8")
 
-def run(src,out,bbox=BBOX_HOUSTON,max_rows=None):
+def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None):
     out.mkdir(parents=True,exist_ok=True)
     cleaned=out/"houston_clean.csv"
     manifest=ingest(src,cleaned,bbox,max_rows)
@@ -191,5 +192,6 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None):
     manifest["events"]=stats
     manifest["method_parameters"]={"max_sog_knots":0.5,"min_duration_minutes":30,
                                    "max_gap_minutes":15,"max_radius_m":1000,"min_points":8}
+    manifest = add_provenance(out, manifest, source_url=source_url)
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
     return manifest
