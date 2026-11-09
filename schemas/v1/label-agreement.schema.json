@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/label-agreement.schema.json",
+  "title": "HarborLens inter-annotator agreement report",
+  "description": "Agreement between two annotators. Not precision, recall or accuracy of the method.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "annotators",
+    "sheets_sha256",
+    "units",
+    "raw_agreement",
+    "kappa_labels",
+    "kappa_collapsed",
+    "collapsed_classes",
+    "confusion",
+    "unknown_labels",
+    "evidence_levels",
+    "by_kind",
+    "disagreements",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "label-agreement-v0.1"
+    },
+    "annotators": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "sheets_sha256": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "units": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "raw_agreement": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "kappa_labels": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "maximum": 1
+    },
+    "kappa_collapsed": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "maximum": 1
+    },
+    "collapsed_classes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "mixed",
+          "moving",
+          "stationary",
+          "unknown"
+        ]
+      }
+    },
+    "confusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at_berth",
+        "at_anchor",
+        "other_stationary",
+        "maneuvering",
+        "transit",
+        "mixed",
+        "unknown"
+      ],
+      "properties": {
+        "at_berth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "at_anchor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "other_stationary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "maneuvering": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "transit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "mixed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unknown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_berth",
+            "at_anchor",
+            "other_stationary",
+            "maneuvering",
+            "transit",
+            "mixed",
+            "unknown"
+          ],
+          "properties": {
+            "at_berth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "at_anchor": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_stationary": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maneuvering": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "unknown_labels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "evidence_levels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "by_kind": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "units",
+          "raw_agreement",
+          "kappa_labels",
+          "kappa_collapsed"
+        ],
+        "properties": {
+          "units": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "raw_agreement": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "kappa_labels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "maximum": 1
+          },
+          "kappa_collapsed": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "disagreements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sample_id",
+          "labels",
+          "confidence"
+        ],
+        "properties": {
+          "sample_id": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "enum": [
+                "at_berth",
+                "at_anchor",
+                "other_stationary",
+                "maneuvering",
+                "transit",
+                "mixed",
+                "unknown"
+              ]
+            }
+          },
+          "confidence": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string"
+    }
+  }
+}

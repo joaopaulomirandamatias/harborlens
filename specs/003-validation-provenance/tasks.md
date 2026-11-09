@@ -16,3 +16,11 @@
 - [ ] Positive, negative and boundary tests pass
 - [ ] Source rights and security reviewed
 - [ ] No unsupported accuracy, emissions or customer claims
+
+## Labeling pilot tooling (issue #8)
+
+- [x] Labeling protocol, label taxonomy and evidence levels (`docs/research/labeling-protocol.md`)
+- [x] Seeded, blinded, stratified sampler with negatives and sampling manifest; agreement report; schemas and synthetic tests (`tests/test_labeling.py`)
+- [ ] Draw the first pilot sample (≥100 units) from a source-pinned NOAA run, kept outside the public repository
+- [ ] Two independent annotators label it; adjudicate disagreements; publish aggregate agreement only
+- [ ] Evaluator against labels (#9)

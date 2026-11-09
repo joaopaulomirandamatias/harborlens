@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: labeling pilot tooling, #8)
+- `docs/research/labeling-protocol.md`: label taxonomy, L2/L3 evidence levels, censoring and fragmentation rules, double annotation and adjudication.
+- `harborlens-label-sample`: seeded, blinded, stratified sample of candidates and negative movement intervals from a verified run, with a sampling manifest holding the key.
+- `harborlens-label-agreement`: validation of two annotators' sheets, Cohen's kappa, confusion matrix and disagreements. Agreement is not accuracy; no labels have been collected yet.
+- Schemas `label-record`, `label-sample`, `label-agreement`.
+
 ### Changed (SPEC-002: shared segmentation engine, FR-022, #37; fixes #38)
 - Both `harborlens` and `harborlens-multiday` now use one engine (`harborlens.segmentation`, method `stationary-v0.2`). The single-file command now also splits on vessel-type conflicts and implied jumps (>65 kn), as the multi-day command did; for the same input both commands emit identical candidates and diagnostics.
 - Thresholds are configurable on both commands (`--max-sog-knots`, `--min-duration-minutes`, `--max-gap-minutes`, `--max-radius-m`, `--min-points`, `--max-jump-knots`) and recorded in `method_parameters`, in a `harborlens_method` GeoJSON member and as `parameter_set` on every candidate. `harborlens-track-context` reads them instead of hard-coding 0.5 kn / 15 min.

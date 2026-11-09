@@ -67,3 +67,7 @@ The four previously indexed 2023 Federal Register Part 110 document texts were f
 ### SPEC-002: shared segmentation engine (FR-022, BR-003, #37; fixes #38)
 
 `src/harborlens/segmentation.py` is used by `ais.py` and `multiday.py`; `track_context.py` reads the candidates' `harborlens_method` block; `sensitivity.py` provides descriptive grids. Evidence: `tests/test_segmentation_engine.py` (single-file vs multi-day equivalence on a scenario that exercises every split and discard rule, non-default thresholds, parameter validation, track-context propagation, sensitivity schema). On the same scenario the previous code produced diverging candidates (vessel-type conflict ignored by the single-file command; a same-second fractional-timestamp candidate lost by the multi-day command).
+
+### SPEC-003: labeling pilot tooling (FR-013 partial, #8)
+
+`docs/research/labeling-protocol.md`, `src/harborlens/labeling.py` (`harborlens-label-sample`, `harborlens-label-agreement`) and the `label-record`, `label-sample` and `label-agreement` schemas. Evidence: `tests/test_labeling.py` (reproducibility, blinding, stratum coverage, negatives not overlapping candidates, integrity and overwrite refusal, allocation, kappa against a hand-computed value, invalid-sheet rejection, schema conformance). No labels have been collected; agreement is not accuracy.
