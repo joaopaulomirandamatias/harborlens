@@ -1,0 +1,55 @@
+name: NOAA real-data acquisition smoke (research only)
+on:
+  push:
+    branches:
+      - integration/noaa-smoke
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-houston-sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install open-source CLI
+        run: python -m pip install -e .
+      - name: Fetch 60 minutes of historical NOAA PMEL Houston AIS
+        run: |
+          harborlens-fetch-erddap \
+            --start 2024-06-10T12:00:00Z \
+            --end 2024-06-10T13:00:00Z \
+            --bbox -95.70 29.10 -94.20 30.10 \
+            --out data/houston-2024-06-10.csv --max-mib 16
+      - name: Run local analysis and verify exported files
+        run: |
+          harborlens \
+            --input data/houston-2024-06-10.csv \
+            --out results/noaa-houston
+          harborlens-verify --manifest results/noaa-houston/manifest.json
+      - name: Print only aggregate QA and source integrity
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          source = json.loads(Path('data/houston-2024-06-10.csv.source.json').read_text())
+          run = json.loads(Path('results/noaa-houston/manifest.json').read_text())
+          metrics = {
+              'dataset': source['dataset'],
+              'source_sha256': source['csv_sha256'],
+              'source_rows': source['rows'],
+              'rights_status': source['rights_status'],
+              'pipeline_counts': run['counts'],
+              'candidate_count_unvalidated': run['events']['stationary_candidates'],
+              'run_id': run['run_id'],
+          }
+          print(json.dumps(metrics, indent=2))
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(
+              '### NOAA historical AIS smoke — research only\n\n'
+              'Data are **not** committed or uploaded. No verified berth or port-call claims.\n\n'
+              + '\n'.join(f'- **{key}**: {value}' for key, value in metrics.items())
+          )
+          PY
