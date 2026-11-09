@@ -1,0 +1,84 @@
+name: NOAA full observed-track/polygon integration (research only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  houston-track-polygon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install historical AIS and geographic tools
+        run: python -m pip install -e '.[noaa,geo,dev]'
+      - name: Acquire original NOAA historical archive and current NOAA polygon layer
+        run: |
+          harborlens-download-noaa --date 2024-01-02 --directory data --max-mib 300
+          harborlens-fetch-noaa-anchorages \
+            --bbox -95.70 29.10 -94.20 30.10 \
+            --max-features 500 \
+            --out data/houston-anchorages.geojson
+      - name: Extract Houston historical records and compute candidate episodes
+        run: |
+          harborlens-extract-noaa-archive \
+            --input data/ais-2024-01-02.csv.zst \
+            --out data/houston-2024-01-02.csv \
+            --start 2024-01-02T00:00:00Z \
+            --end 2024-01-02T06:00:00Z \
+            --bbox -95.70 29.10 -94.20 30.10 \
+            --max-rows 250000 --max-output-mib 64
+          harborlens --input data/houston-2024-01-02.csv \
+            --out results/houston \
+            --source-url https://noaaocm.blob.core.windows.net/ais/csv2/csv2024/ais-2024-01-02.csv.zst
+          harborlens-verify --manifest results/houston/manifest.json
+      - name: Compare centroid-based and full-observed-track context
+        run: |
+          harborlens-zone-context \
+            --candidates results/houston/stationary_candidates.geojson \
+            --polygons data/houston-anchorages.geojson \
+            --out results/houston/centroid-context.geojson
+          harborlens-track-context \
+            --cleaned results/houston/houston_clean.csv \
+            --candidates results/houston/stationary_candidates.geojson \
+            --polygons data/houston-anchorages.geojson \
+            --out results/houston/track-context.geojson
+      - name: Report aggregate counts and verified hashes only
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          def load(name):
+              path=Path(name)
+              receipt=json.loads(Path(str(path)+'.source.json').read_text())
+              assert hashlib.sha256(path.read_bytes()).hexdigest()==receipt['output_sha256']
+              return receipt
+          base=load('results/houston/centroid-context.geojson')
+          tracks=load('results/houston/track-context.geojson')
+          original=json.loads(Path('results/houston/manifest.json').read_text())
+          assert base['counts']['total_candidates']==tracks['candidate_count']
+          assert tracks['candidate_count']==original['events']['stationary_candidates']
+          assert sum(tracks['outcome_counts'].values())==tracks['candidate_count']
+          summary={
+              'historical_source':'NOAA AIS 2024-01-02 00:00–06:00 UTC',
+              'candidate_events_unvalidated':tracks['candidate_count'],
+              'current_polygon_count':tracks['zone_polygon_count'],
+              'centroid_single_polygon_overlaps':base['counts']['one_overlap'],
+              'centroid_multiple_overlaps':base['counts']['multiple_overlaps'],
+              'centroid_no_overlap':base['counts']['no_overlap'],
+              'full_observed_track_evidence_statuses':tracks['outcome_counts'],
+              'invalid_cleaned_rows':tracks['invalid_cleaned_rows'],
+              'historical_polygon_validity':tracks['historical_validity'],
+              'source_rights_status':tracks['rights_status'],
+              'output_integrity':'PASS',
+              'verified_operational_events':0
+          }
+          print(json.dumps(summary,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+              f.write('### Full observed AIS track vs current NOAA polygons — NOT verified maritime activity\n\n')
+              f.write('Only aggregate engineering counts are shown. No raw AIS or polygon coordinates are uploaded.\n\n')
+              for k,v in summary.items():
+                  f.write(f'- **{k}**: {v}\n')
+          PY

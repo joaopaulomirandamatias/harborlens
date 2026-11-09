@@ -32,3 +32,7 @@
 - [x] Add local bounded full-observed-track polygon context and explicit unknowns, receipt verification and synthetic regression tests (pending CI and PR review).
 - [ ] Benchmark on authentic NOAA historical AIS and assess all-points vs centroid difference, including coverage and source vintage limitations.
 - [ ] Verify independent historical geometry with authoritative source/reviewer before operational inference.
+
+- [x] Run initial official NOAA historical AIS/full-track geometry comparison and record aggregate results and hashes (2026-11-09).
+- [ ] Verify historical January 2024 geofence validity and source-specific redistribution rights.
+- [ ] Obtain independent maritime event labels and evaluate actual classification error rates.

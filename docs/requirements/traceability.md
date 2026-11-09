@@ -27,3 +27,7 @@ The [2026-11-09 official-source integration](../data/noaa-anchorage-real-smoke-2
 ### SPEC-004: Full-track spatial evidence increment
 
 The experimental full-observed-track overlay, its source receipts, schema and synthetic tests are tracked under the current SPEC-004 work. It compares discrete AIS observations against unreviewed NOAA polygons and preserves unknown/ambiguous states; this is NOT independently validated berth/anchorage/waiting classification.
+
+### Real NOAA full-track polygon source engineering (SPEC-004)
+
+The [historical AIS full observed-track integration](../data/noaa-full-track-context-smoke-2026-11-09.md) records a source-pinned centroid versus full-points comparison with bounded SQLite/Shapely processing and conservative status labels. This does NOT complete FR-011/FR-012 historical geometry or validated event requirements.
