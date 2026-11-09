@@ -43,6 +43,8 @@ def public_key_fingerprint(public_key_path):
             raise ReviewSignatureError("Public key file exceeds byte limit")
         key = serialization.load_pem_public_key(raw)
     except (OSError, ValueError, TypeError) as exc:
+        if isinstance(exc, ReviewSignatureError):
+            raise
         raise ReviewSignatureError("Invalid or missing reviewer public key") from exc
     if not isinstance(key, Ed25519PublicKey):
         raise ReviewSignatureError("Only Ed25519 public keys are supported")
