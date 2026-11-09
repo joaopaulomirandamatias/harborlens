@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-003: transceiver class stratum in the labeling sampler, #65)
+- `harborlens-label-sample` stratifies candidates by duration band × censoring × vessel group × **transceiver class** (`class_A`, `class_B`, `class_unknown`) and negatives by vessel group × transceiver class. On seven real Houston days Class B carried 7.4% of points but 32% of candidates, so a sample without this stratum could be dominated by small-craft stops.
+- When fewer units are requested than there are non-empty strata, each transceiver class in the frame is still drawn. The new `stratification` block in the sampling manifest records coverage.
+- `harborlens-evaluate` reports a `transceiver_class` cohort. Stratum keys gain a final component, so sampling manifests move to `label-sample-v0.2`. The evaluator still reads `label-sample-v0.1` manifests, whose keys have no class component.
+- The labeling sheet is unchanged and still blinded.
+
 ### Added (SPEC-001: NOAA archive vintages, #36)
 - `harborlens.vintages`: 2015–2023 daily ZIP layout and 2024–2026 csv2 zstd layout, with how each was verified. `harborlens-download-noaa` builds URLs from it and refuses unregistered years (it previously built a csv2 URL for 2019–2023).
 - `harborlens-extract-noaa-archive` accepts single-CSV `.zip` archives, no longer hard-codes 2024, checks compression against the year, and records `source_vintage` in the sidecar.

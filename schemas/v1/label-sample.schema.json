@@ -24,7 +24,11 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "label-sample-v0.1"
+      "enum": [
+        "label-sample-v0.1",
+        "label-sample-v0.2"
+      ],
+      "description": "v0.2 adds transceiver class as a stratification dimension (keys gain a final class_A/class_B/class_unknown component) and the stratification block."
     },
     "run_manifest_sha256": {
       "type": "string",
@@ -171,6 +175,117 @@
     },
     "warning": {
       "type": "string"
+    },
+    "stratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Coverage of the drawn sample. When fewer units are requested than there are non-empty strata, every transceiver class present in the frame is still drawn.",
+      "required": [
+        "dimensions",
+        "all_non_empty_strata_drawn",
+        "transceiver_classes"
+      ],
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidates",
+            "negatives"
+          ],
+          "properties": {
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "negatives": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "all_non_empty_strata_drawn": {
+          "type": "boolean"
+        },
+        "transceiver_classes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidates",
+            "negatives"
+          ],
+          "properties": {
+            "candidates": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "in_frame",
+                "drawn"
+              ],
+              "properties": {
+                "in_frame": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "class_A",
+                      "class_B",
+                      "class_unknown"
+                    ]
+                  }
+                },
+                "drawn": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "class_A",
+                      "class_B",
+                      "class_unknown"
+                    ]
+                  }
+                }
+              }
+            },
+            "negatives": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "in_frame",
+                "drawn"
+              ],
+              "properties": {
+                "in_frame": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "class_A",
+                      "class_B",
+                      "class_unknown"
+                    ]
+                  }
+                },
+                "drawn": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "class_A",
+                      "class_B",
+                      "class_unknown"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

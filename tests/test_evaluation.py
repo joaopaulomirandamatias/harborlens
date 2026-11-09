@@ -96,6 +96,8 @@ class EvaluatorTests(unittest.TestCase):
         self.assertEqual(report["coverage"]["evaluated_units"], len(self.plan["key"]) - 2)
         self.assertEqual(report["candidate_label_composition"]["unknown"], 1)
         self.assertEqual(report["evidence_basis"], "includes_L2_expert_review")
+        # Fixture has no transceiver column, so every unit falls in the class_unknown stratum.
+        self.assertEqual(set(report["cohorts"]["transceiver_class"]), {"class_unknown"})
         schema = json.loads((SCHEMAS / "evaluation-report.schema.json").read_text())
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(report)

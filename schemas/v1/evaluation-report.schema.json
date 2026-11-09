@@ -590,6 +590,126 @@
               }
             }
           }
+        },
+        "transceiver_class": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tp",
+              "fp",
+              "fn",
+              "tn",
+              "n",
+              "precision",
+              "precision_ci95",
+              "recall",
+              "recall_ci95",
+              "f1",
+              "specificity",
+              "specificity_ci95",
+              "false_positives"
+            ],
+            "properties": {
+              "tp": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fp": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "false_positives": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "precision": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "precision_ci95": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "recall": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "recall_ci95": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "f1": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "specificity": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "specificity_ci95": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          },
+          "description": "Metrics by transceiver class stratum (class_A, class_B, class_unknown); empty for samples drawn with label-sample-v0.1, whose strata have no class component."
         }
       }
     },
