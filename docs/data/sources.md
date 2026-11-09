@@ -14,3 +14,7 @@
 Every future download records agency, source URL, downloaded-at UTC, dataset version, file SHA-256, geographic/temporal coverage, permitted use and restrictions. Do not commit real or licensed AIS datasets, customer data or prohibited enrichments. A public HTTP endpoint does not automatically grant commercial redistribution rights.
 
 Houston research rectangle W=-95.70 S=29.10 E=-94.20 N=30.10 is NOT an official maritime zone. Choose source-specific data quality and rights review before any commercial deployment.
+
+## Optional PMEL geographic AIS subset
+
+The [PMEL AIS2024_AIS dataset](https://data.pmel.noaa.gov/pmel/erddap/info/AIS2024_AIS/index.html) supports bounded time/geographic queries and lists a CC0-1.0 dedication for that dataset. The explicit `harborlens-fetch-erddap` tool can attempt bounded 2024 downloads; source usage rights remain marked `review_required`. See [NOAA ERDDAP adapter](noaa-erddap.md). No live remote test or authentic records have been validated by this change.
