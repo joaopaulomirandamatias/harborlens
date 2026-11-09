@@ -1,6 +1,6 @@
 # Multi-day Historical AIS Reconstruction — SPEC-002
 
-**Status:** experimental, pending PR review and CI. Findings are unvalidated stationary candidates, not verified waiting times, berth occupancy, or port calls.
+**Status:** experimental; synthetic tests passed and initial authentic two-day NOAA engineering run completed. Event accuracy remains unvalidated. Findings are unvalidated stationary candidates, not verified waiting times, berth occupancy, or port calls.
 
 ## Why this matters
 
@@ -51,3 +51,7 @@ Each result is labeled stationary_candidate and unvalidated. Source file SHA-256
 3. Confirm source licenses, sampling/coverage, repeat observations and timezone boundaries for real daily archives.
 4. Compare inferred candidates with independently verified port events and authoritative dated geometries before claiming anchorage, berth or waiting outcomes.
 5. Maintain explicit uncertainty and NOT FOR NAVIGATION warnings in API and map work.
+
+## First real two-day test
+
+See the [2024-01-02/03 NOAA integration report](noaa-consecutive-days-smoke-2024-01-02-03.md) for exact source hashes, candidate counts, time and memory measurements, and scientific limitations.

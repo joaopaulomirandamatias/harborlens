@@ -2,7 +2,7 @@
 
 **State:** PARTIAL — SYNTHETIC ONLY. Checking a task requires traceable PR/test evidence.
 
-- [x] Preserve existing single-file regression tests; add multi-day cases (PR under review)
+- [x] Preserve existing single-file regression tests; add multi-day cases (synthetic CI verified)
 - [x] Implement SQLite-based multi-file sorting and midnight candidate continuity (PR under review)
 - [ ] Measure memory cost on authorized real AIS
 - [ ] Add conflict identity and comprehensive unknown cases
@@ -17,3 +17,6 @@
 
 - [ ] Benchmark source ingestion and scratch disk/memory usage on two authorized consecutive NOAA daily subsets.
 - [ ] Validate source-data rights and real boundary/coverage independently.
+
+- [x] Run one source-pinned consecutive-day NOAA engineering smoke and record process runtime/peak RSS, in the [real-data report](../../docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
+- [ ] Complete source usage review, multi-period sampling assessment, scratch disk peak benchmark, and independent event-label validation.

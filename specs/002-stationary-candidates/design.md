@@ -19,4 +19,4 @@ Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible 
 
 ## SQLite multi-day implementation (in review)
 
-The new separate command uses a temporary disk-backed SQLite observation index sorted by MMSI/time. Cross-file duplicate points retain both local-source fingerprints, and low-speed group membership is stored on disk. The emitted event is only a stationary candidate; explicit split diagnostics track gaps, identity conflicts, improbable jumps, collisions and spatial drift. Limits fail closed; no real multi-day performance or event ground truth has yet been measured.
+The new separate command uses a temporary disk-backed SQLite observation index sorted by MMSI/time. Cross-file duplicate points retain both local-source fingerprints, and low-speed group membership is stored on disk. The emitted event is only a stationary candidate; explicit split diagnostics track gaps, identity conflicts, improbable jumps, collisions and spatial drift. Limits fail closed; processing time and process RSS were measured for one authentic two-day sample; event ground truth remains unmeasured.
