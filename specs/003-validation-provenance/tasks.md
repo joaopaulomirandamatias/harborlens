@@ -24,3 +24,9 @@
 - [ ] Draw the first pilot sample (≥100 units) from a source-pinned NOAA run, kept outside the public repository
 - [ ] Two independent annotators label it; adjudicate disagreements; publish aggregate agreement only
 - [ ] Evaluator against labels (#9)
+
+## Evaluator (issue #9)
+
+- [x] `harborlens-evaluate`, adjudicated-label and evaluation-report schemas, synthetic tests with hand-computed metrics (`tests/test_evaluation.py`)
+- [ ] Evaluate the first adjudicated pilot (#8) and publish aggregate results only, with denominators and evidence basis
+- [ ] Repeat on a different period or port (L4 replication)

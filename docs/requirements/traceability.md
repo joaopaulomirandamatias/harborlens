@@ -71,3 +71,7 @@ The four previously indexed 2023 Federal Register Part 110 document texts were f
 ### SPEC-003: labeling pilot tooling (FR-013 partial, #8)
 
 `docs/research/labeling-protocol.md`, `src/harborlens/labeling.py` (`harborlens-label-sample`, `harborlens-label-agreement`) and the `label-record`, `label-sample` and `label-agreement` schemas. Evidence: `tests/test_labeling.py` (reproducibility, blinding, stratum coverage, negatives not overlapping candidates, integrity and overwrite refusal, allocation, kappa against a hand-computed value, invalid-sheet rejection, schema conformance). No labels have been collected; agreement is not accuracy.
+
+### SPEC-003: evaluator (FR-013, FR-014 partial, #9)
+
+`src/harborlens/evaluation.py` (`harborlens-evaluate`) with `adjudicated-label` and `evaluation-report` schemas. Evidence: `tests/test_evaluation.py` (confusion counts against a constructed truth, unknown and unlabeled exclusion, boundary errors on uncensored true positives, design-weighted precision and L3 basis, lineage and input validation, hand-computed precision/recall/F1/specificity and a Wilson reference interval). No real labels have been evaluated.

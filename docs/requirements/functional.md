@@ -16,8 +16,8 @@
 | FR-010 | P1 | Publish source snapshots with URL, dataset/vintage, file hash, rights and output fingerprints | Proposed | SPEC-003 |
 | FR-011 | P1 | Load externally verified dated geofences for facilities and anchorage areas | Partial: bounded USACE facility point adapter, with dated polygon validation still pending | SPEC-004 |
 | FR-012 | P1 | Assign unknown rather than false berth/anchor states; require external event validation for authoritative labels | Proposed | SPEC-004 |
-| FR-013 | P1 | Assess predicted events against documented independent positive and negative labels | Partial: labeling protocol, blinded stratified sampler and inter-annotator agreement tooling (synthetic tests); no labels collected and no evaluator yet (#9) | SPEC-003 |
-| FR-014 | P1 | Produce reproducible metrics with denominators, version, coverage, error and unknown percentage | Proposed | SPEC-003 |
+| FR-013 | P1 | Assess predicted events against documented independent positive and negative labels | Partial: labeling protocol, blinded stratified sampler, agreement and evaluator tooling (synthetic tests); no labels collected yet | SPEC-003 |
+| FR-014 | P1 | Produce reproducible metrics with denominators, version, coverage, error and unknown percentage | Partial: `harborlens-evaluate` report (synthetic tests); no real labels evaluated | SPEC-003 |
 | FR-015 | P1 | Aggregate candidate/validated metrics by port zone, period and vessel category without misleading scope | Proposed | SPEC-004 |
 | FR-016 | P1 | Estimate transparent EPA-method scenarios including factors, units and uncertainty; never imply measured savings | Proposed | SPEC-005 |
 | FR-017 | P1 | Expose optional read-only historical API contract with schema versions and provenance | Proposed | SPEC-006 |

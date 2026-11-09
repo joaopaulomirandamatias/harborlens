@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: evaluator, #9)
+- `harborlens-evaluate`: confusion matrix, precision/recall/F1/specificity with Wilson 95% intervals, design-weighted precision, cohorts (evidence level, vessel group, censoring), candidate label composition and boundary MAE/median error for uncensored true positives; `mixed`/`unknown`/unlabeled units reported separately. Schemas `adjudicated-label`, `evaluation-report`. No real labels evaluated yet.
+
 ### Added (SPEC-003: labeling pilot tooling, #8)
 - `docs/research/labeling-protocol.md`: label taxonomy, L2/L3 evidence levels, censoring and fragmentation rules, double annotation and adjudication.
 - `harborlens-label-sample`: seeded, blinded, stratified sample of candidates and negative movement intervals from a verified run, with a sampling manifest holding the key.
