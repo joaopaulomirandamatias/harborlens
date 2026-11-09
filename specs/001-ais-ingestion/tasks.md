@@ -32,3 +32,8 @@
 
 - [x] Keep COG, heading, length, width, draft and transceiver class with sentinels as missing; ITU-R M.585 `mmsi_category` flag with per-run counts; candidate cohort attributes (`tests/test_vessel_attributes.py`)
 - [ ] Inspect category and attribute coverage on a real NOAA run (for example the share of Class B and of `leading_zero_ambiguous` MMSIs)
+
+## Archive vintages (issue #36)
+
+- [x] Vintage registry (2015–2023 ZIP, 2024–2026 csv2 zstd), registry-driven downloader that refuses unknown years, ZIP extraction, `missing_value` vs `invalid` counters, `source_vintage` in the sidecar (`tests/test_vintages.py`)
+- [ ] Manual smoke for one 2019–2023 day and one 2025 day; record headers, counts and hashes

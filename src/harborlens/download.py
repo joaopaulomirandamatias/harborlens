@@ -5,6 +5,9 @@ from datetime import date
 from pathlib import Path
 from urllib.request import Request,urlopen
 
+from harborlens.io_safe import AISInputError
+from harborlens.vintages import vintage_for
+
 def main():
     p=argparse.ArgumentParser(description="Experimental NOAA AIS daily downloader")
     p.add_argument("--date",required=True,help="YYYY-MM-DD")
@@ -12,10 +15,12 @@ def main():
     p.add_argument("--max-mib",type=int,default=1024)
     a=p.parse_args()
     d=date.fromisoformat(a.date)
-    if not (2019<=d.year<=2026):
-        p.error("Check available NOAA vintage first")
-    name=f"ais-{d.isoformat()}.csv.zst"
-    url=f"https://noaaocm.blob.core.windows.net/ais/csv2/csv{d.year}/{name}"
+    try:
+        vintage=vintage_for(d)
+    except AISInputError as exc:
+        p.error(str(exc))
+    name=vintage.filename(d)
+    url=vintage.url(d)
     target=Path(a.directory)/name
     target.parent.mkdir(parents=True,exist_ok=True)
     if target.exists():
@@ -39,7 +44,7 @@ def main():
     except Exception:
         temp.unlink(missing_ok=True)
         raise
-    print("Source:",url,"Bytes:",size,"SHA256:",digest.hexdigest())
+    print("Source:",url,"Layout:",vintage.layout,"Bytes:",size,"SHA256:",digest.hexdigest())
 
 if __name__=="__main__":
     main()

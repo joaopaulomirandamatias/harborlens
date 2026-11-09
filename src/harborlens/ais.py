@@ -80,7 +80,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     if source.resolve() == output.resolve():
         raise AISInputError("Input and output paths must be different")
     output.parent.mkdir(parents=True,exist_ok=True)
-    counts=dict(total=0,in_bbox=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
+    counts=dict(total=0,in_bbox=0,missing_value=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
     seen=set()
     first=last=None
     truncated=False
@@ -96,6 +96,10 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                 truncated=True
                 break
             counts["total"]+=1
+            if any(not str(row.get(cols[k]) or "").strip() for k in ("mmsi","timestamp","lat","lon","sog")):
+                # Empty required field: "not available" (2025+ archives write nulls), not corrupt data.
+                counts["missing_value"]+=1
+                continue
             try:
                 mmsi=str(row[cols["mmsi"]]).strip()
                 t=parse_time(row[cols["timestamp"]])

@@ -87,3 +87,7 @@ Ceilings in `archive_extract.py`, `multiday.py`, `track_context.py` and `ais.loa
 ### SPEC-001 / FR-002, FR-015, BR-008: vessel attributes and MMSI QA flags (#39)
 
 `src/harborlens/vessel.py` (ITU-R M.585 categories, sentinel normalization, per-candidate attribute summary) used by `ais.py`, `multiday.py` and the shared engine. Evidence: `tests/test_vessel_attributes.py` (category table, sentinels, 2024 NOAA header, non-ship identifiers flagged not dropped, attribute equivalence across pipelines, legacy cleaned files). Schemas `ais-point`, candidate record/features and both manifests updated.
+
+### SPEC-001 / FR-001, FR-002: NOAA archive vintages (#36)
+
+`src/harborlens/vintages.py` drives `download.py`, `archive_extract.py` and the seven-day workflow; ingestion separates `missing_value` from `invalid`. Evidence: `tests/test_vintages.py` (registry and refusal, downloader URLs with a mocked network, legacy ZIP extraction through the pipeline, compression/year mismatch, nulls counted as missing). Layout verification for 2015–2023 and 2025–2026 is documentary; no archive of those years has been downloaded by this project yet.

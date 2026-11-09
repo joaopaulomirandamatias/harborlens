@@ -119,7 +119,7 @@ def _make_db(path, max_scratch_mib):
 
 def _load_files(db, inputs, bbox, max_points, meter):
     counts = {
-        "total": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
+        "total": 0, "missing_value": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
         "duplicate_across_files": 0, "written": 0,
     }
     source_items = []
@@ -149,6 +149,9 @@ def _load_files(db, inputs, bbox, max_points, meter):
             counts["total"] += 1
             if counts["total"] > max_points:
                 raise AISInputError("Input records exceed cap; refusing truncated multi-day result")
+            if any(not str(row.get(columns[k]) or "").strip() for k in ("mmsi", "timestamp", "lat", "lon", "sog")):
+                counts["missing_value"] += 1
+                continue
             try:
                 mmsi = str(row[columns["mmsi"]]).strip()
                 moment = parse_time(row[columns["timestamp"]])

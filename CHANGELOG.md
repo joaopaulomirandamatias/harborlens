@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added (SPEC-001: NOAA archive vintages, #36)
+- `harborlens.vintages`: 2015–2023 daily ZIP layout and 2024–2026 csv2 zstd layout, with how each was verified. `harborlens-download-noaa` builds URLs from it and refuses unregistered years (it previously built a csv2 URL for 2019–2023).
+- `harborlens-extract-noaa-archive` accepts single-CSV `.zip` archives, no longer hard-codes 2024, checks compression against the year, and records `source_vintage` in the sidecar.
+- Ingestion and extraction count `missing_value` (empty required field, e.g. 2025 nulls) separately from `invalid`; manifest `counts` gain `missing_value`.
+- The seven-day workflow resolves archive names through the registry.
+
 ### Added (SPEC-001: vessel attributes and MMSI QA flags, #39)
 - Cleaned AIS keeps `cog_deg`, `heading_deg`, `length_m`, `width_m`, `draft_m`, `transceiver_class` (NOAA sentinels → empty) and an ITU-R M.585 `mmsi_category` flag; new columns are appended. Rows are never dropped by category; both manifests report `mmsi_categories`.
 - Candidates carry `vessel_type`, `transceiver_class`, `length_m`, `draft_m` and `mmsi_category` for stratified evaluation; `read_candidates_csv` returns missing values as `None`.
