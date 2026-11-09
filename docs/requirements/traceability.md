@@ -11,3 +11,7 @@
 | FR-019..020 | SPEC-007 | managed service hypothesis | buyers, security, license and SLA gates pending | Proposed |
 
 No row marked **Partial** or **Proposed** is evidence of delivered functionality. Reference SPEC IDs in issues and PRs; update this matrix on every change.
+
+### SPEC-004 official point-source integration
+
+A bounded real USACE FeatureServer acquisition passed with 723 reference points and matching source/GeoJSON schemas; see [source-pinned report](../data/usace-points-smoke-2026-11-09.md). This does not satisfy dated Polygon or independent event validation requirements.
