@@ -394,7 +394,7 @@ class PublicationGateTests(unittest.TestCase):
         unsigned = dict(review)
         unsigned.pop("signature_b64")
         self.review.write_text(json.dumps(unsigned), encoding="utf-8")
-        with self.assertRaisesRegex(ReleaseDenied, "approval"):
+        with self.assertRaisesRegex(ReleaseDenied, "Independent release review"):
             self.produce()
         review["conditions_reviewed"] = not review["conditions_reviewed"]
         self.review.write_text(json.dumps(review), encoding="utf-8")
