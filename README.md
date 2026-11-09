@@ -21,11 +21,3 @@ A bounded, explicit NOAA PMEL ERDDAP client is documented in [NOAA subset acquis
 ## Reproducible daily NOAA extraction
 
 For temporal trajectories use authorized daily historical compressed archives rather than assuming a PMEL ERDDAP query yields multiple points per MMSI. The opt-in [daily archive extractor](docs/data/noaa-archive-extraction.md) streams a source archive and writes only a bounded geographic/time subset with source hashes. A one-day national archive has now been processed successfully in an isolated research workflow; the detected candidate events are **not** externally validated. See [real-data integration results](docs/data/noaa-real-data-smoke-2024-01-02.md).
-
-## Experimental multi-day AIS candidates
-
-A separate local tool can reconstruct provisional low-speed candidate segments across UTC midnight from two or more existing historic AIS subsets, using an ephemeral SQLite sort and per-file input lineage. No automatic downloads. See [multi-day engineering guide](docs/data/multiday.md). No real multi-day accuracy or official berth/waiting claims are established.
-
-## First real consecutive-day engineering run
-
-An isolated GitHub Actions run successfully processed two authentic NOAA daily archives around UTC midnight. The tool reported 564 unvalidated cross-midnight candidate episodes among 286,696 cleaned points, with roughly 46 MiB process RSS and a 5.4-second multi-day stage. These are software results, not independently confirmed waiting vessels. See [the source-pinned engineering report](docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
