@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-004: official 2024 CFR anchorages)
+- Source-pinned July 1, 2024 federal 33 CFR 110.197 Galveston anchorage DMS registry and fail-closed topology/datum inspection. A/B/C lack explicit NAD83 status; A East literal corner order fails Polygon validity. No guessed WGS84 geometry or operational classification.
+
+
 ### Added (SPEC-004 observed-track evidence)
 - Local Shapely/SQLite full-track vs Polygon reference context with interval/cardinality checks, historic-vintage flags, source receipt hashes, strictly unverified statuses and synthetic/schema tests.
 

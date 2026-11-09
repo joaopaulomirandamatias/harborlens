@@ -32,3 +32,7 @@ The next research slice stores canonical cleaned AIS rows in an ephemeral, index
 ## NOAA ENC documentary date screening (incremental)
 
 The geometry vintage audit is deliberately separate from spatial inference. It checks an unreviewed NOAA polygon receipt and optional self-declared ENC edition, issue date, document hash and cell ID. Even a date-compatible publication stays historically not_verified, because the source polygon may not derive from that cell/edition. The CLI has no network activity and cannot upgrade data rights or event status.
+
+## 2024 CFR anchorage legal source QA (new implementation)
+
+The official July 1, 2024 annual federal 33 CFR 110.197 explicitly lists DMS corners for four Galveston/Bolivar Roads regulated Anchorage Areas A/B/C/A East. The separate offline standard-library + Shapely legal-source QA stores unmodified DMS tokens, derived numeric coordinates in the **source datum**, a deterministic source-transcription fingerprint, year-specific CFR source reference and fail-closed datum/topology blockers. Section 110.1(d) explicitly warns against assuming NAD83 without source labeling; A/B/C do not label it. A East explicitly says NAD83 but its published vertex order creates an invalid literal Polygon, requiring authoritative review. No GeoJSON and no AIS joining is permitted.
