@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-001/SPEC-002: volume ceilings, #35)
+- Ceilings sized for seven full Houston days from a synthetic 3.92-million-row benchmark (`docs/data/scale-benchmark-2026-11-09.md`, `tools/benchmark_multiday.py`): extraction 1,000,000 rows / 256 MiB; multi-day 6 million rows, 2,048 MiB scratch, 1,024 MiB default export; track-context 6 million rows, 100,000 candidates, 60,000 points per candidate; in-memory tools 6 million rows, checked while reading. All limits still fail closed.
+- Manifests and the extraction sidecar record `limits`; the multi-day manifest records `resources.scratch_peak_bytes`. The export-phase scratch check now uses the configured scratch cap instead of four times the export cap.
+- New manual workflow `noaa-week-integration.yml` for 2–7 consecutive full NOAA days (aggregate metrics only).
+
 ### Added (SPEC-003: evaluator, #9)
 - `harborlens-evaluate`: confusion matrix, precision/recall/F1/specificity with Wilson 95% intervals, design-weighted precision, cohorts (evidence level, vessel group, censoring), candidate label composition and boundary MAE/median error for uncensored true positives; `mixed`/`unknown`/unlabeled units reported separately. Schemas `adjudicated-label`, `evaluation-report`. No real labels evaluated yet.
 

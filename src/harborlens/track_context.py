@@ -23,12 +23,15 @@ from harborlens.io_safe import AISInputError, stream_rows
 from harborlens.provenance import checksum
 from harborlens.segmentation import SegmentationParams
 
-MAX_CANDIDATES = 20000
-MAX_AIS_POINTS = 1500000
-MAX_OBSERVATIONS_PER_EVENT = 10000
-MAX_GEOJSON_BYTES = 32 * 1048576
-MAX_OUTPUT_BYTES = 48 * 1048576
-MAX_SQLITE_MIB = 768
+# Sized for seven full Houston days: ~3.9 million cleaned rows and up to ~26,000
+# candidates (920 per six hours observed on 2024-01-02); a week-long stop at one
+# observation per minute has ~10,080 points.
+MAX_CANDIDATES = 100_000
+MAX_AIS_POINTS = 6_000_000
+MAX_OBSERVATIONS_PER_EVENT = 60_000
+MAX_GEOJSON_BYTES = 128 * 1048576
+MAX_OUTPUT_BYTES = 256 * 1048576
+MAX_SQLITE_MIB = 2048
 # Thresholds of candidate files written before stationary-v0.2 embedded their parameters.
 LEGACY_GAP_LIMIT_MINUTES = 15
 LEGACY_MAX_CANDIDATE_SOG = 0.5

@@ -117,20 +117,28 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
             last=t if last is None or t>last else last
     return {"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
             "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
-            "input_truncated":truncated,"observed_time_range":observed_range(first,last)}
+            "input_truncated":truncated,"limits":{"max_rows":max_rows},
+            "observed_time_range":observed_range(first,last)}
 
 # Kept for callers that import it from this module; the engine owns the implementation.
 haversine_m = _haversine_m
 
-def load_cleaned(cleaned):
+# In-memory consumers hold ~470 bytes per cleaned row (measured on 3.9 million rows:
+# ~1.8 GiB RSS). The cap bounds memory at roughly 2.8 GiB and fails before loading more.
+MAX_IN_MEMORY_ROWS = 6_000_000
+
+def load_cleaned(cleaned,max_rows=MAX_IN_MEMORY_ROWS):
     """Read canonical cleaned AIS and return rows sorted by (mmsi, time, file order).
 
-    Rows that cannot be parsed are counted, not silently dropped.
+    Rows that cannot be parsed are counted, not silently dropped. More than
+    ``max_rows`` rows fails closed while reading, before memory grows further.
     """
     rows=[]
     unparsable=0
     with Path(cleaned).open("r",newline="",encoding="utf-8") as stream:
         for index,row in enumerate(csv.DictReader(stream)):
+            if index>=max_rows:
+                raise AISInputError("Cleaned AIS exceeds the in-memory row cap; refusing a partial result")
             try:
                 rows.append((str(row["mmsi"]),parse_time(row["timestamp_utc"]),float(row["lat"]),
                              float(row["lon"]),float(row["sog_knots"]),str(row.get("vessel_type") or ""),index))

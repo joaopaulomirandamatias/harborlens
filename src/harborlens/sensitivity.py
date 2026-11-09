@@ -21,7 +21,6 @@ from harborlens.segmentation import METHOD_VERSION, SegmentationParams
 
 SCHEMA_VERSION = "sensitivity-v0.1"
 MAX_SETTINGS = 64
-MAX_ROWS = 1_500_000
 WARNING = ("Descriptive sensitivity of unvalidated stationary candidates. Do not select thresholds "
            "from these counts without independent labels; candidates are not berths, anchorages, "
            "waits or port calls.")
@@ -61,8 +60,6 @@ def run_sensitivity(cleaned, out, grid, window_start=None, window_end=None):
     settings = [SegmentationParams(**dict(zip(GRID_FIELDS, values))) for values in combos]
     window = declared_window(window_start, window_end)
     rows, unparsable = load_cleaned(cleaned)
-    if len(rows) > MAX_ROWS:
-        raise AISInputError("Cleaned AIS exceeds the sensitivity row cap; refusing a partial result")
     results = []
     for params in settings:
         censoring = WindowCensoring([window] if window else None, params.max_gap_minutes)

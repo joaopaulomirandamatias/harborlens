@@ -21,3 +21,5 @@ Each setting reports candidate counts, split reasons (gap, timestamp conflict, v
 - **Do not pick thresholds from these counts.** A setting that yields more or longer candidates is not more correct. Threshold selection requires independently labelled positive and negative events and the evaluation in SPEC-003 (#8, #9).
 
 The report schema is `schemas/v1/sensitivity-report.schema.json`.
+
+Like `harborlens-label-sample`, this tool loads the cleaned rows in memory (about 470 bytes per row) and refuses inputs above 6 million rows while reading.

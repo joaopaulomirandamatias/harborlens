@@ -34,3 +34,8 @@
 - [x] Descriptive `harborlens-sensitivity` grid report and schema
 - [ ] Re-run one source-pinned NOAA smoke with `stationary-v0.2` and record the effect of the unified rules
 - [ ] Use the sensitivity grid on real data only to describe fragmentation; select thresholds only after labels exist (#8, #9)
+
+## Volume ceilings (issue #35)
+
+- [x] Multi-day, track-context and in-memory ceilings sized from a synthetic 3.92-million-row benchmark ([report](../../docs/data/scale-benchmark-2026-11-09.md)); scratch peak recorded in the manifest; export-phase scratch check uses the configured scratch cap
+- [ ] Confirm resource use on seven real NOAA days (NFR-007)
