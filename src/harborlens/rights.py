@@ -1,0 +1,135 @@
+"""Fail-closed, offline source-rights decision gate (SPEC-003, issue #42).
+
+A published catalog link or public URL is not a legal review. Only an explicit,
+version-matched reviewer decision can change the default "review_required".
+This module does not download data, modify source evidence, or give legal advice.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+MAX_REGISTRY_BYTES = 256 * 1024
+PURPOSES = ("research", "public_aggregates", "commercial")
+APPROVED_STATUSES = (
+    "reviewed_public_domain_attribution_required",
+    "reviewed_permitted_with_conditions",
+)
+PENDING = "review_required"
+RESTRICTED = "use_restricted"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _valid_utc_time(value):
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.tzinfo is not None and parsed.utcoffset().total_seconds() == 0
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def load_registry(path):
+    """Load an explicit local decision record; never fetch from the network."""
+    target = Path(path)
+    if not target.is_file() or target.stat().st_size > MAX_REGISTRY_BYTES:
+        raise ValueError("Missing or excessive rights register")
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ValueError("Rights register is unreadable") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise ValueError("Unsupported rights register version")
+    sources = data.get("sources")
+    if not isinstance(sources, list) or len(sources) > 100:
+        raise ValueError("Invalid source registry")
+    identifiers = []
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError("Invalid source record")
+        identifier = source.get("source_id")
+        if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9_]{3,100}", identifier):
+            raise ValueError("Invalid source identifier")
+        if not isinstance(source.get("dataset_version"), str) or not source["dataset_version"]:
+            raise ValueError("Missing source vintage/version")
+        identifiers.append((identifier, source["dataset_version"]))
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError("Duplicate source/version pair")
+    return data
+
+
+def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
+    """Return only conservative decisions for an exact source, vintage and use.
+
+    Invalid or absent records fail closed to review_required. A reviewer entry
+    is an audit assertion, not cryptographic authentication or legal approval.
+    """
+    if purpose not in PURPOSES:
+        raise ValueError("Unsupported use purpose")
+    if not source_id or not dataset_version:
+        return PENDING
+    try:
+        records = load_registry(register_path)["sources"]
+    except (ValueError, OSError):
+        return PENDING
+    matched = [r for r in records if r["source_id"] == source_id
+               and r["dataset_version"] == dataset_version]
+    if len(matched) != 1:
+        return PENDING
+    row = matched[0]
+    if row.get("decision") != "reviewed":
+        return PENDING
+    if row.get("rights_status") not in APPROVED_STATUSES:
+        return PENDING
+    if (not isinstance(row.get("reviewed_by"), str) or
+            not row["reviewed_by"].strip() or
+            not _valid_utc_time(row.get("reviewed_at_utc")) or
+            not isinstance(row.get("terms_url"), str) or
+            not row["terms_url"].startswith("https://") or
+            not isinstance(row.get("evidence_url"), str) or
+            not row["evidence_url"].startswith("https://") or
+            not isinstance(row.get("terms_sha256"), str) or
+            not _SHA256.fullmatch(row["terms_sha256"]) or
+            not isinstance(row.get("attribution"), str) or
+            not row["attribution"].strip()):
+        return PENDING
+    rights = row.get("permitted_uses")
+    if not isinstance(rights, dict) or set(rights) != set(PURPOSES):
+        return PENDING
+    if any(v not in ("allowed", "prohibited", "unreviewed") for v in rights.values()):
+        return PENDING
+    if rights[purpose] == "allowed":
+        return row["rights_status"]
+    if rights[purpose] == "prohibited":
+        return RESTRICTED
+    return PENDING
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Offline, fail-closed source-rights audit; NOT legal advice"
+    )
+    parser.add_argument("--register", required=True, type=Path)
+    parser.add_argument("--source-id", required=True)
+    parser.add_argument("--dataset-version", required=True)
+    parser.add_argument("--purpose", choices=PURPOSES, default="research")
+    args = parser.parse_args(argv)
+    result = {
+        "source_id": args.source_id,
+        "dataset_version": args.dataset_version,
+        "purpose": args.purpose,
+        "rights_status": rights_status_for(
+            args.source_id, dataset_version=args.dataset_version,
+            purpose=args.purpose, register_path=args.register
+        ),
+        "notice": "A recorded decision is not legal advice or a data redistribution grant.",
+    }
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
