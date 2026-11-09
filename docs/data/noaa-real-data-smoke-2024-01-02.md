@@ -57,6 +57,6 @@ The workflow `.github/workflows/noaa-daily-integration.yml` is **manual-only** o
 
 ## Censoring caveat (added with BR-019)
 
-This run predates the analysis-window censoring flags. Candidates that touch the edges of the extracted window have durations that are only lower bounds, and their number was not measured here. Re-running the manual workflow records `left_censoring`/`right_censoring` and run-level counts from the extraction sidecar.
+This run predates the analysis-window censoring flags. Measured on the [2026-11-09 re-run](noaa-real-data-rerun-2026-11-09.md) with identical inputs and candidate count: 704 of the 920 candidates (528 left, 566 right, 390 both) touch an edge of the six-hour window, so their durations are lower bounds; only 216 are uncensored.
 
 **NOT FOR NAVIGATION; NOT AN OFFICIAL PORT PERFORMANCE OR EMISSIONS INVENTORY.**
