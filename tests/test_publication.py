@@ -5,6 +5,10 @@ All vessel observations and approval records in this test are synthetic.
 from __future__ import annotations
 
 import io
+import contextlib
+import hashlib
+
+import zstandard
 import json
 import tempfile
 import unittest
@@ -15,8 +19,10 @@ from jsonschema import Draft202012Validator
 
 from harborlens.ais import run
 from harborlens.erddap import fetch_subset
+from harborlens.archive_extract import extract_archive
 from harborlens.publication import (
-    ReleaseDenied, prepare_summary, release_summary, summary_sha256
+    ReleaseDenied, prepare_summary, release_summary, summary_sha256,
+    main as release_main
 )
 from harborlens.rights import rights_receipt
 
@@ -257,6 +263,97 @@ class PublicationGateTests(unittest.TestCase):
         self.assertEqual(updated["evaluation"], "reviewed_record")
         self.assertEqual(prepare_summary(self.rundir, self.source, self.registry)
                          ["rights_registry_sha256"], updated["registry_sha256"])
+
+    def test_review_schema_is_valid_and_enforced(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        schema = json.loads(
+            (ROOT / "schemas/v1/publication-review.schema.json").read_text()
+        )
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(review)
+        review["privacy_reviewed"] = False
+        self.assertFalse(Draft202012Validator(schema).is_valid(review))
+
+    def test_cli_denies_pending_source_and_dry_run_remains_local(self):
+        cmd = [
+            "--run", str(self.rundir), "--source-file", str(self.source),
+            "--rights-register", str(self.registry), "--dry-run",
+        ]
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as denied:
+                release_main(cmd)
+        self.assertEqual(denied.exception.code, 2)
+        self.assertFalse(self.out.exists())
+        self.decide()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            release_main(cmd)
+        response = json.loads(output.getvalue())
+        self.assertEqual(
+            response["summary_sha256"],
+            summary_sha256(prepare_summary(self.rundir, self.source, self.registry))
+        )
+        self.assertEqual(response["decision"], "requires_human_release_review")
+        self.assertFalse(self.out.exists())
+
+    def test_archive_source_chain_and_actual_release(self):
+        header = (
+            "mmsi,base_date_time,longitude,latitude,sog,cog,heading,"
+            "vessel_name,imo,call_sign,vessel_type,status,length,width,draft,"
+            "cargo,transceiver\n"
+        )
+        records = []
+        for i in range(12):
+            for minute in range(12):
+                records.append(
+                    f"{367800001+i},2024-06-10T00:{minute:02d}:00Z,"
+                    f"{-95.20+i*.001:.4f},{29.70+i*.001:.4f},0.1,"
+                    ",,,,,70,5,,,,,\n"
+                )
+        archive = self.folder / "ais-2024-06-10.csv.zst"
+        archive.write_bytes(
+            zstandard.ZstdCompressor().compress(
+                (header + "".join(records)).encode()
+            )
+        )
+        extracted = self.folder / "archive-extracted.csv"
+        extract_archive(archive, extracted, START, END, rights_register=self.registry)
+        archived_run = self.folder / "archive-run"
+        run(extracted, archived_run)
+        expected_version = (
+            "2024/archive-sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()
+        )
+        registry = json.loads(self.registry.read_text())
+        item = next(x for x in registry["sources"]
+                    if x["source_id"] == "noaa_ocm_ais_daily")
+        item.update({
+            "dataset_version": expected_version,
+            "decision": "reviewed",
+            "rights_status": "reviewed_public_domain_attribution_required",
+            "reviewed_by": "Synthetic approval fixture",
+            "reviewed_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "attribution": "Synthetic archive",
+            "terms_sha256": "a" * 64,
+            "terms_url": "https://example.test/terms",
+            "evidence_url": "https://example.test/approval",
+            "permitted_uses": {
+                "research": "allowed",
+                "public_aggregates": "allowed",
+                "commercial": "prohibited",
+            },
+        })
+        self.registry.write_text(json.dumps(registry))
+        summary = prepare_summary(archived_run, extracted, self.registry)
+        self.assertEqual(summary["source_id"], "noaa_ocm_ais_daily")
+        self.assertEqual(summary["dataset_version"], expected_version)
+        self.assertEqual(summary["counts"]["observations_retained"], 144)
+        self.approve(summary)
+        result = release_summary(archived_run, extracted, self.registry,
+                                 self.out, self.review)
+        self.assertEqual(result["summary"]["source_id"], "noaa_ocm_ais_daily")
+        self.assertTrue(self.out.exists())
 
 
 if __name__ == "__main__":
