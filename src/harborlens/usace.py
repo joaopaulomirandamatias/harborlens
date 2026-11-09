@@ -130,6 +130,10 @@ def collect(bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES, opener=None)
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
                 "properties": values
             })
+        if len(records) >= max_features and (
+            payload.get("exceededTransferLimit") or len(features) >= page_size
+        ):
+            raise FacilityDataError("Facility count reached cap without proof of complete result")
         offset += len(features)
         if offset >= MAX_FEATURES:
             if payload.get("exceededTransferLimit") or len(features) >= page_size:
