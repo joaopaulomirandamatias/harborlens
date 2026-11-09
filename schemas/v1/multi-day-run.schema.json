@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/multi-day-run.schema.json",
+  "title": "HarborLens Multi-day Historical Run Manifest v1.0",
+  "description": "Local input SHA-256 and historical candidate lineage; not authoritative vessel identification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "schema_version",
+    "input_files",
+    "bbox_lon_lat",
+    "counts",
+    "events",
+    "method_parameters",
+    "source_rights_status",
+    "run_id",
+    "artifacts",
+    "warning"
+  ],
+  "properties": {
+    "mode": {
+      "const": "multi_day_historical"
+    },
+    "schema_version": {
+      "const": "multi-day-1.0"
+    },
+    "input_files": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "filename",
+          "sha256",
+          "size_bytes",
+          "rights_status",
+          "source_ref",
+          "rows_scanned"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rights_status": {
+            "const": "review_required"
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rows_scanned": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "bbox_lon_lat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "invalid",
+        "outside_bbox",
+        "duplicate",
+        "duplicate_across_files",
+        "written"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outside_bbox": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate_across_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "written": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vessels",
+        "points",
+        "stationary_candidates",
+        "cross_day_candidates",
+        "moving_points",
+        "gap_splits",
+        "identity_conflicts",
+        "implausible_jumps",
+        "timestamp_conflicts",
+        "spatial_splits",
+        "discarded_groups",
+        "warning"
+      ],
+      "properties": {
+        "vessels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stationary_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cross_day_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "moving_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gap_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "implausible_jumps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discarded_groups": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warning": {
+          "type": "string"
+        }
+      }
+    },
+    "method_parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method_version",
+        "max_sog_knots",
+        "min_duration_minutes",
+        "max_gap_minutes",
+        "max_radius_m",
+        "min_points",
+        "max_jump_knots"
+      ],
+      "properties": {
+        "method_version": {
+          "const": "stationary-multiday-v0.1"
+        },
+        "max_sog_knots": {
+          "type": "number",
+          "minimum": 0
+        },
+        "min_duration_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_gap_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_radius_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "min_points": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "max_jump_knots": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "source_rights_status": {
+      "const": "review_required"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "houston_clean.csv",
+        "stationary_candidates.csv",
+        "stationary_candidates.geojson"
+      ],
+      "properties": {
+        "houston_clean.csv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "stationary_candidates.csv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "stationary_candidates.geojson": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 10
+    }
+  }
+}
