@@ -2,8 +2,8 @@
 
 **State:** PARTIAL — SYNTHETIC ONLY. Checking a task requires traceable PR/test evidence.
 
-- [ ] Keep synthetic candidate and gap regression tests
-- [ ] Implement multi-day file partitioning and midnight continuity
+- [x] Preserve existing single-file regression tests; add multi-day cases (PR under review)
+- [x] Implement SQLite-based multi-file sorting and midnight candidate continuity (PR under review)
 - [ ] Measure memory cost on authorized real AIS
 - [ ] Add conflict identity and comprehensive unknown cases
 
@@ -14,3 +14,6 @@
 - [ ] Positive, negative and boundary tests pass
 - [ ] Source rights and security reviewed
 - [ ] No unsupported accuracy, emissions or customer claims
+
+- [ ] Benchmark source ingestion and scratch disk/memory usage on two authorized consecutive NOAA daily subsets.
+- [ ] Validate source-data rights and real boundary/coverage independently.
