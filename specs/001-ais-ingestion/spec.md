@@ -1,6 +1,6 @@
 # SPEC-001: AIS ingestion, normalization and provenance
 
-**Status:** IMPLEMENTED — SYNTHETIC ONLY · **Created:** 2026-11-08.
+**Status:** IMPLEMENTED — synthetic regression tests and one initial real NOAA archive ingestion smoke; event labels unvalidated · **Created:** 2026-11-08; **Updated:** 2026-11-09.
 
 ## Problem / user story
 

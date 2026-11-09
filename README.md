@@ -1,6 +1,6 @@
 # HarborLens USA
 
-**Pre-alpha research code. Synthetic fixtures only. NOT FOR NAVIGATION.**
+**Pre-alpha research code. Synthetic regression tests and a historical NOAA ingestion smoke. NOT FOR NAVIGATION.**
 
 HarborLens explores auditable AIS ingest and provisional low-speed stationary candidates in the Houston–Galveston area. A candidate is **not** a verified berth, anchorage, queue, port call, or emissions claim.
 
@@ -16,8 +16,8 @@ Sources: [NOAA AIS](https://marinecadastre.gov/ais/), [USACE](https://www.iwr.us
 
 ## Optional small NOAA AIS2024 subset
 
-A bounded, explicit NOAA PMEL ERDDAP client is documented in [NOAA subset acquisition](docs/data/noaa-erddap.md). It is intended to avoid unnecessary national-sized downloads; its real-server functionality has not been confirmed in this environment. Never commit authentic AIS observations or call the provisional stationary candidates verified port calls.
+A bounded, explicit NOAA PMEL ERDDAP client is documented in [NOAA subset acquisition](docs/data/noaa-erddap.md). It is intended to avoid unnecessary national-sized downloads; its limited real-server responses were verified in November 2026, but were too sparse to infer continuous trajectories. Never commit authentic AIS observations or call the provisional stationary candidates verified port calls.
 
 ## Reproducible daily NOAA extraction
 
-For temporal trajectories use authorized daily historical compressed archives rather than assuming a PMEL ERDDAP query yields multiple points per MMSI. The opt-in [daily archive extractor](docs/data/noaa-archive-extraction.md) streams a source archive and writes only a bounded geographic/time subset with source hashes. Tests use synthetic archives; no actual daily archive has been processed in this change.
+For temporal trajectories use authorized daily historical compressed archives rather than assuming a PMEL ERDDAP query yields multiple points per MMSI. The opt-in [daily archive extractor](docs/data/noaa-archive-extraction.md) streams a source archive and writes only a bounded geographic/time subset with source hashes. A one-day national archive has now been processed successfully in an isolated research workflow; the detected candidate events are **not** externally validated. See [real-data integration results](docs/data/noaa-real-data-smoke-2024-01-02.md).
