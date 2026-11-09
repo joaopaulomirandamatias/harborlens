@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/sensitivity-report.schema.json",
+  "title": "HarborLens descriptive threshold-sensitivity report",
+  "description": "Counts of unvalidated stationary candidates per threshold setting. Descriptive only; not a calibration or accuracy result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "method_version",
+    "input_filename",
+    "input_sha256",
+    "rows",
+    "unparsable_rows",
+    "analysis_window",
+    "grid",
+    "settings",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "sensitivity-v0.1"
+    },
+    "method_version": {
+      "const": "stationary-v0.2"
+    },
+    "input_filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unparsable_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "analysis_window": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "start_utc",
+        "end_utc"
+      ],
+      "properties": {
+        "start_utc": {
+          "type": "string"
+        },
+        "end_utc": {
+          "type": "string"
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_sog_knots",
+        "min_duration_minutes",
+        "max_gap_minutes",
+        "max_radius_m",
+        "min_points",
+        "max_jump_knots"
+      ],
+      "properties": {
+        "max_sog_knots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        },
+        "min_duration_minutes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        },
+        "max_gap_minutes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        },
+        "max_radius_m": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        },
+        "min_points": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        },
+        "max_jump_knots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "parameters",
+          "stationary_candidates",
+          "discarded_by_reason",
+          "splits",
+          "moving_points",
+          "candidates_per_mmsi",
+          "censoring",
+          "duration_minutes_all",
+          "duration_minutes_uncensored"
+        ],
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "method_version",
+              "max_sog_knots",
+              "min_duration_minutes",
+              "max_gap_minutes",
+              "max_radius_m",
+              "min_points",
+              "max_jump_knots",
+              "parameter_set"
+            ],
+            "properties": {
+              "method_version": {
+                "const": "stationary-v0.2"
+              },
+              "max_sog_knots": {
+                "type": "number",
+                "minimum": 0
+              },
+              "min_duration_minutes": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "max_gap_minutes": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "max_radius_m": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "min_points": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "max_jump_knots": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "parameter_set": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{12}$",
+                "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
+              }
+            }
+          },
+          "stationary_candidates": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "discarded_by_reason": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "too_few_points",
+              "too_short",
+              "radius_exceeded"
+            ],
+            "properties": {
+              "too_few_points": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "too_short": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "radius_exceeded": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "splits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "timestamp_conflicts",
+              "gap_splits",
+              "identity_conflicts",
+              "implausible_jumps",
+              "spatial_splits"
+            ],
+            "properties": {
+              "timestamp_conflicts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gap_splits": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "identity_conflicts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "implausible_jumps": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "spatial_splits": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "moving_points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "candidates_per_mmsi": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "max",
+              "mmsi_with_multiple"
+            ],
+            "properties": {
+              "max": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mmsi_with_multiple": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "censoring": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Per-run BR-019 censoring counts; left/right counts overlap in both_censored.",
+            "required": [
+              "rule_version",
+              "left_censored",
+              "right_censored",
+              "both_censored",
+              "uncensored",
+              "unknown"
+            ],
+            "properties": {
+              "rule_version": {
+                "const": "window-edge-v1"
+              },
+              "left_censored": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "right_censored": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "both_censored": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uncensored": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknown": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "duration_minutes_all": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "count",
+              "min",
+              "median",
+              "p90",
+              "max"
+            ],
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "median": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "p90": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "max": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "duration_minutes_uncensored": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "count",
+              "min",
+              "median",
+              "p90",
+              "max"
+            ],
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "median": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "p90": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "max": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string"
+    }
+  }
+}

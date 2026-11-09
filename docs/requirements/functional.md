@@ -25,5 +25,6 @@
 | FR-019 | P2 | Support optional commercial tenant isolation, SSO, permission rules and private data integration | Commercial hypothesis | SPEC-007 |
 | FR-020 | P2 | Support optional managed refresh, reporting, monitoring, SLA and billing after customer validation | Commercial hypothesis | SPEC-007 |
 | FR-021 | P0 | Record the analysis window and flag left/right window-edge censoring per candidate, with run-level counts and internal-gap reporting | Synthetic implementation | SPEC-002 |
+| FR-022 | P0 | Use one segmentation engine for single-file and multi-day runs, with configurable thresholds recorded per candidate and run, diagnostics by split/discard reason, and descriptive threshold-sensitivity reports | Synthetic implementation | SPEC-002 |
 
 Proposed behavior MUST NOT be advertised as implemented. A requirement is accepted only with a reviewed spec, source rights and reproducible tests.

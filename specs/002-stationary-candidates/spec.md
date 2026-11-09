@@ -8,7 +8,7 @@ A researcher must identify low-speed contiguous observations without overstating
 
 ## Linked requirements
 
-FR-005..007, FR-009, FR-021; BR-001, BR-003, BR-007..008, BR-019
+FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019
 
 ## Acceptance criteria
 
@@ -19,6 +19,9 @@ FR-005..007, FR-009, FR-021; BR-001, BR-003, BR-007..008, BR-019
 5. **Given** a candidate fully inside the window, farther than `max_gap_minutes` from both edges; **when** inference runs; **then** both flags are `not_censored`.
 6. **Given** no verified sidecar and no declared window, partial sidecars across multi-day inputs, or a `--max-rows` truncated input; **when** inference runs; **then** censoring is `unknown`, never `not_censored`.
 7. **Given** a sidecar that does not match the input bytes, a declaration that conflicts with the sidecar, or observations outside the declared window; **when** a run starts; **then** it fails without outputs.
+8. **Given** one input processed by `harborlens` and by `harborlens-multiday` (split into daily files); **when** both run with the same thresholds; **then** they emit identical candidates and identical split/discard diagnostics.
+9. **Given** non-default thresholds; **when** a run completes; **then** they appear in the manifest, the GeoJSON `harborlens_method` block and each candidate's `parameter_set`, change the `run_id`, and `harborlens-track-context` applies them in its completeness check.
+10. **Given** a group rejected by any rule; **when** the run completes; **then** it is counted under `discarded_by_reason`.
 
 ## Non-goals and safety
 

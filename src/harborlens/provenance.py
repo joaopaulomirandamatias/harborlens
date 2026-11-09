@@ -24,7 +24,8 @@ def add_provenance(folder, manifest, source_url=None):
         if parts.scheme not in ("https", "http") or not parts.netloc or parts.username or parts.password:
             raise ValueError("Source URL must be HTTP(S) without credentials")
     settings = {"input_sha256": manifest["input_sha256"], "bbox_lon_lat": manifest["bbox_lon_lat"],
-                "method_parameters": manifest["method_parameters"], "method_version": "stationary-v0.1"}
+                "method_parameters": manifest["method_parameters"],
+                "method_version": manifest["method_parameters"].get("method_version", "stationary-v0.1")}
     window = manifest.get("analysis_window") or {}
     if window.get("status") == "known":
         # A known window changes censoring outputs, so it is part of run identity.

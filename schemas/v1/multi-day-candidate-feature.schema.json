@@ -54,6 +54,7 @@
         "maximum_distance_m",
         "type",
         "method_version",
+        "parameter_set",
         "confidence_label",
         "source_count",
         "source_files",
@@ -95,7 +96,7 @@
           "const": "stationary_candidate"
         },
         "method_version": {
-          "const": "stationary-multiday-v0.1"
+          "const": "stationary-v0.2"
         },
         "confidence_label": {
           "const": "unvalidated"
@@ -130,6 +131,11 @@
             "unknown"
           ],
           "description": "BR-019 window-edge censoring of the observed start/end; 'censored' means duration_min is a lower bound."
+        },
+        "parameter_set": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
         }
       }
     }

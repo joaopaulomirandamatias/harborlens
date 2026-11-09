@@ -12,6 +12,7 @@
     "cleaned_rows_scanned",
     "invalid_cleaned_rows",
     "candidate_count",
+    "candidate_method",
     "zone_polygon_count",
     "outcome_counts",
     "polygon_source_retrieved_at_utc",
@@ -102,6 +103,47 @@
     "warning": {
       "type": "string",
       "minLength": 20
+    },
+    "candidate_method": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Thresholds used for the completeness check, read from the candidate GeoJSON (#37) or the documented v0.1 defaults for older files.",
+      "required": [
+        "parameters_source",
+        "max_sog_knots",
+        "max_gap_minutes",
+        "method_version",
+        "parameter_set"
+      ],
+      "properties": {
+        "parameters_source": {
+          "enum": [
+            "candidate_geojson",
+            "legacy_default_v0.1"
+          ]
+        },
+        "max_sog_knots": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_gap_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "method_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameter_set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{12}$"
+        }
+      }
     }
   }
 }

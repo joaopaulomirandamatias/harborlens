@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-002: shared segmentation engine, FR-022, #37; fixes #38)
+- Both `harborlens` and `harborlens-multiday` now use one engine (`harborlens.segmentation`, method `stationary-v0.2`). The single-file command now also splits on vessel-type conflicts and implied jumps (>65 kn), as the multi-day command did; for the same input both commands emit identical candidates and diagnostics.
+- Thresholds are configurable on both commands (`--max-sog-knots`, `--min-duration-minutes`, `--max-gap-minutes`, `--max-radius-m`, `--min-points`, `--max-jump-knots`) and recorded in `method_parameters`, in a `harborlens_method` GeoJSON member and as `parameter_set` on every candidate. `harborlens-track-context` reads them instead of hard-coding 0.5 kn / 15 min.
+- Manifests report split reasons, `discarded_by_reason`, `candidates_per_mmsi` and (single-file) `unparsable_rows`.
+- Multi-day ordering uses integer microseconds, so same-second fractional timestamps are no longer misordered (#38).
+- **Migration:** method version `stationary-v0.1` / `stationary-multiday-v0.1` → `stationary-v0.2`; `event_id`, `run_id` and artifact hashes change, and earlier outputs do not validate against the updated schemas. Re-run the pipeline. No labels reference earlier event IDs.
+
+### Added
+- `harborlens-sensitivity`: descriptive threshold-grid report (`schemas/v1/sensitivity-report.schema.json`, `docs/research/threshold-sensitivity.md`). It does not select thresholds.
+
 ### Added (SPEC-002: analysis-window censoring, BR-019 / FR-021, #34)
 - `left_censoring` / `right_censoring` on every stationary candidate (single-file and multi-day), `analysis_window` and `events.censoring` in both manifests, `--window-start/--window-end` CLI flags, and automatic use of verified extraction/ERDDAP sidecars.
 - Manual NOAA workflows now publish aggregate censoring counts.

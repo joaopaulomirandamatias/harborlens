@@ -26,3 +26,11 @@
 - [x] Shared censoring module, sidecar verification, explicit window flags, schema updates and synthetic regression tests (`tests/test_censoring.py`)
 - [ ] Re-run the manual NOAA daily and consecutive-day workflows to measure censored shares on real data
 - [ ] Apply BR-019 in future duration metrics (SPEC-003 evaluator, #9)
+
+## Shared segmentation engine (issue #37)
+
+- [x] One engine for both CLIs, configurable thresholds, `parameter_set` per candidate, diagnostics by reason, track-context parameter propagation (`tests/test_segmentation_engine.py`)
+- [x] Integer-microsecond ordering in multi-day runs (#38)
+- [x] Descriptive `harborlens-sensitivity` grid report and schema
+- [ ] Re-run one source-pinned NOAA smoke with `stationary-v0.2` and record the effect of the unified rules
+- [ ] Use the sensitivity grid on real data only to describe fragmentation; select thresholds only after labels exist (#8, #9)

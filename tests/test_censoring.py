@@ -99,10 +99,11 @@ class SingleFileCensoringTests(unittest.TestCase):
             self.assertEqual((event["left_censoring"], event["right_censoring"]), ("unknown", "unknown"))
         self.assertEqual(manifest["events"]["censoring"]["unknown"], 3)
 
-    def test_runs_without_window_keep_legacy_run_id(self):
+    def test_window_enters_run_id_only_when_known(self):
         manifest = run(self.src, self.root / "out")
         settings = {"input_sha256": manifest["input_sha256"], "bbox_lon_lat": manifest["bbox_lon_lat"],
-                    "method_parameters": manifest["method_parameters"], "method_version": "stationary-v0.1"}
+                    "method_parameters": manifest["method_parameters"],
+                    "method_version": manifest["method_parameters"]["method_version"]}
         legacy = hashlib.sha256(json.dumps(settings, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         self.assertEqual(manifest["run_id"], legacy)
         windowed = run(self.src, self.root / "out2", window_start="2024-01-02T00:00:00Z",
