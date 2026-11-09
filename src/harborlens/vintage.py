@@ -166,7 +166,7 @@ def audit_vintage(polygons, output, start_utc, end_utc, source_receipt=None, enc
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(output.name + ".partial")
     try:
-        with tmp.open("xb", encoding="utf-8") as handle:
+        with tmp.open("x", encoding="utf-8") as handle:
             json.dump(output_doc, handle, indent=2)
         os.replace(tmp, output)
     except Exception:
