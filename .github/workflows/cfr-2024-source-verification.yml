@@ -69,3 +69,41 @@ jobs:
               for key,value in summary.items():
                   output.write(f'- **{key}**: {value}\n')
           PY
+      - name: Cross-check 2023 annual CFR text for pre-2024 baseline
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import hashlib,html,json,re
+          from urllib.request import Request,urlopen
+          from harborlens.cfr_anchorages import BOUNDARIES
+          url='https://www.govinfo.gov/content/pkg/CFR-2023-title33-vol1/html/CFR-2023-title33-vol1.htm'
+          request=Request(url,headers={'User-Agent':'HarborLens-open-research/0.1'})
+          with urlopen(request,timeout=45) as response:
+              body=response.read(28*1024*1024+1)
+          assert len(body)<=28*1024*1024,'Source exceeds cap'
+          text=re.sub(r'<[^>]+>',' ',html.unescape(body.decode('utf-8',errors='replace')))
+          section=re.search(r'Sec\.\s+110\.197\s+Galveston\s+Harbor',text)
+          assert section,'2023 official CFR section missing'
+          tail=text[section.start():]
+          next_section=re.search(r'Sec\.\s+110\.205\s+Chicago',tail)
+          assert next_section,'2023 section end missing'
+          canonical=re.sub(r'\s+','',tail[:next_section.start()]
+               .replace('[deg]','°').replace('[min]','′').replace('[sec]','″')
+               .replace("'","′").replace('"','″'))
+          matched=0
+          for coords in BOUNDARIES.values():
+              for lat,lon in coords:
+                  convert=lambda x:x.replace("'","′").replace('"','″')
+                  if convert(lat) in canonical and convert(lon) in canonical:
+                      matched+=1
+          print(json.dumps({
+              'official_2023_source_sha256':hashlib.sha256(body).hexdigest(),
+              'coordinate_pairs_matching_2024_transcription':matched,
+              'total_pairs':16,
+              '2023_2024_annual_text_consistency':matched==16,
+              'intervening_2024_regulatory_amendments_checked':False,
+              'legal_validity_on_2024_01_02':'NOT_FULLY_VERIFIED',
+              'source_datum_geometry_review':'PENDING'
+          },indent=2))
+          assert matched==16,'2023 and 2024 coordinates differ or extraction incomplete'
+          PY
