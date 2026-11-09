@@ -83,3 +83,7 @@ Ceilings in `archive_extract.py`, `multiday.py`, `track_context.py` and `ais.loa
 ### SPEC-003 / NFR-002, NFR-003, NFR-010, NFR-012: contracts and run identity (#41)
 
 `tests/test_contracts.py` validates real CLI exports against `run-manifest`, `stationary-candidate` (CSV via `read_candidates_csv`) and the new `stationary-candidate-feature` schema; `run_id` includes the package version (`code_version` in both manifests; git commit recorded as metadata in CI). CI runs on Python 3.10 and 3.12; the suite was also run locally on 3.10, 3.12 and 3.13. `CITATION.cff` added.
+
+### SPEC-001 / FR-002, FR-015, BR-008: vessel attributes and MMSI QA flags (#39)
+
+`src/harborlens/vessel.py` (ITU-R M.585 categories, sentinel normalization, per-candidate attribute summary) used by `ais.py`, `multiday.py` and the shared engine. Evidence: `tests/test_vessel_attributes.py` (category table, sentinels, 2024 NOAA header, non-ship identifiers flagged not dropped, attribute equivalence across pipelines, legacy cleaned files). Schemas `ais-point`, candidate record/features and both manifests updated.

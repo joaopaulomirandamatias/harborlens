@@ -18,6 +18,7 @@ from harborlens.provenance import add_provenance
 from harborlens.censoring import (
     WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
 )
+from harborlens.vessel import csv_value, mmsi_category, normalize_attributes, parse_csv_attributes
 from harborlens.segmentation import (
     MemoryStore, SegmentationParams, Segmenter, geojson_method_member, haversine_m as _haversine_m,
 )
@@ -31,11 +32,21 @@ ALIASES = {
     "sog": ("SOG","sog"),
     "vessel_type": ("VesselType","vessel_type"),
     "nav_status": ("Status","nav_status","NavigationStatus"),
+    "cog": ("COG","cog"),
+    "heading": ("Heading","heading"),
+    "length": ("Length","length"),
+    "width": ("Width","width"),
+    "draft": ("Draft","draft"),
+    "transceiver": ("TransceiverClass","transceiver_class","transceiver"),
 }
-CLEAN_FIELDS = ["mmsi","timestamp_utc","lat","lon","sog_knots","vessel_type","nav_status"]
+OPTIONAL_COLUMNS = ("vessel_type","nav_status","cog","heading","length","width","draft","transceiver")
+# New columns are appended so positional consumers of earlier files keep working (#39).
+CLEAN_FIELDS = ["mmsi","timestamp_utc","lat","lon","sog_knots","vessel_type","nav_status",
+                "cog_deg","heading_deg","length_m","width_m","draft_m","transceiver_class","mmsi_category"]
 EVENT_FIELDS = ["event_id","mmsi","start_utc","end_utc","duration_min","point_count",
                 "centroid_lon","centroid_lat","maximum_distance_m","type","method_version","parameter_set",
-                "confidence_label","left_censoring","right_censoring"]
+                "confidence_label","left_censoring","right_censoring",
+                "vessel_type","transceiver_class","length_m","draft_m","mmsi_category"]
 
 def header_alias(header, name, required=True):
     indexed={x.lower().strip():x for x in header}
@@ -73,13 +84,14 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     seen=set()
     first=last=None
     truncated=False
+    categories={}
     with output.open("w",newline="",encoding="utf-8") as stream:
         writer=csv.DictWriter(stream,fieldnames=CLEAN_FIELDS)
         writer.writeheader()
         cols=None
         for row in stream_rows(source):
             if cols is None:
-                cols={k:header_alias(list(row),k,k not in ("vessel_type","nav_status")) for k in ALIASES}
+                cols={k:header_alias(list(row),k,k not in OPTIONAL_COLUMNS) for k in ALIASES}
             if max_rows is not None and counts["total"]>=max_rows:
                 truncated=True
                 break
@@ -106,11 +118,16 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                 counts["duplicate"]+=1
                 continue
             seen.add(key)
+            get=lambda name:row.get(cols[name],"") if cols[name] else ""  # noqa: E731
+            attributes=normalize_attributes(get("cog"),get("heading"),get("length"),get("width"),
+                                            get("draft"),get("transceiver"))
+            category=mmsi_category(mmsi)
+            categories[category]=categories.get(category,0)+1
             writer.writerow({
                 "mmsi":mmsi,"timestamp_utc":t.isoformat().replace("+00:00","Z"),
                 "lat":lat,"lon":lon,"sog_knots":sog,
-                "vessel_type":row.get(cols["vessel_type"],"") if cols["vessel_type"] else "",
-                "nav_status":row.get(cols["nav_status"],"") if cols["nav_status"] else "",
+                "vessel_type":get("vessel_type"),"nav_status":get("nav_status"),
+                **{k:csv_value(v) for k,v in attributes.items()},"mmsi_category":category,
             })
             counts["written"]+=1
             first=t if first is None or t<first else first
@@ -118,6 +135,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     return {"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
             "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
             "input_truncated":truncated,"limits":{"max_rows":max_rows},
+            "mmsi_categories":dict(sorted(categories.items())),
             "observed_time_range":observed_range(first,last)}
 
 # Kept for callers that import it from this module; the engine owns the implementation.
@@ -141,7 +159,8 @@ def load_cleaned(cleaned,max_rows=MAX_IN_MEMORY_ROWS):
                 raise AISInputError("Cleaned AIS exceeds the in-memory row cap; refusing a partial result")
             try:
                 rows.append((str(row["mmsi"]),parse_time(row["timestamp_utc"]),float(row["lat"]),
-                             float(row["lon"]),float(row["sog_knots"]),str(row.get("vessel_type") or ""),index))
+                             float(row["lon"]),float(row["sog_knots"]),str(row.get("vessel_type") or ""),index,
+                             parse_csv_attributes(row)))
             except (ValueError,TypeError,KeyError):
                 unparsable+=1
     rows.sort(key=lambda r:(r[0],r[1],r[6]))
@@ -153,8 +172,8 @@ def segment_rows(rows,params,censoring=None,unparsable=0):
         censoring=WindowCensoring(None,params.max_gap_minutes)
     events=[]
     engine=Segmenter(params,MemoryStore(),lambda record,group:events.append(record),censoring)
-    for mmsi,when,lat,lon,sog,vessel_type,index in rows:
-        engine.feed(mmsi,when,lat,lon,sog,vessel_type,index)
+    for mmsi,when,lat,lon,sog,vessel_type,index,attributes in rows:
+        engine.feed(mmsi,when,lat,lon,sog,vessel_type,index,attributes)
     stats=engine.close()
     stats["unparsable_rows"]=unparsable
     stats["censoring"]=censoring.event_summary()
@@ -180,12 +199,17 @@ def infer_candidates(cleaned, max_sog=0.5, min_duration_minutes=30,
 # all other columns are strings.
 CANDIDATE_CSV_TYPES={"duration_min":float,"point_count":int,"centroid_lon":float,
                      "centroid_lat":float,"maximum_distance_m":float}
+# Optional columns: an empty cell means "not available" and reads back as None.
+CANDIDATE_CSV_OPTIONAL={"length_m":float,"draft_m":float,"transceiver_class":str}
 
 def read_candidates_csv(path):
     """Read stationary_candidates.csv back into typed records matching the candidate schema."""
     with Path(path).open(newline="",encoding="utf-8") as stream:
-        return [{k:(CANDIDATE_CSV_TYPES[k](v) if k in CANDIDATE_CSV_TYPES else v)
-                 for k,v in row.items() if k in EVENT_FIELDS}
+        def convert(k,v):
+            if k in CANDIDATE_CSV_OPTIONAL:
+                return CANDIDATE_CSV_OPTIONAL[k](v) if v!="" else None
+            return CANDIDATE_CSV_TYPES[k](v) if k in CANDIDATE_CSV_TYPES else v
+        return [{k:convert(k,v) for k,v in row.items() if k in EVENT_FIELDS}
                 for row in csv.DictReader(stream)]
 
 def write_events(events,out,params=None):

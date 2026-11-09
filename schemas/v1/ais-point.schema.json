@@ -11,7 +11,14 @@
     "lon",
     "sog_knots",
     "vessel_type",
-    "nav_status"
+    "nav_status",
+    "cog_deg",
+    "heading_deg",
+    "length_m",
+    "width_m",
+    "draft_m",
+    "transceiver_class",
+    "mmsi_category"
   ],
   "properties": {
     "mmsi": {
@@ -42,6 +49,88 @@
     },
     "nav_status": {
       "type": "string"
+    },
+    "cog_deg": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "heading_deg": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 359
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "length_m": {
+      "anyOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "width_m": {
+      "anyOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "draft_m": {
+      "anyOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "transceiver_class": {
+      "enum": [
+        "A",
+        "B",
+        ""
+      ]
+    },
+    "mmsi_category": {
+      "enum": [
+        "ship",
+        "group_of_ships",
+        "coast_station",
+        "sar_aircraft",
+        "aid_to_navigation",
+        "craft_associated_with_parent_ship",
+        "handheld_vhf",
+        "ais_sart",
+        "mob_device",
+        "epirb_ais",
+        "placeholder",
+        "leading_zero_ambiguous",
+        "other"
+      ]
     }
-  }
+  },
+  "description": "Canonical cleaned AIS row. NOAA 'not available' sentinels (COG 360, heading 511, zero dimensions) are empty strings; mmsi_category is a QA flag (#39)."
 }

@@ -27,3 +27,8 @@
 
 - [x] Extraction ceiling raised to 1,000,000 rows / 256 MiB from measured Houston volumes; limits recorded in the sidecar; full-day test
 - [ ] Run `noaa-week-integration` on seven consecutive full days and publish aggregate results
+
+## Vessel attributes and MMSI QA (issue #39)
+
+- [x] Keep COG, heading, length, width, draft and transceiver class with sentinels as missing; ITU-R M.585 `mmsi_category` flag with per-run counts; candidate cohort attributes (`tests/test_vessel_attributes.py`)
+- [ ] Inspect category and attribute coverage on a real NOAA run (for example the share of Class B and of `leading_zero_ambiguous` MMSIs)

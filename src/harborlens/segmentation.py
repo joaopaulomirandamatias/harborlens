@@ -16,6 +16,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 
 from harborlens.io_safe import AISInputError
+from harborlens.vessel import AttributeSummary, mmsi_category
 
 METHOD_VERSION = "stationary-v0.2"
 KNOTS_TO_MPS = 0.514444
@@ -160,12 +161,15 @@ class Segmenter:
             "type": "stationary_candidate", "method_version": METHOD_VERSION,
             "parameter_set": p.parameter_set, "confidence_label": "unvalidated",
             "left_censoring": left, "right_censoring": right,
+            "vessel_type": group["vessel_type"] or "",
+            **group["attributes"].result(),
+            "mmsi_category": mmsi_category(group["mmsi"]),
         }
         self.stats["stationary_candidates"] += 1
         self.mmsi_candidates += 1
         self.emit(record, group)
 
-    def feed(self, mmsi, when, lat, lon, sog, vessel_type="", ref=None):
+    def feed(self, mmsi, when, lat, lon, sog, vessel_type="", ref=None, attributes=None):
         """Consume one observation. Input must be sorted by (mmsi, when, ref)."""
         key = (mmsi, when)
         if self.last_key is not None and key < self.last_key:
@@ -204,7 +208,7 @@ class Segmenter:
             self.group_id += 1
             self.current = {"gid": self.group_id, "mmsi": mmsi, "start_dt": when, "end_dt": when,
                             "first": (lon, lat), "last": (lon, lat), "sum_lat": 0.0, "sum_lon": 0.0,
-                            "count": 0, "vessel_type": vessel_type}
+                            "count": 0, "vessel_type": vessel_type, "attributes": AttributeSummary()}
         group = self.current
         group["end_dt"] = when
         group["last"] = (lon, lat)
@@ -213,6 +217,7 @@ class Segmenter:
         group["count"] += 1
         if not group["vessel_type"] and vessel_type:
             group["vessel_type"] = vessel_type
+        group["attributes"].add(attributes)
         self.store.add(group["gid"], ref, lon, lat)
 
     def close(self):

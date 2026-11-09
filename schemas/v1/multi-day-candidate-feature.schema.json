@@ -60,7 +60,12 @@
         "source_files",
         "crosses_utc_date",
         "left_censoring",
-        "right_censoring"
+        "right_censoring",
+        "vessel_type",
+        "transceiver_class",
+        "length_m",
+        "draft_m",
+        "mmsi_category"
       ],
       "additionalProperties": false,
       "properties": {
@@ -136,6 +141,50 @@
           "type": "string",
           "pattern": "^[a-f0-9]{12}$",
           "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
+        },
+        "vessel_type": {
+          "type": "string",
+          "description": "First non-empty transmitted ship type in the candidate."
+        },
+        "transceiver_class": {
+          "enum": [
+            "A",
+            "B",
+            null
+          ],
+          "description": "Most frequent transmitted AIS class; null when not available."
+        },
+        "length_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "draft_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "mmsi_category": {
+          "enum": [
+            "ship",
+            "group_of_ships",
+            "coast_station",
+            "sar_aircraft",
+            "aid_to_navigation",
+            "craft_associated_with_parent_ship",
+            "handheld_vhf",
+            "ais_sart",
+            "mob_device",
+            "epirb_ais",
+            "placeholder",
+            "leading_zero_ambiguous",
+            "other"
+          ],
+          "description": "ITU-R M.585 QA flag; not a verified identity (BR-008)."
         }
       }
     }

@@ -131,7 +131,7 @@ def _negative_intervals(rows, params, candidates, min_minutes):
                 intervals.append(list(current))
 
     for item in rows:
-        mmsi, when, lat, lon, sog, vessel_type, _ = item
+        mmsi, when, lat, lon, sog = item[:5]
         moving = sog > params.max_sog_knots
         if current and (not moving or mmsi != current[-1][0] or when - current[-1][1] > gap
                         or when <= current[-1][1]):
