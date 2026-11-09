@@ -17,6 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.provenance import add_provenance
+from harborlens.censoring import (
+    WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
+)
 
 BBOX_HOUSTON = (-95.70, 29.10, -94.20, 30.10)  # west, south, east, north
 ALIASES = {
@@ -30,7 +33,8 @@ ALIASES = {
 }
 CLEAN_FIELDS = ["mmsi","timestamp_utc","lat","lon","sog_knots","vessel_type","nav_status"]
 EVENT_FIELDS = ["event_id","mmsi","start_utc","end_utc","duration_min","point_count",
-                "centroid_lon","centroid_lat","maximum_distance_m","type","method_version","confidence_label"]
+                "centroid_lon","centroid_lat","maximum_distance_m","type","method_version","confidence_label",
+                "left_censoring","right_censoring"]
 
 def header_alias(header, name, required=True):
     indexed={x.lower().strip():x for x in header}
@@ -66,6 +70,8 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     output.parent.mkdir(parents=True,exist_ok=True)
     counts=dict(total=0,in_bbox=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
     seen=set()
+    first=last=None
+    truncated=False
     with output.open("w",newline="",encoding="utf-8") as stream:
         writer=csv.DictWriter(stream,fieldnames=CLEAN_FIELDS)
         writer.writeheader()
@@ -74,6 +80,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
             if cols is None:
                 cols={k:header_alias(list(row),k,k not in ("vessel_type","nav_status")) for k in ALIASES}
             if max_rows is not None and counts["total"]>=max_rows:
+                truncated=True
                 break
             counts["total"]+=1
             try:
@@ -105,8 +112,11 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                 "nav_status":row.get(cols["nav_status"],"") if cols["nav_status"] else "",
             })
             counts["written"]+=1
+            first=t if first is None or t<first else first
+            last=t if last is None or t>last else last
     return {"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
-            "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics"}
+            "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
+            "input_truncated":truncated,"observed_time_range":observed_range(first,last)}
 
 def haversine_m(a,b):
     lon1,lat1=a
@@ -119,7 +129,14 @@ def haversine_m(a,b):
     return 2*r*math.asin(min(1,math.sqrt(x)))
 
 def infer_candidates(cleaned, max_sog=0.5, min_duration_minutes=30,
-                     max_gap_minutes=15, max_radius_m=1000, min_points=8):
+                     max_gap_minutes=15, max_radius_m=1000, min_points=8, censoring=None):
+    """Return unvalidated stationary candidates and run statistics.
+
+    ``censoring`` is an optional WindowCensoring; without it every candidate's
+    left/right censoring is reported as ``unknown`` (BR-019).
+    """
+    if censoring is None:
+        censoring=WindowCensoring(None,max_gap_minutes)
     by_mmsi=defaultdict(list)
     with cleaned.open("r",newline="",encoding="utf-8") as stream:
         for row in csv.DictReader(stream):
@@ -149,12 +166,14 @@ def infer_candidates(cleaned, max_sog=0.5, min_duration_minutes=30,
             start=group[0]["dt"].isoformat().replace("+00:00","Z")
             end=group[-1]["dt"].isoformat().replace("+00:00","Z")
             uid=hashlib.sha256(f"{mmsi}|{start}|{end}|stationary-v0.1".encode()).hexdigest()[:18]
+            left,right=censoring.classify(group[0]["dt"],group[-1]["dt"])
             events.append({
                 "event_id":uid,"mmsi":mmsi,"start_utc":start,"end_utc":end,
                 "duration_min":round(duration,2),"point_count":len(group),
                 "centroid_lon":round(center[0],6),"centroid_lat":round(center[1],6),
                 "maximum_distance_m":round(max_dist,1),"type":"stationary_candidate",
-                "method_version":"stationary-v0.1","confidence_label":"unvalidated"})
+                "method_version":"stationary-v0.1","confidence_label":"unvalidated",
+                "left_censoring":left,"right_censoring":right})
         for row in rows:
             if row["sog_knots"]>max_sog:
                 stats["moving_or_invalid_points"]+=1
@@ -170,6 +189,7 @@ def infer_candidates(cleaned, max_sog=0.5, min_duration_minutes=30,
             group.append(row)
         finish()
     stats["stationary_candidates"]=len(events)
+    stats["censoring"]=censoring.event_summary()
     stats["warning"]="Stationary candidates are unvalidated, NOT verified berth, anchorage, waiting, or port calls."
     return events,stats
 
@@ -183,15 +203,35 @@ def write_events(events,out):
                "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
     (out/"stationary_candidates.geojson").write_text(json.dumps({"type":"FeatureCollection","features":features},indent=2),encoding="utf-8")
 
-def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None):
+METHOD_PARAMETERS={"max_sog_knots":0.5,"min_duration_minutes":30,
+                   "max_gap_minutes":15,"max_radius_m":1000,"min_points":8}
+
+def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=None,window_end=None):
+    """Ingest one AIS file, infer candidates and write a provenance manifest.
+
+    The analysis window comes from ``window_start``/``window_end`` or from a
+    verified acquisition sidecar next to ``src``. A run truncated by
+    ``max_rows`` reports censoring as unknown, because its effective end is unknown.
+    """
+    src=Path(src)
     out.mkdir(parents=True,exist_ok=True)
     cleaned=out/"houston_clean.csv"
     manifest=ingest(src,cleaned,bbox,max_rows)
-    events,stats=infer_candidates(cleaned)
+    window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
+    declaration=declaration_record(src.name,window)
+    if window is not None and manifest["input_truncated"]:
+        declaration["ignored_reason"]="input_truncated_by_max_rows"
+        window=None
+    gap=METHOD_PARAMETERS["max_gap_minutes"]
+    censoring=WindowCensoring([window] if window else None,gap,[declaration])
+    observed=manifest.pop("observed_time_range")
+    if observed["start_utc"]:
+        censoring.check_observed(parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
+    events,stats=infer_candidates(cleaned,censoring=censoring)
     write_events(events,out)
     manifest["events"]=stats
-    manifest["method_parameters"]={"max_sog_knots":0.5,"min_duration_minutes":30,
-                                   "max_gap_minutes":15,"max_radius_m":1000,"min_points":8}
+    manifest["method_parameters"]=dict(METHOD_PARAMETERS)
+    manifest["analysis_window"]=censoring.summary(observed)
     manifest = add_provenance(out, manifest, source_url=source_url)
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
     return manifest

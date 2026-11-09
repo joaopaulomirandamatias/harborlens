@@ -25,6 +25,10 @@ from harborlens.ais import (
 )
 from harborlens.io_safe import AISInputError, stream_rows
 from harborlens.provenance import checksum, FILES
+from harborlens.censoring import (
+    AnalysisWindowError, WindowCensoring, declaration_record, declared_window,
+    observed_range, sidecar_window,
+)
 
 METHOD = "stationary-multiday-v0.1"
 MULTIDAY_FIELDS = EVENT_FIELDS + ["source_files_json", "source_count", "crosses_utc_date"]
@@ -39,10 +43,6 @@ def _csv_bytes(fields):
     stream = io.StringIO(newline="")
     csv.writer(stream, lineterminator="\n").writerow(fields)
     return stream.getvalue().encode("utf-8")
-
-
-def _utc(value):
-    return parse_time(value).isoformat().replace("+00:00", "Z")
 
 
 def _enforce_scratch_limit(db_path, cap_bytes):
@@ -101,6 +101,7 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
         "duplicate_across_files": 0, "written": 0,
     }
     source_items = []
+    first = last = None
     w, s, e, n = bbox
     row_inserts = db.cursor()
     for source_id, path in enumerate(inputs):
@@ -128,7 +129,8 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
                 raise AISInputError("Input records exceed cap; refusing truncated multi-day result")
             try:
                 mmsi = str(row[columns["mmsi"]]).strip()
-                timestamp = _utc(row[columns["timestamp"]])
+                moment = parse_time(row[columns["timestamp"]])
+                timestamp = moment.isoformat().replace("+00:00", "Z")
                 lat = float(row[columns["lat"]])
                 lon = float(row[columns["lon"]])
                 sog = float(row[columns["sog"]])
@@ -154,6 +156,8 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
                    VALUES (?,?,?,?,?,?,?,?,?)""",
                 (mmsi, timestamp, lat, lon, sog, vessel_type, nav_status, key[2], key[3]),
             )
+            first = moment if first is None or moment < first else first
+            last = moment if last is None or moment > last else last
             if row_inserts.rowcount:
                 obs_id = row_inserts.lastrowid
                 counts["written"] += 1
@@ -181,7 +185,32 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
         item["rows_scanned"] = file_rows
         db.commit()
         _enforce_scratch_limit(db_path, max_scratch_mib * 1048576)
-    return counts, source_items
+    return counts, source_items, (first, last)
+
+
+def _resolve_windows(paths, source_items, window_start, window_end, tolerance_minutes):
+    """Build censoring blocks from verified per-input sidecars or one explicit window.
+
+    All inputs must carry a verified sidecar for the sidecar windows to be used;
+    a partial set yields ``unknown`` censoring rather than a misleading union.
+    """
+    sides = [sidecar_window(path, item["sha256"]) for path, item in zip(paths, source_items)]
+    explicit = declared_window(window_start, window_end)
+    if any(sides):
+        if explicit:
+            raise AnalysisWindowError(
+                "Inputs carry verified acquisition windows; do not also pass --window-start/--window-end"
+            )
+        declarations = [declaration_record(item["filename"], side)
+                        for item, side in zip(source_items, sides)]
+        windows = sides if all(sides) else None
+    elif explicit:
+        declarations = [declaration_record("all_inputs", explicit)]
+        windows = [explicit]
+    else:
+        declarations = [declaration_record(item["filename"], None) for item in source_items]
+        windows = None
+    return WindowCensoring(windows, tolerance_minutes, declarations)
 
 
 def _output_files(out):
@@ -201,6 +230,8 @@ def run_multiday(
     max_radius_m=1000,
     min_points=8,
     max_jump_knots=65,
+    window_start=None,
+    window_end=None,
 ):
     """Reconstruct provisional stationary candidates across 2–7 local AIS files.
 
@@ -232,10 +263,13 @@ def run_multiday(
         db_path = Path(folder) / "ais.sqlite3"
         db = _make_db(db_path, max_scratch_mib)
         try:
-            counts, source_items = _load_files(
+            counts, source_items, (first, last) = _load_files(
                 db, paths, tuple(bbox), max_points, db_path, max_scratch_mib
             )
             db.commit()
+            censoring = _resolve_windows(paths, source_items, window_start, window_end,
+                                         max_gap_minutes)
+            censoring.check_observed(first, last)
             diagnostics = {
                 "vessels": 0, "points": counts["written"], "stationary_candidates": 0,
                 "cross_day_candidates": 0, "moving_points": 0,
@@ -250,18 +284,20 @@ def run_multiday(
                 "max_gap_minutes": max_gap_minutes, "max_radius_m": max_radius_m,
                 "min_points": min_points, "max_jump_knots": max_jump_knots,
             }
-            _write_outputs(db, files, source_items, diagnostics, params, max_export_mib)
+            _write_outputs(db, files, source_items, diagnostics, params, max_export_mib, censoring)
+            diagnostics["censoring"] = censoring.event_summary()
+            identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
+                        "bbox": list(bbox), "method": params}
+            if censoring.known:
+                identity["analysis_window"] = censoring.run_id_component()
             result = {
                 "mode": "multi_day_historical", "schema_version": "multi-day-1.0",
                 "input_files": source_items, "bbox_lon_lat": list(bbox),
                 "counts": counts, "events": diagnostics,
                 "method_parameters": params, "source_rights_status": "review_required",
+                "analysis_window": censoring.summary(observed_range(first, last)),
                 "run_id": hashlib.sha256(
-                    json.dumps(
-                        {"source_hashes": sorted(x["sha256"] for x in source_items),
-                         "bbox": list(bbox), "method": params},
-                        sort_keys=True, separators=(",", ":")
-                    ).encode("utf-8")
+                    json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
                 "artifacts": {
                     name: {"sha256": checksum(path), "size_bytes": path.stat().st_size}
@@ -279,7 +315,7 @@ def run_multiday(
             db.close()
 
 
-def _write_outputs(db, files, sources, stats, params, export_cap_mib):
+def _write_outputs(db, files, sources, stats, params, export_cap_mib, censoring):
     max_bytes = export_cap_mib * 1048576
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
@@ -341,6 +377,7 @@ def _write_outputs(db, files, sources, stats, params, export_cap_mib):
             end = group["end_dt"].isoformat().replace("+00:00", "Z")
             eid = hashlib.sha256(f"{group['mmsi']}|{start}|{end}|{METHOD}".encode()).hexdigest()[:18]
             crossing = group["start_dt"].date() != group["end_dt"].date()
+            left, right = censoring.classify(group["start_dt"], group["end_dt"])
             record = {
                 "event_id": eid, "mmsi": group["mmsi"],
                 "start_utc": start, "end_utc": end, "duration_min": round(span, 2),
@@ -349,6 +386,7 @@ def _write_outputs(db, files, sources, stats, params, export_cap_mib):
                 "maximum_distance_m": round(max_distance, 1),
                 "type": "stationary_candidate", "method_version": METHOD,
                 "confidence_label": "unvalidated",
+                "left_censoring": left, "right_censoring": right,
                 "source_files_json": json.dumps(refs, separators=(",", ":")),
                 "source_count": len(refs), "crosses_utc_date": crossing,
             }
@@ -448,11 +486,16 @@ def main():
     parser.add_argument("--max-points", type=int, default=MAX_POINTS)
     parser.add_argument("--max-scratch-mib", type=int, default=MAX_SCRATCH_MIB)
     parser.add_argument("--max-export-mib", type=int, default=256)
+    parser.add_argument("--window-start", default=None,
+                        help="One analysis window covering all inputs (ISO 8601 with Z); "
+                             "only when inputs have no acquisition sidecars")
+    parser.add_argument("--window-end", default=None)
     args = parser.parse_args()
     result = run_multiday(
         args.input, args.out, bbox=tuple(args.bbox),
         max_points=args.max_points, max_scratch_mib=args.max_scratch_mib,
         max_export_mib=args.max_export_mib,
+        window_start=args.window_start, window_end=args.window_end,
     )
     print(json.dumps(result, indent=2))
 

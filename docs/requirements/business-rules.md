@@ -22,5 +22,6 @@ The rules protect the integrity of scientific and operational claims. The baseli
 | BR-016 | Public research data exports MUST exclude customer-confidential and unauthorized licensed records |
 | BR-017 | Open scientific methods must remain independently reproducible when wrapped by paid services |
 | BR-018 | No operational, commercial or migration-impact claims without verified supporting evidence |
+| BR-019 | A candidate whose first or last observation lies within one `max_gap_minutes` of an analysis-window edge is censored; its duration is a lower bound and MUST be excluded from, or reported separately in, duration statistics. Without a known window, censoring is `unknown`, never `not_censored` |
 
 Every event label and data-rights decision must preserve the source version, method version, responsible reviewer and known unknowns.

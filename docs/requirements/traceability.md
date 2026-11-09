@@ -59,3 +59,7 @@ The source-pinned [2023 original document triage](../data/fr-2023-fulltext-triag
 ### Official full-text source and relevance verification (SPEC-004)
 
 The four previously indexed 2023 Federal Register Part 110 document texts were fetched and hashed from original government URLs. All four had no direct 110.197/Houston/Galveston text hits, but this source-tied triage remains *non-certifying*; see [real-source evidence](../data/fr-2023-original-fulltext-evidence-2026-11-09.md). Legal effective-date and GPO LSA review still outstanding.
+
+### SPEC-002: analysis-window censoring (BR-019, FR-021)
+
+`src/harborlens/censoring.py`, `ais.py` and `multiday.py` emit `left_censoring`/`right_censoring` per candidate plus `analysis_window` and `events.censoring` in both manifests. Evidence: synthetic tests in `tests/test_censoring.py` (edges, interior, unknown, sidecars, conflicts, truncation, internal gaps, schemas, CLI). Real-data censored shares have not been measured yet; the existing NOAA reports predate this rule.

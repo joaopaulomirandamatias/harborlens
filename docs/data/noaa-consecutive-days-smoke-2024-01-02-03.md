@@ -56,4 +56,8 @@ The historical two-file processing used the source fingerprints above, the tempo
 4. Create independently reviewed positive/negative event reference labels and report classification precision/recall and time errors.
 5. Keep the nationwide archive workflow **manual-only** to avoid uncontrolled data transfer or GitHub Actions consumption.
 
+## Censoring caveat (added with BR-019)
+
+This run predates the analysis-window censoring flags. Candidates that touch the edges of the extracted window have durations that are only lower bounds, and their number was not measured here. Re-running the manual workflow records `left_censoring`/`right_censoring` and run-level counts from the extraction sidecar.
+
 **NOT FOR NAVIGATION. NOT AN OFFICIAL PORT PERFORMANCE OR ENVIRONMENTAL INVENTORY.**

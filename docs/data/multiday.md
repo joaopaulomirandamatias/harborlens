@@ -33,6 +33,7 @@ Additional event fields:
 - source_files_json: JSON array of local filename@hash-prefix references for observations that contributed to the event.
 - source_count: number of source files contributing to the candidate.
 - crosses_utc_date: whether the observed start/end belong to different UTC dates.
+- left_censoring / right_censoring: whether the candidate touches an analysis-window edge (BR-019). Windows come from each input's verified acquisition sidecar; if any input lacks one, censoring is `unknown`. Inputs without sidecars can share one explicit `--window-start/--window-end`.
 
 Each result is labeled stationary_candidate and unvalidated. Source file SHA-256 proves which local bytes were used; it **does not** authenticate agency origin or grant redistribution rights. All source rights remain review_required.
 
