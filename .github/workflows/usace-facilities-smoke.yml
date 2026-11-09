@@ -1,0 +1,63 @@
+name: USACE facilities point-catalog integration (research only)
+on:
+  push:
+    branches: [integration/usace-smoke-fixed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  houston-facility-points:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research CLI and validation tools
+        run: python -m pip install -e '.[dev]'
+      - name: Query USACE official point layer with bounds and caps
+        run: |
+          harborlens-fetch-usace \
+            --bbox -95.7 29.1 -94.2 30.1 \
+            --out data/houston-usace-facilities.geojson \
+            --page-size 250 --max-features 2000
+      - name: Verify dataset schema and publish aggregate-only metrics
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from collections import Counter
+          from pathlib import Path
+          from jsonschema import Draft202012Validator, FormatChecker
+
+          root = Path('data/houston-usace-facilities.geojson')
+          document = json.loads(root.read_text())
+          sidecar = json.loads(root.with_name(root.name + '.source.json').read_text())
+          fc_schema = json.loads(Path('schemas/v1/usace-facility-collection.schema.json').read_text())
+          source_schema = json.loads(Path('schemas/v1/usace-facility-source.schema.json').read_text())
+          Draft202012Validator(fc_schema,format_checker=FormatChecker()).validate(document)
+          Draft202012Validator(source_schema,format_checker=FormatChecker()).validate(sidecar)
+          assert len(document['features']) == sidecar['feature_count']
+          assert hashlib.sha256(root.read_bytes()).hexdigest() == sidecar['output_sha256']
+          types = Counter(str(x['properties'].get('fac_type')) for x in document['features'])
+          summary = {
+              'reference_points': len(document['features']),
+              'point_geometry_count': sum(x['geometry']['type']=='Point' for x in document['features']),
+              'source_layer': 'USACE Navigation Facilities (Dock) / ArcGIS FeatureServer',
+              'metadata_query_count': len(sidecar['queries']),
+              'output_sha256': sidecar['output_sha256'],
+              'top_facility_types': types.most_common(6),
+              'data_rights_status': sidecar['license_status'],
+              'historical_validity': 'current snapshot; NOT a dated berth polygon',
+              'event_classification': 'NOT VERIFIED',
+          }
+          print(json.dumps(summary,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+              f.write('### Houston USACE official facility points — engineering smoke\n\n')
+              f.write('Actual source observations are ephemeral. No raw facility data '
+                      'or vessel observations are uploaded as artifacts or committed.\n\n')
+              for key,val in summary.items():
+                  f.write(f'- **{key}**: {val}\n')
+          PY
