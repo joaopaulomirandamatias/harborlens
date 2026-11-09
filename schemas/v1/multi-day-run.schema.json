@@ -122,18 +122,21 @@
     "events": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Diagnostics from the shared segmentation engine (stationary-v0.2); counts are QA, not traffic statistics.",
       "required": [
         "vessels",
         "points",
-        "stationary_candidates",
-        "cross_day_candidates",
         "moving_points",
+        "timestamp_conflicts",
         "gap_splits",
         "identity_conflicts",
         "implausible_jumps",
-        "timestamp_conflicts",
         "spatial_splits",
         "discarded_groups",
+        "stationary_candidates",
+        "discarded_by_reason",
+        "candidates_per_mmsi",
+        "cross_day_candidates",
         "censoring",
         "warning"
       ],
@@ -146,15 +149,11 @@
           "type": "integer",
           "minimum": 0
         },
-        "stationary_candidates": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "cross_day_candidates": {
-          "type": "integer",
-          "minimum": 0
-        },
         "moving_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_conflicts": {
           "type": "integer",
           "minimum": 0
         },
@@ -170,10 +169,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "timestamp_conflicts": {
-          "type": "integer",
-          "minimum": 0
-        },
         "spatial_splits": {
           "type": "integer",
           "minimum": 0
@@ -182,8 +177,54 @@
           "type": "integer",
           "minimum": 0
         },
-        "warning": {
-          "type": "string"
+        "stationary_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discarded_by_reason": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "too_few_points",
+            "too_short",
+            "radius_exceeded"
+          ],
+          "properties": {
+            "too_few_points": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "too_short": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "radius_exceeded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "candidates_per_mmsi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max",
+            "mmsi_with_multiple"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mmsi_with_multiple": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "cross_day_candidates": {
+          "type": "integer",
+          "minimum": 0
         },
         "censoring": {
           "type": "object",
@@ -222,6 +263,9 @@
               "minimum": 0
             }
           }
+        },
+        "warning": {
+          "type": "string"
         }
       }
     },
@@ -235,11 +279,12 @@
         "max_gap_minutes",
         "max_radius_m",
         "min_points",
-        "max_jump_knots"
+        "max_jump_knots",
+        "parameter_set"
       ],
       "properties": {
         "method_version": {
-          "const": "stationary-multiday-v0.1"
+          "const": "stationary-v0.2"
         },
         "max_sog_knots": {
           "type": "number",
@@ -264,6 +309,11 @@
         "max_jump_knots": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "parameter_set": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
         }
       }
     },

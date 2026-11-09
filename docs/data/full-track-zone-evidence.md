@@ -31,7 +31,7 @@ Every candidate retains 'stationary_candidate' and 'confidence_label=unvalidated
 - partial_observed_point_overlap: some observed points fall inside exactly one polygon; others lie outside.
 - multiple_zone_evidence_ambiguous: observations intersect more than one supplied polygon (possibly overlapping areas).
 - no_observed_point_overlap: no supplied polygon contains an observed point.
-- incomplete_track_unknown: the observed count, first/last timestamps, speed or gap check does not match the original candidate.
+- incomplete_track_unknown: the observed count, first/last timestamps, speed or gap check does not match the original candidate. Speed and gap limits are read from the candidate GeoJSON `harborlens_method` block; files written before `stationary-v0.2` fall back to 0.5 knots and 15 minutes, and the receipt records which source was used.
 - outside_declared_vintage_unknown: an optional user-declared source validity interval does not cover the candidate.
 
 Even the first status **does not** mean that the vessel was officially anchored, awaiting a berth, inside a legally designated anchorage in the historical year, or that the vessel's entire *continuous* route was within the polygon. It means *only* that the available discrete AIS points fall within a geometrical source reference.

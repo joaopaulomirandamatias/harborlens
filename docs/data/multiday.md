@@ -41,7 +41,7 @@ Each result is labeled stationary_candidate and unvalidated. Source file SHA-256
 
 - An exact point duplicate spanning input files is stored once but retains **both** source references.
 - A gap greater than 15 minutes, conflicting transmitted vessel type, identical timestamp with incompatible position, implausible jump or movement resets the current low-speed episode.
-- A candidate requires at least eight observations, 30 minutes, speed at most 0.5 knots and a maximum radial spread of 1,000 meters around its calculated centroid.
+- A candidate requires at least eight observations, 30 minutes, speed at most 0.5 knots and a maximum radial spread of 1,000 meters around its calculated centroid (BR-003 defaults; configurable with `--max-sog-knots`, `--min-duration-minutes`, `--max-gap-minutes`, `--max-radius-m`, `--min-points`, `--max-jump-knots`). The single-file `harborlens` command uses the same engine and rules (`stationary-v0.2`).
 - The MMSI is a transmitted identifier, not an independently confirmed vessel identity.
 - Counts of gaps, contradictory identity reports, timestamp conflicts and suspicious jumps are diagnostics—not ground-truth classification or an official traffic statistic.
 

@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 from harborlens.ais import BBOX_HOUSTON, run
+from harborlens.segmentation import add_threshold_arguments, params_from_args
 
 def main():
     p = argparse.ArgumentParser(description="HarborLens AIS prototype; NOT FOR NAVIGATION")
@@ -15,9 +16,10 @@ def main():
                    help="Analysis window start (ISO 8601 with Z); default: verified acquisition sidecar")
     p.add_argument("--window-end", default=None,
                    help="Analysis window end (ISO 8601 with Z); default: verified acquisition sidecar")
+    add_threshold_arguments(p)
     a = p.parse_args()
     print(json.dumps(run(Path(a.input),Path(a.out),tuple(a.bbox),a.max_rows,a.source_url,
-                         a.window_start,a.window_end),indent=2))
+                         a.window_start,a.window_end,params_from_args(a)),indent=2))
 
 if __name__ == "__main__":
     main()

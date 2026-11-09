@@ -94,11 +94,21 @@
     "events": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Diagnostics from the shared segmentation engine (stationary-v0.2); counts are QA, not traffic statistics.",
       "required": [
         "vessels",
         "points",
-        "moving_or_invalid_points",
+        "moving_points",
+        "timestamp_conflicts",
+        "gap_splits",
+        "identity_conflicts",
+        "implausible_jumps",
+        "spatial_splits",
+        "discarded_groups",
         "stationary_candidates",
+        "discarded_by_reason",
+        "candidates_per_mmsi",
+        "unparsable_rows",
         "censoring",
         "warning"
       ],
@@ -111,7 +121,31 @@
           "type": "integer",
           "minimum": 0
         },
-        "moving_or_invalid_points": {
+        "moving_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gap_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "implausible_jumps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discarded_groups": {
           "type": "integer",
           "minimum": 0
         },
@@ -119,8 +153,50 @@
           "type": "integer",
           "minimum": 0
         },
-        "warning": {
-          "type": "string"
+        "discarded_by_reason": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "too_few_points",
+            "too_short",
+            "radius_exceeded"
+          ],
+          "properties": {
+            "too_few_points": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "too_short": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "radius_exceeded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "candidates_per_mmsi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max",
+            "mmsi_with_multiple"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mmsi_with_multiple": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unparsable_rows": {
+          "type": "integer",
+          "minimum": 0
         },
         "censoring": {
           "type": "object",
@@ -159,6 +235,9 @@
               "minimum": 0
             }
           }
+        },
+        "warning": {
+          "type": "string"
         }
       }
     },
@@ -166,27 +245,47 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "method_version",
         "max_sog_knots",
         "min_duration_minutes",
         "max_gap_minutes",
         "max_radius_m",
-        "min_points"
+        "min_points",
+        "max_jump_knots",
+        "parameter_set"
       ],
       "properties": {
+        "method_version": {
+          "const": "stationary-v0.2"
+        },
         "max_sog_knots": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         "min_duration_minutes": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "max_gap_minutes": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "max_radius_m": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "min_points": {
-          "type": "number"
+          "type": "integer",
+          "minimum": 2
+        },
+        "max_jump_knots": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "parameter_set": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
         }
       }
     },

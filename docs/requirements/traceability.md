@@ -63,3 +63,7 @@ The four previously indexed 2023 Federal Register Part 110 document texts were f
 ### SPEC-002: analysis-window censoring (BR-019, FR-021)
 
 `src/harborlens/censoring.py`, `ais.py` and `multiday.py` emit `left_censoring`/`right_censoring` per candidate plus `analysis_window` and `events.censoring` in both manifests. Evidence: synthetic tests in `tests/test_censoring.py` (edges, interior, unknown, sidecars, conflicts, truncation, internal gaps, schemas, CLI). Real-data censored shares have not been measured yet; the existing NOAA reports predate this rule.
+
+### SPEC-002: shared segmentation engine (FR-022, BR-003, #37; fixes #38)
+
+`src/harborlens/segmentation.py` is used by `ais.py` and `multiday.py`; `track_context.py` reads the candidates' `harborlens_method` block; `sensitivity.py` provides descriptive grids. Evidence: `tests/test_segmentation_engine.py` (single-file vs multi-day equivalence on a scenario that exercises every split and discard rule, non-default thresholds, parameter validation, track-context propagation, sensitivity schema). On the same scenario the previous code produced diverging candidates (vessel-type conflict ignored by the single-file command; a same-second fractional-timestamp candidate lost by the multi-day command).

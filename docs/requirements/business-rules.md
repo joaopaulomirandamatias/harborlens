@@ -6,7 +6,7 @@ The rules protect the integrity of scientific and operational claims. The baseli
 | --- | --- |
 | BR-001 | A stationary_candidate MUST NOT be interpreted as berth, anchorage, waiting, congestion or port call |
 | BR-002 | Naive NOAA BaseDateTime timestamps are interpreted as UTC; ISO UTC is exported |
-| BR-003 | v0.1 candidate requires >=8 points, SOG <=0.5 knots, duration >=30 minutes, <=15-minute gaps and <=1-km radius; thresholds are research hypotheses |
+| BR-003 | Default candidate thresholds (method `stationary-v0.2`): >=8 points, SOG <=0.5 knots, duration >=30 minutes, <=15-minute gaps, <=1-km radius and <=65-knot implied jumps; a vessel-type change splits a group. Thresholds are research hypotheses, configurable per run, and every candidate carries the `parameter_set` that produced it. They MUST NOT be tuned without independent labels |
 | BR-004 | Houston AOI is a research rectangle (-95.70,29.10,-94.20,30.10), not official port geometry |
 | BR-005 | Exact duplicates use MMSI, timestamp and coordinates rounded to 6 digits |
 | BR-006 | Invalid and out-of-zone observations MUST not enter the cleaned dataset |
