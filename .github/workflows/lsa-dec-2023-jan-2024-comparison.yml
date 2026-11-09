@@ -1,0 +1,22 @@
+name: GPO LSA source-index comparison (research)
+on:
+  push:
+    branches: [integration/govinfo-lsa-dec-jan-comparison]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install source comparison dependencies
+        run: python -m pip install -e . 'pypdf>=5,<7'
+      - name: Compare December and January original GovInfo LSA sources
+        run: python -m harborlens.lsa_compare --out results/govinfo-lsa-dec-jan.json
+      - name: Summarize source evidence
+        run: python -c "import json; d=json.load(open('results/govinfo-lsa-dec-jan.json')); print(json.dumps(d,indent=2))"
