@@ -1,7 +1,5 @@
 name: NOAA full observed-track/polygon integration (research only)
 on:
-  push:
-    branches: [integration/noaa-full-track-context]
   workflow_dispatch:
 permissions:
   contents: read
