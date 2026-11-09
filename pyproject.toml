@@ -21,6 +21,7 @@ harborlens-download-noaa = "harborlens.download:main"
 harborlens-verify = "harborlens.provenance:main"
 harborlens-fetch-erddap = "harborlens.erddap:main"
 harborlens-extract-noaa-archive = "harborlens.archive_extract:main"
+harborlens-multiday = "harborlens.multiday:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

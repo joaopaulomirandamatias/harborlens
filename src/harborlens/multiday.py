@@ -250,7 +250,7 @@ def run_multiday(
                 "max_gap_minutes": max_gap_minutes, "max_radius_m": max_radius_m,
                 "min_points": min_points, "max_jump_knots": max_jump_knots,
             }
-            _write_outputs(db, files, source_items, diagnostics, params, max_export_mib, db_path, max_scratch_mib)
+            _write_outputs(db, files, source_items, diagnostics, params, max_export_mib)
             result = {
                 "mode": "multi_day_historical", "schema_version": "multi-day-1.0",
                 "input_files": source_items, "bbox_lon_lat": list(bbox),
@@ -279,7 +279,7 @@ def run_multiday(
             db.close()
 
 
-def _write_outputs(db, files, sources, stats, params, export_cap_mib, db_path, scratch_cap_mib):
+def _write_outputs(db, files, sources, stats, params, export_cap_mib):
     max_bytes = export_cap_mib * 1048576
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
@@ -392,7 +392,7 @@ def _write_outputs(db, files, sources, stats, params, export_cap_mib, db_path, s
                 clean.flush()
                 if clean.tell() > max_bytes:
                     raise AISInputError("Multi-day cleaned CSV exceeded export byte cap")
-                _enforce_scratch_limit(db_path, scratch_cap_mib * 1048576)
+                _enforce_scratch_limit(Path(db.execute("PRAGMA database_list").fetchone()[2]), max_bytes * 4)
 
             if last_mmsi is not None and mmsi != last_mmsi:
                 finish_group()

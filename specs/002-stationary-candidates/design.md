@@ -16,3 +16,7 @@ Current memory-based per-MMSI sorter and deterministic rules; multi-day streamin
 ## Decisions and tradeoffs
 
 Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible uncertainty and independent reproducibility over premature complex infrastructure. Schema-breaking changes require a migration note and regression tests.
+
+## SQLite multi-day implementation (in review)
+
+The new separate command uses a temporary disk-backed SQLite observation index sorted by MMSI/time. Cross-file duplicate points retain both local-source fingerprints, and low-speed group membership is stored on disk. The emitted event is only a stationary candidate; explicit split diagnostics track gaps, identity conflicts, improbable jumps, collisions and spatial drift. Limits fail closed; no real multi-day performance or event ground truth has yet been measured.
