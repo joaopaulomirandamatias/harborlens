@@ -35,3 +35,7 @@ The [Government Publishing Office List of CFR Sections Affected (LSA)](https://w
 The four documents' results cannot substitute for an actual historical legal revision audit, source datum determination, expert reconstruction of the A East polygon, or independent vessel/terminal events. HarborLens continues to block historical AIS-to-regulatory-polygon joins.
 
 **NOT FOR NAVIGATION. NOT LEGAL CERTIFICATION.**
+
+## Official 2023 source verification completed
+
+A [controlled official original-text integration](fr-2023-original-fulltext-evidence-2026-11-09.md) verified all four original FederalRegister.gov records from the indexed 2023 period, with exact source hashes, geographic keyword flags and an explicitly non-certifying conclusion. The GPO LSA remains unreviewed for an exact historical rule analysis.

@@ -61,3 +61,6 @@
 
 - [x] Add fixed official full-text inspection for four 2023 Part 110 indexed documents with SHA-256, location/section search signals and source/redirect safeguards (pending PR CI).
 - [ ] Review GPO monthly LSA Title 33 and full FR effective-date/section amendments before concluding historical 2024-01-02 legal text.
+
+- [x] Verify the original FederalRegister.gov source text for all four July–December 2023 index entries, preserving metadata/raw text hashes and explicit region/110.197 keyword findings; see [engineering evidence](../../docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md).
+- [ ] Complete official GPO December 2023 LSA Title 33 section-level coverage and remaining effective-date verification before concluding January 2, 2024 legal status.

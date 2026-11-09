@@ -40,3 +40,7 @@ The source-pinned [official annual 2023/2024 CFR comparison](cfr-2023-2024-sourc
 **Next:** read the official full texts of all four indexed documents; cross-check GPO List of CFR Sections Affected (LSA), publication/effective dates and any relevant corrections; resolve missing A/B/C geodetic datum and A East invalid literal ring via Coast Guard materials and reviewer. Only independently reviewed, date-appropriate geometries may be considered for AIS spatial context, never automatic waiting/berthing confirmation.
 
 **NOT FOR NAVIGATION. NOT A LEGAL OPINION OR CONFIRMED PORT OPERATION EVIDENCE.**
+
+## Original full-text evidence
+
+The [official original-text inspection report](fr-2023-original-fulltext-evidence-2026-11-09.md) includes original URLs and SHA-256 for all four 2023 documents, with negative direct 110.197 and Houston/Galveston text hits. An API index with complete pages and texts still does not replace GPO LSA or authoritative legal effective-date review.

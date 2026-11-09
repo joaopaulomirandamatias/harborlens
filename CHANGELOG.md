@@ -70,3 +70,7 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 ### Source-pinned 2023/2024 Federal Register Part 110 index screening
 
 - Four Proposed Rule metadata entries returned from official FederalRegister.gov for the defined publication window; API page and report SHA-256 recorded. This is not a legal effect conclusion. See docs/data/fr-part110-real-index-2023-2024.md.
+
+### Federal Register original full-text evidence
+
+- Official 2023 source-metadata and raw-text hashes verified for four Part 110 index hits; no direct section 110.197 or Houston/Galveston text mentions in the four. [Source report](docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md). GPO LSA and exact January 2024 legal effect are still unverified.
