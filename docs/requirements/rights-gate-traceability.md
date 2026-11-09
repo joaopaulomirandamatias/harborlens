@@ -12,4 +12,4 @@
 - **Implemented:** conservative registry, offline audit helper, synthetic positive/negative/boundary tests, explicitly identified license evidence and unresolved source mismatch.
 - **Not implemented:** independent human decision for any source, adapter integrations, commercial licensing determination, data redistribution or historical geometry certification.
 - **Safety:** no event accuracy claims; no live navigation; no proprietary or raw data stored.
-- **Validation:** run `python -m unittest tests.test_rights -v` in the project environment. PR CI is the authoritative integration check.
+- **Validation:** run `python -m unittest discover -s tests -p 'test_rights.py' -v` in the project environment. PR CI is the authoritative integration check.
