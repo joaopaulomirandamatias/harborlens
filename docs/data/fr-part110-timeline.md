@@ -31,3 +31,7 @@ The CLI uses the fixed FederalRegister.gov public API with bounded query time, t
 - No AIS spatial join, official anchorage, berth occupancy, vessel waiting claim or navigation use is permitted by the tool.
 
 **Next engineering step:** review and cite each candidate official rule text, check the monthly LSA, and preserve the exact source/effective-date evidence before a qualified reviewer authorizes historic legal conclusions.
+
+## First official live index scan (2026-11-09)
+
+The [source-pinned research report](fr-part110-real-index-2023-2024.md) logs four Proposed Rule index entries returned for the study window, one official response-page hash and the JSON output hash. A fully returned search page is not a full legal timeline or verification of 33 CFR 110.197 on January 2, 2024.

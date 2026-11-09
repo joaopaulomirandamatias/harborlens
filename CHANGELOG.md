@@ -62,3 +62,7 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 ### Source-verification evidence for Galveston/Bolivar Roads legal anchors
 
 - GPO 2023/2024 annual CFR Title 33 full HTML checksums and all 16 regulatory corner pairs matched; legal scope remains annual-edition dated, A/B/C datum unspecified, A East literal ring flagged. See docs/data/cfr-2023-2024-source-verification.md.
+
+### Source-pinned 2023/2024 Federal Register Part 110 index screening
+
+- Four Proposed Rule metadata entries returned from official FederalRegister.gov for the defined publication window; API page and report SHA-256 recorded. This is not a legal effect conclusion. See docs/data/fr-part110-real-index-2023-2024.md.

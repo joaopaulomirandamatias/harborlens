@@ -47,3 +47,7 @@ The official annual July 1, 2024 [33 CFR §110.197](../data/cfr-2024-galveston-a
 ### Official 2023/2024 regulatory coordinate consistency
 
 A [GPO official-source engineering scan](../data/cfr-2023-2024-source-verification.md) independently retrieved both annual Title 33 source documents and matched 16/16 DMS coordinate pairs from 33 CFR 110.197. This does not resolve WGS84 datum conversions, A East topology or exact January 2024 legal effect; spatial joins remain blocked.
+
+### Official Federal Register Part 110 index evidence
+
+The bounded [2023-07-01 to 2024-01-02 source query](../data/fr-part110-real-index-2023-2024.md) returned four proposed-rule index entries. Full official FR/LSA text/effective-date verification is still required; no legal or operational event status was upgraded.
