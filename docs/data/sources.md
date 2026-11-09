@@ -22,3 +22,7 @@ The [PMEL AIS2024_AIS dataset](https://data.pmel.noaa.gov/pmel/erddap/info/AIS20
 ## High-frequency historical tracks (to be validated)
 
 The [official NOAA daily Zstandard index for 2024](https://noaaocm.blob.core.windows.net/ais/csv2/csv2024/index.html) exposes nationwide daily archives. Use the [bounded archive extractor](noaa-archive-extraction.md) to select a Houston time window, preserving source hashes and rights status. The PMEL ERDDAP subset was operational in November 2026 but preliminary runs returned at most one observation per MMSI in tested time ranges, so its results are not sufficient to support dwell-time inference. One original NOAA daily file was processed successfully for a six-hour Houston subset, but continuity across days, coverage completeness and operational event truth remain unvalidated. See [integration evidence](noaa-real-data-smoke-2024-01-02.md).
+
+## USACE official navigation facilities — point data
+
+The [USDOT BTS Navigation Facilities catalog](https://catalog.data.gov/dataset/docks) is a public USACE-sourced point layer updated September 2026. An optional [bounded ArcGIS connector](usace-geography.md) downloads only geographic POINT references with a metadata checksum; no inferred berth polygons, geofence labels or event validity are claimed. [NOAA ENC Direct to GIS](https://www.nauticalcharts.noaa.gov/data/gis-data-and-services.html) supplies separate S-57 coastal features to evaluate for polygon source selection.

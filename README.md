@@ -21,3 +21,7 @@ A bounded, explicit NOAA PMEL ERDDAP client is documented in [NOAA subset acquis
 ## Reproducible daily NOAA extraction
 
 For temporal trajectories use authorized daily historical compressed archives rather than assuming a PMEL ERDDAP query yields multiple points per MMSI. The opt-in [daily archive extractor](docs/data/noaa-archive-extraction.md) streams a source archive and writes only a bounded geographic/time subset with source hashes. A one-day national archive has now been processed successfully in an isolated research workflow; the detected candidate events are **not** externally validated. See [real-data integration results](docs/data/noaa-real-data-smoke-2024-01-02.md).
+
+## Official facility point references (SPEC-004)
+
+The optional [USACE Navigation Facilities point catalog](docs/data/usace-geography.md) provides a bounded, source-pinned Houston facility reference dataset. **These are points, not dated berth or anchorage polygons.** They are not sufficient to verify stationary candidates as waiting, berthing or port calls.

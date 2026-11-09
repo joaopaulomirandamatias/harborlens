@@ -16,3 +16,7 @@ Use versioned EPSG:4326 polygons with source/validity dates; spatial joins and e
 ## Decisions and tradeoffs
 
 Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible uncertainty and independent reproducibility over premature complex infrastructure. Schema-breaking changes require a migration note and regression tests.
+
+## Initial implementation: facility point reference catalog
+
+Use a fixed USACE-hosted ArcGIS FeatureServer Layer 0 query, with WGS84 output, strict geographical filtering, deterministic pagination, a maximum number of features and a JSON sidecar carrying the request URLs, retrieval time, SHA-256 and rights status. These are POINT references, not polygons; nearest-point calculations do not establish berth occupancy. Dated authoritative polygon import and independent event validation will be separate changes.
