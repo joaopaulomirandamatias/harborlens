@@ -1,0 +1,60 @@
+name: NOAA Anchorage Polygon GIS Integration (research only)
+on:
+  push:
+    branches: [integration/noaa-anchorage-geometry]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  houston-anchorages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install GIS validation
+        run: python -m pip install -e '.[geo,dev]'
+      - name: Fetch bounded NOAA designated anchorage polygons
+        run: |
+          harborlens-fetch-noaa-anchorages \
+            --bbox -95.70 29.10 -94.20 30.10 \
+            --max-features 500 \
+            --out data/houston-noaa-anchorage-areas.geojson
+      - name: Validate contracts, report aggregate-only results
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from collections import Counter
+          from jsonschema import Draft202012Validator,FormatChecker
+
+          file=Path('data/houston-noaa-anchorage-areas.geojson')
+          layer=json.loads(file.read_text())
+          provenance=json.loads(file.with_name(file.name+'.source.json').read_text())
+          gs=json.loads(Path('schemas/v1/noaa-anchorage-collection.schema.json').read_text())
+          ps=json.loads(Path('schemas/v1/noaa-anchorage-source.schema.json').read_text())
+          Draft202012Validator(gs,format_checker=FormatChecker()).validate(layer)
+          Draft202012Validator(ps,format_checker=FormatChecker()).validate(provenance)
+          assert hashlib.sha256(file.read_bytes()).hexdigest()==provenance['output_sha256']
+          counter=Counter(x['geometry']['type'] for x in layer['features'])
+          summary={
+              'features':len(layer['features']),
+              'polygon_shapes':dict(counter),
+              'source_request_count':len(provenance['query_urls']),
+              'source_layer':'NOAA OceanReports Designated Anchorage Areas',
+              'output_sha256':provenance['output_sha256'],
+              'source_rights_status':provenance['rights_status'],
+              'historical_validity':provenance['historical_validity'],
+              'geometry_review_status':provenance['geometry_review_status'],
+              'port_event_inference':'NOT VERIFIED'
+          }
+          print(json.dumps(summary,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+              output.write('### NOAA Houston designated Anchorage Area polygons\n\n')
+              output.write('Current reference geometry only; not dated 2024 truth or safe navigation. '
+                           'No source polygons, AIS or private data are committed or uploaded.\n\n')
+              for k,v in summary.items():
+                  output.write(f'- **{k}**: {v}\n')
+          PY
