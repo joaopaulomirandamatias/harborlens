@@ -1,7 +1,5 @@
 name: NOAA historical geometry vintage screening (research only)
 on:
-  push:
-    branches: [integration/noaa-geometry-vintage-audit]
   workflow_dispatch:
 permissions:
   contents: read
