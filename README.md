@@ -37,3 +37,7 @@ The opt-in [USACE Navigation Facilities point catalog](docs/data/usace-geography
 ### First real official USACE facility reference-point sample
 
 A bounded USACE-associated FeatureServer query produced 723 POINT records in the Houston research rectangle, including 536 with type Dock. These are reference points, not historical berth polygons or verified AIS events. See [real engineering report](docs/data/usace-points-smoke-2026-11-09.md).
+
+## NOAA designated anchorage polygons
+
+The opt-in [NOAA polygon source and conservative AIS centroid overlay](docs/data/noaa-anchorages.md) provide reference-only spatial context. Historical validity and confirmed berth/anchorage/waiting status are NOT established.

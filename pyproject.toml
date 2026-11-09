@@ -14,6 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 noaa = ["zstandard>=0.22"]
 dev = ["pytest>=8", "jsonschema>=4"]
+geo = ["shapely>=2.0,<3"]
 
 [project.scripts]
 harborlens = "harborlens.cli:main"
@@ -23,6 +24,8 @@ harborlens-fetch-erddap = "harborlens.erddap:main"
 harborlens-extract-noaa-archive = "harborlens.archive_extract:main"
 harborlens-multiday = "harborlens.multiday:main"
 harborlens-fetch-usace = "harborlens.usace:main"
+harborlens-fetch-noaa-anchorages = "harborlens.noaa_anchorages:main"
+harborlens-zone-context = "harborlens.zone_context:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

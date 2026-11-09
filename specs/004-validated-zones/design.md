@@ -20,3 +20,7 @@ Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible 
 ## Initial implementation: facility point reference catalog
 
 Use a fixed USACE-hosted ArcGIS FeatureServer Layer 0 query, with WGS84 output, strict geographical filtering, deterministic pagination, a maximum number of features and a JSON sidecar carrying the request URLs, retrieval time, SHA-256 and rights status. These are POINT references, not polygons; nearest-point calculations do not establish berth occupancy. Dated authoritative polygon import and independent event validation will be separate changes.
+
+## Proposed NOAA Polygon context
+
+An opt-in source-pinned NOAA polygon feature importer uses bounded ArcGIS object IDs and validates Shapely topology. A separate local overlay maps only unvalidated candidate centroids and reports ambiguous or provisional context. NOAA current source geometry is not verified for 2024 operational activity.

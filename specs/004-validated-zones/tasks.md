@@ -20,3 +20,7 @@
 
 - [x] Perform a bounded official Houston USACE point acquisition, three-page query, output SHA-256 and metadata schema validation (2026-11-09; source-pinned report).
 - [ ] Obtain historically valid authoritative berth/anchorage polygons from NOAA/USACE, with source attribution and reviewer approval.
+
+- [x] Implement bounded NOAA designated anchorage Polygon import and synthetic tests (PR review pending).
+- [x] Implement centroid spatial overlap with holes, boundaries, ambiguity and unknown semantics (PR review pending).
+- [ ] Verify historically dated geometry, source terms and independent operational event labels.

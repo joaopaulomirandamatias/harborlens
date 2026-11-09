@@ -15,3 +15,7 @@ No row marked **Partial** or **Proposed** is evidence of delivered functionality
 ### SPEC-004 official point-source integration
 
 A bounded real USACE FeatureServer acquisition passed with 723 reference points and matching source/GeoJSON schemas; see [source-pinned report](../data/usace-points-smoke-2026-11-09.md). This does not satisfy dated Polygon or independent event validation requirements.
+
+### NOAA polygons for SPEC-004
+
+Current Polygon reference import and unverified centroid overlap supplement the USACE point catalog; historical and event validity remain pending.

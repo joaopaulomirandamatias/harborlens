@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/noaa-anchorage-source.schema.json",
+  "title": "NOAA designated anchorage polygon source receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_agency",
+    "service_url",
+    "query_urls",
+    "geometry_type",
+    "bbox_lon_lat",
+    "epsg",
+    "retrieved_at_utc",
+    "feature_count",
+    "output_sha256",
+    "rights_status",
+    "historical_validity",
+    "geometry_review_status",
+    "warning"
+  ],
+  "properties": {
+    "source_agency": {
+      "const": "NOAA"
+    },
+    "service_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "query_urls": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "geometry_type": {
+      "const": "Polygon/MultiPolygon"
+    },
+    "bbox_lon_lat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "epsg": {
+      "const": 4326
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "feature_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "output_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "historical_validity": {
+      "const": "not_verified"
+    },
+    "geometry_review_status": {
+      "const": "unreviewed"
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
