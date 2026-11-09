@@ -42,3 +42,7 @@ Treat these locations as **background/reference points only** on a future map. T
 - Keep \`rights_status=review_required\` until source-specific terms and attribution are reviewed.
 
 **NOT FOR NAVIGATION. NOT A SAFETY, PORT CONTROL OR GOVERNMENT ENDORSEMENT TOOL.**
+
+## Live source smoke completed on 2026-11-09 UTC
+
+The source-pinned [real Houston point-catalog integration report](usace-points-smoke-2026-11-09.md) describes 723 POINT records, three query pages, source hash, schema verification and provenance. No dated berth polygons or confirmed operational labels were obtained.

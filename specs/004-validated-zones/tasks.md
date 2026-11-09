@@ -17,3 +17,6 @@
 
 - [x] Add bounded USACE point importer, source metadata, schemas and offline tests (pending PR review).
 - [ ] Run controlled live official Houston query, record only aggregate evidence, confirm source validity and rights.
+
+- [x] Perform a bounded official Houston USACE point acquisition, three-page query, output SHA-256 and metadata schema validation (2026-11-09; source-pinned report).
+- [ ] Obtain historically valid authoritative berth/anchorage polygons from NOAA/USACE, with source attribution and reviewer approval.

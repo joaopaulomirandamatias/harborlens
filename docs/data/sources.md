@@ -30,3 +30,7 @@ Two authentic NOAA 2024 daily archives were processed in an isolated runner; see
 ## Official USACE Navigation Facilities POINT catalogue
 
 The [USDOT/BTS public catalog](https://catalog.data.gov/dataset/docks) attributes the Navigation Facilities dataset to USACE. Its point layer is accessible via a [bounded, opt-in ArcGIS connector](usace-geography.md). Features are reference points only and should not be treated as dated polygons. Any applicable source terms, historic validity and event truth require separate review. NOAA ENC Direct to GIS is a separate source to evaluate for true maritime area polygons.
+
+### Official USACE facility POINT retrieval evidence
+
+A bounded Houston query on 2026-11-09 returned 723 reference points and a verified GeoJSON digest. Details and source caveats are recorded in [the integration report](usace-points-smoke-2026-11-09.md).

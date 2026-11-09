@@ -33,3 +33,7 @@ An isolated GitHub Actions run successfully processed two authentic NOAA daily a
 ## Official USACE facility reference points (SPEC-004)
 
 The opt-in [USACE Navigation Facilities point catalog](docs/data/usace-geography.md) retrieves bounded public reference **points**, not dated berthing or anchorage polygons. A proximity or point overlay cannot establish berth, anchorage waiting or verified port calls.
+
+### First real official USACE facility reference-point sample
+
+A bounded USACE-associated FeatureServer query produced 723 POINT records in the Houston research rectangle, including 536 with type Dock. These are reference points, not historical berth polygons or verified AIS events. See [real engineering report](docs/data/usace-points-smoke-2026-11-09.md).
