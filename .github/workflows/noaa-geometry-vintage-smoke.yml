@@ -1,0 +1,71 @@
+name: NOAA historical geometry vintage screening (research only)
+on:
+  push:
+    branches: [integration/noaa-geometry-vintage-audit]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit-noaa-current-polygons-for-historical-study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install source and schema dependencies
+        run: python -m pip install -e '.[geo,dev]'
+      - name: Acquire bounded official NOAA current polygon snapshot
+        run: |
+          harborlens-fetch-noaa-anchorages \
+            --bbox -95.70 29.10 -94.20 30.10 \
+            --out data/houston-noaa-current-anchorage.geojson \
+            --max-features 500
+      - name: Audit January 2024 geometry-vintage evidence
+        run: |
+          harborlens-geometry-vintage \
+            --polygons data/houston-noaa-current-anchorage.geojson \
+            --start 2024-01-02T00:00:00Z \
+            --end 2024-01-02T06:00:00Z \
+            --out results/2024-geometry-vintage-audit.json
+      - name: Verify schema and report non-certification only
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from jsonschema import Draft202012Validator, FormatChecker
+
+          report=Path('results/2024-geometry-vintage-audit.json')
+          audit=json.loads(report.read_text())
+          schema=json.loads(Path('schemas/v1/geometry-vintage-audit.schema.json').read_text())
+          Draft202012Validator(schema,format_checker=FormatChecker()).validate(audit)
+          polygon=Path('data/houston-noaa-current-anchorage.geojson')
+          receipt=Path(str(polygon)+'.source.json')
+          assert hashlib.sha256(polygon.read_bytes()).hexdigest()==audit['polygon_sha256']
+          assert hashlib.sha256(receipt.read_bytes()).hexdigest()==audit['polygon_receipt_sha256']
+          assert audit['historical_geometry_validity']=='not_verified'
+          assert audit['operational_event_validation']=='not_verified'
+          assert audit['source_rights']=='review_required'
+          assert audit['date_assessment']=='no_documentary_enc_evidence'
+
+          summary={
+            'source_layer':'NOAA OceanReports current Anchorage Area polygons',
+            'study_window':audit['study_window_utc'],
+            'geometry_sha256':audit['polygon_sha256'],
+            'source_receipt_sha256':audit['polygon_receipt_sha256'],
+            'source_retrieved_at_utc':audit['source_retrieved_at_utc'],
+            'document_date_assessment':audit['date_assessment'],
+            'historical_polygon_validity':audit['historical_geometry_validity'],
+            'operational_event_validation':audit['operational_event_validation'],
+            'rights_status':audit['source_rights'],
+            'schema_validation':'PASS',
+            'input_file_integrity':'PASS'
+          }
+          print(json.dumps(summary,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+              output.write('### NOAA current geometry checked against a 2024 study window\n\n')
+              output.write('Documentary screening only; no archival ENC cell, no proven 2024 polygons and no AIS records or coordinates are uploaded.\n\n')
+              for key,value in summary.items():
+                  output.write(f'- **{key}**: {value}\n')
+          PY
