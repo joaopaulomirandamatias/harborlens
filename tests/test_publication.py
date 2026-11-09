@@ -30,6 +30,7 @@ from harborlens.publication import (
 )
 from harborlens.rights import rights_receipt
 from harborlens.review_signatures import public_key_fingerprint, review_message
+from harborlens.release_verify import verify_release
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -457,6 +458,30 @@ class PublicationGateTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             release_main(cmd)
         self.assertTrue(self.out.exists())
+
+    def test_independent_verifier_accepts_producer_output(self):
+        """Verifier must accept actual output, not only handcrafted JSON."""
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.approve(summary)
+        self.produce()
+        pinned_registry = hashlib.sha256(self.registry.read_bytes()).hexdigest()
+        result = verify_release(
+            self.out,
+            rights_register=self.registry,
+            expected_rights_register_sha256=pinned_registry,
+            trusted_public_key=self.trusted_key,
+            expected_public_key_sha256=self.trusted_key_sha256,
+            expected_reviewer_id="sample-reviewer",
+            expected_purpose="public_aggregates",
+            expected_source_id="noaa_pmel_erddap",
+            expected_dataset_version="AIS2024_AIS",
+            expected_run_id=summary["run_id"],
+            expected_summary_sha256=summary_sha256(summary),
+        )
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verification_scope"], "signed_release_and_pinned_rights_only")
+
 
 
 if __name__ == "__main__":

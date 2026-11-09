@@ -31,3 +31,9 @@
 - **BR-015/BR-016, NFR-013/NFR-019:** release staging now demands signature verification against a reviewer public key whose SHA-256 fingerprint and identity are specified independently; unsigned/altered decisions are denied.
 - **Evidence:** `src/harborlens/review_signatures.py`, `tests/test_review_signatures.py`, extended `tests/test_publication.py`, review/release schemas and `docs/data/signed-release-review.md`.
 - **External governance still required:** secure private-key custody, pin-distribution, key revocation and authoritative rights/legal/privacy decisions; no certified operational claims.
+
+## Independent signed-release verification (SPEC-003; stacked after #62)
+
+- **FR-010 / BR-015, BR-016 / NFR-013, NFR-019:** the verifier re-evaluates source rights under an externally pinned registry fingerprint, validates signed human review against independently pinned key/identity, and recomputes the allowlisted aggregate digest without AIS data.
+- **Evidence:** `src/harborlens/release_verify.py`, `tests/test_release_verify.py`, `schemas/v1/release-verification-result.schema.json`, `docs/data/independent-release-verification.md`, and real-producer synthetic interoperability test in `tests/test_publication.py`.
+- **Residual:** upstream AIS truth, independent legal permission, privacy risk, revocation, trusted key registry, authentic rights-register signer, and organization-wide release enforcement remain open.

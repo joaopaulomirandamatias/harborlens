@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: independent signed aggregate verification)
+- New offline, read-only `harborlens-verify-release` CLI validates exact allowlisted summary structure, canonical digest, signed reviewer claims, independent key/identity pins, purpose-specific rights against an out-of-band pinned registry, and aggregate safeguards without needing raw AIS. Includes strict input handling, synthetic adversarial tests, independent-verifier output JSON Schema and no-certification warnings.
+
+
 ### Security (SPEC-003: cryptographically signed reviewer approval)
 - Require Ed25519 signature verification for aggregate release staging, including independently pinned reviewer public-key fingerprint and identity. Unsigned, altered or mismatched review JSON fails closed; offline synthetic key/signature attack tests and updated schemas/docs. No real data rights are granted.
 

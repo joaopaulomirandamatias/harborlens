@@ -66,3 +66,7 @@ The signing key is not needed by the publisher; only the public key is. The sour
 - Aggregate suppression floors are preliminary safeguards, not proof of anonymity. No raw AIS, verified event, berth, waiting time, geofence certification or navigation claim is granted.
 
 **NOT FOR NAVIGATION. No real-source release is approved by this implementation.**
+
+## Independent verification after staging
+
+A recipient can run [`harborlens-verify-release`](independent-release-verification.md) on the locally staged report, with reviewer public-key information and an authorized rights-register snapshot **obtained independently** of that report. This verifies the signed claims and pinned source-rights decision, but not original AIS truth, licensing legality or anonymity. No data upload is performed.

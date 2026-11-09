@@ -48,3 +48,9 @@
 - [x] Add Ed25519 release approval verification, pinned SPKI fingerprint and expected reviewer ID; deny unsigned/mismatched claims (pending PR independent review and CI).
 - [x] Add synthetic positive/negative cryptographic regression tests and updated JSON Schemas, CLI and signing documentation.
 - [ ] Establish institution-controlled reviewer key custody, trust-root distribution, rotation and independent source-rights verification before real publication.
+
+## Independent aggregate-release verification
+
+- [x] Add offline read-only verification CLI with pinned reviewer identity/SPKI fingerprint, pinned registry digest, explicit expected source/version/purpose, canonical summary hash and strict field allowlist (pending code review and CI).
+- [x] Exercise legitimate synthetic signed releases, source/reviewer/report tampering, invalid/expired decisions, revoked rights, duplicate keys, weak aggregates, and producer/verifier interoperability.
+- [ ] Confirm CI and independent security/rights review; organize institutional trust distribution and revocation before any real publication.
