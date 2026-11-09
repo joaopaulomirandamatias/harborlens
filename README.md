@@ -41,3 +41,7 @@ A bounded USACE-associated FeatureServer query produced 723 POINT records in the
 ## NOAA designated anchorage polygons
 
 The opt-in [NOAA polygon source and conservative AIS centroid overlay](docs/data/noaa-anchorages.md) provide reference-only spatial context. Historical validity and confirmed berth/anchorage/waiting status are NOT established.
+
+### Verified NOAA anchorage polygon API integration (current reference only)
+
+An isolated engineering smoke retrieved 6 current NOAA Anchorage Area polygons and compared their geometries to 920 historical provisional AIS candidate centroids: 77 possible single overlaps and 843 no overlaps. No historical or operational validity is established. See [combined integration report](docs/data/noaa-anchorage-real-smoke-2026-11-09.md).

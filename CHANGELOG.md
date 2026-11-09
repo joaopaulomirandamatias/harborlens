@@ -34,3 +34,7 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 ### Verified geospatial source integration
 
 - Initial bounded USACE Navigation Facilities POINT catalog query for Houston: 723 features and 536 Dock records; output SHA-256 and schema checks passed; no dated berth polygon or confirmed port-event status. See docs/data/usace-points-smoke-2026-11-09.md.
+
+### Verified engineering integration of NOAA reference polygons
+
+- Source-pinned NOAA Designated Anchorage Areas real-data query and historical AIS candidate centroid overlay completed. Six current areas, 920 unvalidated candidates, 77 possible centroid overlaps; no historical anchorage or waiting truth established. See docs/data/noaa-anchorage-real-smoke-2026-11-09.md.
