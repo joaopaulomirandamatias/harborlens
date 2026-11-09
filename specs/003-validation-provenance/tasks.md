@@ -1,9 +1,9 @@
 # SPEC-003: Implementation Work Items
 
-**State:** PROPOSED. Checking a task requires traceable PR/test evidence.
+**State:** PARTIAL — local provenance, labeling and evaluation tooling; no labels collected. Checking a task requires traceable PR/test evidence.
 
 - [ ] Ingest and checksum authorized NOAA sample
-- [ ] Review and merge output-hash and local-verification implementation (PR pending)
+- [x] Output-hash and local-verification implementation (merged in #18)
 - [ ] Independently confirm source rights and dataset provenance before distribution
 - [ ] Create annotation guide and >=100 pilot samples with negatives
 - [ ] Implement metrics and confidence intervals

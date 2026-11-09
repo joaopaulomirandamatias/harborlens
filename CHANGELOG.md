@@ -53,22 +53,17 @@
 ### Added (SPEC-004 official Federal Register text triage)
 - Fixed-list full-text source verification of four 2023 Federal Register Part 110 index documents; official metadata/bytes hashed, source links restricted and relevance flags non-certifying.
 
-
 ### Added (SPEC-004: official 2024 CFR anchorages)
 - Source-pinned July 1, 2024 federal 33 CFR 110.197 Galveston anchorage DMS registry and fail-closed topology/datum inspection. A/B/C lack explicit NAD83 status; A East literal corner order fails Polygon validity. No guessed WGS84 geometry or operational classification.
-
 
 ### Added (SPEC-004 observed-track evidence)
 - Local Shapely/SQLite full-track vs Polygon reference context with interval/cardinality checks, historic-vintage flags, source receipt hashes, strictly unverified statuses and synthetic/schema tests.
 
-
 ### Added (SPEC-004: NOAA Polygon reference)
 - Opt-in NOAA designated anchorage polygon source, conservative candidate spatial-context overlay and synthetic geometry regression tests. No event confirmation.
 
-
 ### Added (SPEC-004: initial)
 - Bounded opt-in official USACE point-feature reference import with output/source hashes, contracts and synthetic regression tests; no inferred berth polygons or port-event truth.
-
 
 ### Added
 - SQLite-based multi-day AIS candidate reconstruction with source provenance, cross-midnight grouping and bounded local processing.
@@ -78,6 +73,39 @@
 ### Limitations
 - Historical candidate segments have no independently validated berth, anchorage, waiting-time or emissions interpretation.
 
+### Recorded integration evidence (2026-11-09; previously filed under 0.1.0)
+
+#### USACE facility point source integration (evidence)
+
+- Initial bounded USACE Navigation Facilities POINT catalog query for Houston: 723 features and 536 Dock records; output SHA-256 and schema checks passed; no dated berth polygon or confirmed port-event status. See docs/data/usace-points-smoke-2026-11-09.md.
+
+#### NOAA reference polygon integration (evidence)
+
+- Source-pinned NOAA Designated Anchorage Areas real-data query and historical AIS candidate centroid overlay completed. Six current areas, 920 unvalidated candidates, 77 possible centroid overlaps; no historical anchorage or waiting truth established. See docs/data/noaa-anchorage-real-smoke-2026-11-09.md.
+
+#### First authentic full-track Polygon geometric comparison
+
+- NOAA 2024-01-02 historical AIS and six current NOAA reference polygons: 920 unvalidated candidate segments; 74 with all observed points within one polygon, 5 with partial point coverage and 841 without observed-point overlap. [Source-pinned evidence](docs/data/noaa-full-track-context-smoke-2026-11-09.md). Operational event and historical polygon validity remain unverified.
+
+#### Added (SPEC-004: historical source-vintage screening)
+
+- Offline NOAA ENC documentary date audit checks current polygon/source hashes and optional unverified ENC metadata; all outputs deny automatic historical certification and retain review_required rights.
+
+#### NOAA historical geometry vintage source smoke
+
+- Official current NOAA Anchorage Areas Polygon retrieval, source checksum and documentary January 2024 audit passed with non-certifying no_documentary_enc_evidence status. See docs/data/noaa-geometry-vintage-smoke-2026-11-09.md.
+
+#### Source-verification evidence for Galveston/Bolivar Roads legal anchors
+
+- GPO 2023/2024 annual CFR Title 33 full HTML checksums and all 16 regulatory corner pairs matched; legal scope remains annual-edition dated, A/B/C datum unspecified, A East literal ring flagged. See docs/data/cfr-2023-2024-source-verification.md.
+
+#### Source-pinned 2023/2024 Federal Register Part 110 index screening
+
+- Four Proposed Rule metadata entries returned from official FederalRegister.gov for the defined publication window; API page and report SHA-256 recorded. This is not a legal effect conclusion. See docs/data/fr-part110-real-index-2023-2024.md.
+
+#### Federal Register original full-text evidence
+
+- Official 2023 source-metadata and raw-text hashes verified for four Part 110 index hits; no direct section 110.197 or Houston/Galveston text mentions in the four. [Source report](docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md). GPO LSA and exact January 2024 legal effect are still unverified.
 
 Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
@@ -90,35 +118,3 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 
 ### Limitations
 - Tested only with fictional AIS data. No actual vessel, port waiting, berth, anchorage, emissions, real-world accuracy or commercial service is verified.
-
-### Verified geospatial source integration
-
-- Initial bounded USACE Navigation Facilities POINT catalog query for Houston: 723 features and 536 Dock records; output SHA-256 and schema checks passed; no dated berth polygon or confirmed port-event status. See docs/data/usace-points-smoke-2026-11-09.md.
-
-### Verified engineering integration of NOAA reference polygons
-
-- Source-pinned NOAA Designated Anchorage Areas real-data query and historical AIS candidate centroid overlay completed. Six current areas, 920 unvalidated candidates, 77 possible centroid overlaps; no historical anchorage or waiting truth established. See docs/data/noaa-anchorage-real-smoke-2026-11-09.md.
-
-### First authentic full-track Polygon geometric comparison
-
-- NOAA 2024-01-02 historical AIS and six current NOAA reference polygons: 920 unvalidated candidate segments; 74 with all observed points within one polygon, 5 with partial point coverage and 841 without observed-point overlap. [Source-pinned evidence](docs/data/noaa-full-track-context-smoke-2026-11-09.md). Operational event and historical polygon validity remain unverified.
-
-### Added (SPEC-004: historical source-vintage screening)
-
-- Offline NOAA ENC documentary date audit checks current polygon/source hashes and optional unverified ENC metadata; all outputs deny automatic historical certification and retain review_required rights.
-
-### NOAA historical geometry vintage source smoke
-
-- Official current NOAA Anchorage Areas Polygon retrieval, source checksum and documentary January 2024 audit passed with non-certifying no_documentary_enc_evidence status. See docs/data/noaa-geometry-vintage-smoke-2026-11-09.md.
-
-### Source-verification evidence for Galveston/Bolivar Roads legal anchors
-
-- GPO 2023/2024 annual CFR Title 33 full HTML checksums and all 16 regulatory corner pairs matched; legal scope remains annual-edition dated, A/B/C datum unspecified, A East literal ring flagged. See docs/data/cfr-2023-2024-source-verification.md.
-
-### Source-pinned 2023/2024 Federal Register Part 110 index screening
-
-- Four Proposed Rule metadata entries returned from official FederalRegister.gov for the defined publication window; API page and report SHA-256 recorded. This is not a legal effect conclusion. See docs/data/fr-part110-real-index-2023-2024.md.
-
-### Federal Register original full-text evidence
-
-- Official 2023 source-metadata and raw-text hashes verified for four Part 110 index hits; no direct section 110.197 or Houston/Galveston text mentions in the four. [Source report](docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md). GPO LSA and exact January 2024 legal effect are still unverified.

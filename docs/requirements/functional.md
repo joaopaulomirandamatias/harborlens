@@ -13,8 +13,8 @@
 | FR-007 | P0 | Prohibit claiming an inferred candidate as verified berth, anchorage, waiting or port call | Synthetic implementation | SPEC-002 |
 | FR-008 | P0 | Expose optional AOI/row limits; perform no network access on installation or ordinary CLI execution | Synthetic implementation | SPEC-001 |
 | FR-009 | P1 | Join consecutive days without corrupting event continuity; track conflicting MMSI and gaps | Implemented in initial two-day research pipeline; real event accuracy requires independent validation | SPEC-002 |
-| FR-010 | P1 | Publish source snapshots with URL, dataset/vintage, file hash, rights and output fingerprints | Proposed | SPEC-003 |
-| FR-011 | P1 | Load externally verified dated geofences for facilities and anchorage areas | Partial: bounded USACE facility point adapter, with dated polygon validation still pending | SPEC-004 |
+| FR-010 | P1 | Publish source snapshots with URL, dataset/vintage, file hash, rights and output fingerprints | Partial: local output hashes and `harborlens-verify` (#18), hashed acquisition sidecars with vintage (#19, #20), `code_version` in manifests; rights review pending (#42) | SPEC-003 |
+| FR-011 | P1 | Load externally verified dated geofences for facilities and anchorage areas | Partial: USACE facility points, current NOAA anchorage polygons and audited 33 CFR 110.197 coordinates; no reviewed dated WGS84 polygon yet | SPEC-004 |
 | FR-012 | P1 | Assign unknown rather than false berth/anchor states; require external event validation for authoritative labels | Proposed | SPEC-004 |
 | FR-013 | P1 | Assess predicted events against documented independent positive and negative labels | Partial: labeling protocol, blinded stratified sampler, agreement and evaluator tooling (synthetic tests); no labels collected yet | SPEC-003 |
 | FR-014 | P1 | Produce reproducible metrics with denominators, version, coverage, error and unknown percentage | Partial: `harborlens-evaluate` report (synthetic tests); no real labels evaluated | SPEC-003 |

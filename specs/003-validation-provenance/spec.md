@@ -1,6 +1,6 @@
 # SPEC-003: Independent event validation and data lineage
 
-**Status:** PROPOSED · **Created:** 2026-11-08.
+**Status:** PARTIAL — local provenance, labeling and evaluation tooling; no labels collected · **Created:** 2026-11-08; **Updated:** 2026-11-09.
 
 ## Problem / user story
 

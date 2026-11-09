@@ -1,6 +1,6 @@
 # SPEC-002: Technical Design
 
-**State:** PARTIAL — SYNTHETIC ONLY
+**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured
 
 ## Architecture and approach
 
@@ -17,7 +17,7 @@ Current memory-based per-MMSI sorter and deterministic rules; multi-day streamin
 
 Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible uncertainty and independent reproducibility over premature complex infrastructure. Schema-breaking changes require a migration note and regression tests.
 
-## SQLite multi-day implementation (in review)
+## SQLite multi-day implementation (merged in #22)
 
 The new separate command uses a temporary disk-backed SQLite observation index sorted by MMSI/time. Cross-file duplicate points retain both local-source fingerprints, and low-speed group membership is stored on disk. The emitted event is only a stationary candidate; explicit split diagnostics track gaps, identity conflicts, improbable jumps, collisions and spatial drift. Limits fail closed; processing time and process RSS were measured for one authentic two-day sample; event ground truth remains unmeasured.
 
