@@ -203,7 +203,7 @@ class IndependentReleaseVerificationTests(unittest.TestCase):
         self._sign_and_write()
         with self.assertRaisesRegex(ReleaseVerificationError, "signature"):
             self.verify(expected_public_key_sha256="f" * 64)
-        with self.assertRaisesRegex(ReleaseVerificationError, "signature"):
+        with self.assertRaisesRegex(ReleaseVerificationError, "reviewer"):
             self.verify(expected_reviewer_id="attacker")
 
     def test_untrusted_rights_registry_fails_even_if_report_is_signed(self):
