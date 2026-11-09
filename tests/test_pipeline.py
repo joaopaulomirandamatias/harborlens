@@ -16,7 +16,7 @@ class HarborLensTests(unittest.TestCase):
         self.assertGreater(haversine_m((-95,29),(-95,30)),100000)
     def test_synthetic_data(self):
         result=run(FIXTURE,self.work/"out")
-        self.assertEqual(result["counts"],{"total":63,"in_bbox":61,"invalid":1,"outside_bbox":1,"duplicate":1,"written":60})
+        self.assertEqual(result["counts"],{"total":63,"in_bbox":61,"missing_value":0,"invalid":1,"outside_bbox":1,"duplicate":1,"written":60})
         self.assertEqual(result["events"]["stationary_candidates"],1)
         with (self.work/"out"/"stationary_candidates.csv").open() as f:
             event=list(csv.DictReader(f))[0]

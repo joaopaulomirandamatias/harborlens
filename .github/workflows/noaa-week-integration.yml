@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "First UTC day (YYYY-MM-DD, 2024 archive layout)"
+        description: "First UTC day (YYYY-MM-DD; years in harborlens.vintages)"
         required: true
         default: "2024-01-02"
       days:
@@ -32,12 +32,28 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from datetime import date
+          from datetime import date, timedelta
+          from harborlens.vintages import vintage_for
           start = date.fromisoformat(os.environ["START_DATE"])
           days = int(os.environ["DAYS"])
           assert 2 <= days <= 7, "days must be 2..7"
-          assert start.year == 2024 and (start.toordinal() + days - 1) <= date(2024, 12, 31).toordinal(), \
-              "the extractor currently supports the 2024 archive layout only (#36)"
+          for offset in range(days):
+              vintage_for(start + timedelta(days=offset))  # refuses unregistered years
+          PY
+      - name: Show archive layouts
+        env:
+          START_DATE: ${{ inputs.start_date }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import date, timedelta
+          from harborlens.vintages import vintage_for
+          start = date.fromisoformat(os.environ["START_DATE"])
+          for offset in range(int(os.environ["DAYS"])):
+              day = start + timedelta(days=offset)
+              v = vintage_for(day)
+              print(day, v.layout, v.url(day), "-", v.verification)
           PY
       - name: Download and extract full UTC days, one archive at a time
         env:
@@ -48,14 +64,15 @@ jobs:
           mkdir -p data
           for offset in $(seq 0 $((DAYS - 1))); do
             day=$(date -u -d "${START_DATE} + ${offset} day" +%F)
-            harborlens-download-noaa --date "$day" --directory data --max-mib 400
+            archive=$(python -c "from datetime import date; from harborlens.vintages import vintage_for; d=date.fromisoformat('${day}'); print(vintage_for(d).filename(d))")
+            harborlens-download-noaa --date "$day" --directory data --max-mib 512
             harborlens-extract-noaa-archive \
-              --input "data/ais-${day}.csv.zst" \
+              --input "data/${archive}" \
               --out "data/houston-${day}.csv" \
               --start "${day}T00:00:00Z" --end "${day}T23:59:59Z" \
               --bbox -95.7 29.1 -94.2 30.1 \
               --max-rows 1000000 --max-output-mib 256
-            rm "data/ais-${day}.csv.zst"
+            rm "data/${archive}"
           done
       - name: Reconstruct candidates and measure resources
         run: |

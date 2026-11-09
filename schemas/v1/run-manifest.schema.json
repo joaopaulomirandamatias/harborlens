@@ -58,6 +58,7 @@
       "required": [
         "total",
         "in_bbox",
+        "missing_value",
         "invalid",
         "outside_bbox",
         "duplicate",
@@ -73,10 +74,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "invalid": {
-          "type": "integer",
-          "minimum": 0
-        },
         "outside_bbox": {
           "type": "integer",
           "minimum": 0
@@ -86,6 +83,15 @@
           "minimum": 0
         },
         "written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_value": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows with an empty required field (not available), counted separately from malformed values."
+        },
+        "invalid": {
           "type": "integer",
           "minimum": 0
         }
