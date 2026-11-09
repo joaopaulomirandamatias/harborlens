@@ -38,9 +38,13 @@ EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 ONE_MICROSECOND = timedelta(microseconds=1)
 MULTIDAY_FIELDS = EVENT_FIELDS + ["source_files_json", "source_count", "crosses_utc_date"]
 MAX_FILES = 7
-MAX_POINTS = 1_500_000
-MAX_SCRATCH_MIB = 1024
-MAX_EXPORT_MIB = 512
+# Ceilings sized from a synthetic benchmark (~161 bytes of SQLite scratch per row,
+# ~47 MiB RSS independent of size, ~20 s per million rows) for seven full Houston
+# days (~3.9 million rows) with headroom. Limits still fail closed.
+MAX_POINTS = 6_000_000
+MAX_SCRATCH_MIB = 2048
+MAX_EXPORT_MIB = 2048
+DEFAULT_EXPORT_MIB = 1024
 
 
 def _csv_bytes(fields):
@@ -49,14 +53,24 @@ def _csv_bytes(fields):
     return stream.getvalue().encode("utf-8")
 
 
-def _enforce_scratch_limit(db_path, cap_bytes):
-    # The scratch database is deleted even on failure. Include journal bytes.
-    size = db_path.stat().st_size if db_path.exists() else 0
-    journal = db_path.with_name(db_path.name + "-journal")
-    if journal.exists():
-        size += journal.stat().st_size
-    if size > cap_bytes:
-        raise AISInputError("Multi-day SQLite scratch store exceeded configured disk cap")
+class ScratchMeter:
+    """Checks the SQLite scratch size against its cap and remembers the peak seen."""
+
+    def __init__(self, db_path, cap_bytes):
+        self.db_path = Path(db_path)
+        self.cap_bytes = cap_bytes
+        self.peak_bytes = 0
+
+    def check(self):
+        # The scratch database is deleted even on failure. Include journal bytes.
+        size = self.db_path.stat().st_size if self.db_path.exists() else 0
+        journal = self.db_path.with_name(self.db_path.name + "-journal")
+        if journal.exists():
+            size += journal.stat().st_size
+        self.peak_bytes = max(self.peak_bytes, size)
+        if size > self.cap_bytes:
+            raise AISInputError("Multi-day SQLite scratch store exceeded configured disk cap")
+        return size
 
 
 def _make_db(path, max_scratch_mib):
@@ -100,7 +114,7 @@ def _make_db(path, max_scratch_mib):
     return db
 
 
-def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
+def _load_files(db, inputs, bbox, max_points, meter):
     counts = {
         "total": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
         "duplicate_across_files": 0, "written": 0,
@@ -185,12 +199,12 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
             )
             if counts["total"] % 5000 == 0:
                 db.commit()
-                _enforce_scratch_limit(db_path, max_scratch_mib * 1048576)
+                meter.check()
         if file_rows == 0:
             raise AISInputError(f"Source has no AIS observations: {path.name}")
         item["rows_scanned"] = file_rows
         db.commit()
-        _enforce_scratch_limit(db_path, max_scratch_mib * 1048576)
+        meter.check()
     return counts, source_items, (first, last)
 
 
@@ -229,7 +243,7 @@ def run_multiday(
     bbox=BBOX_HOUSTON,
     max_points=MAX_POINTS,
     max_scratch_mib=MAX_SCRATCH_MIB,
-    max_export_mib=256,
+    max_export_mib=DEFAULT_EXPORT_MIB,
     max_sog=0.5,
     min_duration_minutes=30,
     max_gap_minutes=15,
@@ -269,15 +283,18 @@ def run_multiday(
     with tempfile.TemporaryDirectory(prefix="harborlens-scratch-") as folder:
         db_path = Path(folder) / "ais.sqlite3"
         db = _make_db(db_path, max_scratch_mib)
+        meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
         try:
             counts, source_items, (first, last) = _load_files(
-                db, paths, tuple(bbox), max_points, db_path, max_scratch_mib
+                db, paths, tuple(bbox), max_points, meter
             )
             db.commit()
             censoring = _resolve_windows(paths, source_items, window_start, window_end,
                                          params.max_gap_minutes)
             censoring.check_observed(first, last)
-            diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring)
+            diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+            db.commit()
+            meter.check()
             diagnostics["censoring"] = censoring.event_summary()
             diagnostics["warning"] = ("Only unvalidated stationary candidates, "
                                       "not confirmed berths or waiting vessels.")
@@ -291,6 +308,10 @@ def run_multiday(
                 "counts": counts, "events": diagnostics,
                 "method_parameters": params.manifest(), "source_rights_status": "review_required",
                 "analysis_window": censoring.summary(observed_range(first, last)),
+                "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
+                           "max_export_mib": max_export_mib},
+                "resources": {"scratch_peak_bytes": meter.peak_bytes,
+                              "scratch_measurement": "sampled at commits; includes rollback journal"},
                 "run_id": hashlib.sha256(
                     json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
@@ -326,7 +347,7 @@ class _SQLiteGroupStore:
             "JOIN observations o ON o.id=g.observation_id WHERE g.group_id=?", (group_id,)))
 
 
-def _write_outputs(db, files, sources, params, export_cap_mib, censoring):
+def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter):
     """Stream sorted observations through the shared engine and write exports."""
     max_bytes = export_cap_mib * 1048576
     # Both SQLite cursors and exports are sequential; there is no bulk
@@ -380,7 +401,8 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring):
                 clean.flush()
                 if clean.tell() > max_bytes:
                     raise AISInputError("Multi-day cleaned CSV exceeded export byte cap")
-                _enforce_scratch_limit(Path(db.execute("PRAGMA database_list").fetchone()[2]), max_bytes * 4)
+                db.commit()
+                meter.check()
             engine.feed(mmsi, datetime.fromisoformat(ts.replace("Z", "+00:00")),
                         lat, lon, sog, vessel_type, obs_id)
         stats = engine.close()
@@ -400,7 +422,7 @@ def main():
     parser.add_argument("--bbox", nargs=4, type=float, default=BBOX_HOUSTON, metavar=("W","S","E","N"))
     parser.add_argument("--max-points", type=int, default=MAX_POINTS)
     parser.add_argument("--max-scratch-mib", type=int, default=MAX_SCRATCH_MIB)
-    parser.add_argument("--max-export-mib", type=int, default=256)
+    parser.add_argument("--max-export-mib", type=int, default=DEFAULT_EXPORT_MIB)
     parser.add_argument("--window-start", default=None,
                         help="One analysis window covering all inputs (ISO 8601 with Z); "
                              "only when inputs have no acquisition sidecars")

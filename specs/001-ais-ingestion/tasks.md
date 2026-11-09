@@ -22,3 +22,8 @@
 
 - [x] Implement streaming date/area filter for a local daily NOAA zstd archive, with synthetic compressed tests (PR review/CI pending).
 - [ ] Execute at least one original NOAA daily file under a bounded integration runner and inspect continuous MMSI tracks.
+
+## Volume ceilings (issue #35)
+
+- [x] Extraction ceiling raised to 1,000,000 rows / 256 MiB from measured Houston volumes; limits recorded in the sidecar; full-day test
+- [ ] Run `noaa-week-integration` on seven consecutive full days and publish aggregate results

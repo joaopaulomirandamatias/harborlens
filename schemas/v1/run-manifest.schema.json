@@ -19,7 +19,8 @@
     "artifacts",
     "provenance_warning",
     "analysis_window",
-    "input_truncated"
+    "input_truncated",
+    "limits"
   ],
   "properties": {
     "input_file": {
@@ -535,6 +536,23 @@
     "input_truncated": {
       "type": "boolean",
       "description": "True when --max-rows stopped ingestion before the end of the input."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_rows"
+      ],
+      "description": "Caps applied to this run (#35); null means no row cap.",
+      "properties": {
+        "max_rows": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
     }
   }
 }

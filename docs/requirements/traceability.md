@@ -75,3 +75,7 @@ The four previously indexed 2023 Federal Register Part 110 document texts were f
 ### SPEC-003: evaluator (FR-013, FR-014 partial, #9)
 
 `src/harborlens/evaluation.py` (`harborlens-evaluate`) with `adjudicated-label` and `evaluation-report` schemas. Evidence: `tests/test_evaluation.py` (confusion counts against a constructed truth, unknown and unlabeled exclusion, boundary errors on uncensored true positives, design-weighted precision and L3 basis, lineage and input validation, hand-computed precision/recall/F1/specificity and a Wilson reference interval). No real labels have been evaluated.
+
+### NFR-007 / FR-008 / FR-009: volume ceilings (#35)
+
+Ceilings in `archive_extract.py`, `multiday.py`, `track_context.py` and `ais.load_cleaned` were set from the synthetic [scale benchmark](../data/scale-benchmark-2026-11-09.md) (3.92 million rows: 78 s, 47 MiB RSS, 628 MiB scratch). Limits and the scratch peak are recorded in manifests and sidecars. Evidence: `tests/test_volume_caps.py`, `tools/benchmark_multiday.py`. NFR-007 for real data still requires the manual seven-day NOAA workflow.

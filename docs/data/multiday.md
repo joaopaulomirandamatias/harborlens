@@ -21,9 +21,9 @@ For national compressed NOAA archives, first use the existing opt-in daily downl
 - Temporary SQLite stores normalized points, source membership and candidate-group membership, and performs a deterministic sort by MMSI/time.
 - Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
 - The temporary directory is deleted after completion or a failed run.
-- Defaults: at most 7 sources, 1.5 million input rows, 1,024 MiB SQLite scratch, 256 MiB exported files. Exceeding a limit fails rather than silently truncating data.
+- Defaults: at most 7 sources, 6 million input rows, 2,048 MiB SQLite scratch, 1,024 MiB exported files (ceiling 2,048). Exceeding a limit fails rather than silently truncating data. The manifest records the `limits` used and `resources.scratch_peak_bytes`.
 - Output files are never overwritten; rerun to a new output directory for reproducibility.
-- This is bounded-memory by architecture, but real peak RSS and disk utilization are **not benchmarked yet**.
+- Measured on synthetic data ([scale benchmark](scale-benchmark-2026-11-09.md)): 3.92 million rows in 78 s, 47 MiB RSS, 628 MiB scratch peak (about 168 bytes per row). The two-day NOAA run measured 46 MiB RSS; a seven-day real run is pending.
 
 ## Output
 

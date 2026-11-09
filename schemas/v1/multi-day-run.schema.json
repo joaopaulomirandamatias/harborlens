@@ -17,7 +17,9 @@
     "run_id",
     "artifacts",
     "warning",
-    "analysis_window"
+    "analysis_window",
+    "limits",
+    "resources"
   ],
   "properties": {
     "mode": {
@@ -533,6 +535,50 @@
           "internal_gaps": {
             "const": 0
           }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Fail-closed caps applied to this run (#35).",
+      "required": [
+        "max_points",
+        "max_scratch_mib",
+        "max_export_mib"
+      ],
+      "properties": {
+        "max_points": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6000000
+        },
+        "max_scratch_mib": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 2048
+        },
+        "max_export_mib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scratch_peak_bytes",
+        "scratch_measurement"
+      ],
+      "properties": {
+        "scratch_peak_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scratch_measurement": {
+          "type": "string"
         }
       }
     }

@@ -20,8 +20,11 @@ from harborlens.ais import BBOX_HOUSTON, header_alias, parse_time, sha256
 from harborlens.io_safe import LimitedReader, MAX_COMPRESSED_BYTES, AISInputError
 
 MAX_UNCOMPRESSED_GIB = 8
-MAX_OUTPUT_MIB = 128
-MAX_MATCHING_ROWS = 250000
+# One full UTC day in the Houston research rectangle is ~560,000 rows (~105 bytes
+# each, ~59 MiB). Ceilings leave headroom for busier days and still fail closed.
+MAX_OUTPUT_MIB = 256
+MAX_MATCHING_ROWS = 1_000_000
+DEFAULT_OUTPUT_MIB = 128
 
 
 def utc(value):
@@ -42,7 +45,7 @@ def _csv_row_bytes(row):
 
 def extract_archive(
     source, output, start, end, bbox=BBOX_HOUSTON,
-    max_rows=MAX_MATCHING_ROWS, max_output_mib=64, max_uncompressed_gib=8,
+    max_rows=MAX_MATCHING_ROWS, max_output_mib=DEFAULT_OUTPUT_MIB, max_uncompressed_gib=8,
 ):
     source, output = Path(source), Path(output)
     if source.suffix.lower() != ".zst" or not source.name.lower().endswith(".csv.zst"):
@@ -138,6 +141,8 @@ def extract_archive(
             "bbox_lon_lat": [w, s, e, n],
             "counts": counters,
             "bytes_written": bytes_written,
+            "limits": {"max_rows": max_rows, "max_output_mib": max_output_mib,
+                       "max_uncompressed_gib": max_uncompressed_gib},
             "rights_status": "review_required",
             "warning": "Origin of local archive and commercial reuse rights not independently authenticated.",
         }
@@ -161,7 +166,7 @@ def main():
     p.add_argument("--end", required=True)
     p.add_argument("--bbox", type=float, nargs=4, default=BBOX_HOUSTON)
     p.add_argument("--max-rows", type=int, default=MAX_MATCHING_ROWS)
-    p.add_argument("--max-output-mib", type=int, default=64)
+    p.add_argument("--max-output-mib", type=int, default=DEFAULT_OUTPUT_MIB)
     p.add_argument("--max-uncompressed-gib", type=int, default=8)
     a = p.parse_args()
     print(json.dumps(extract_archive(
