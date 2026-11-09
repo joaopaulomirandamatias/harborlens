@@ -28,3 +28,7 @@
 - [x] Perform controlled NOAA polygon real-source retrieval and synthetic-to-real centroid overlay; see [engineering evidence](../../docs/data/noaa-anchorage-real-smoke-2026-11-09.md).
 - [ ] Independently verify historical 2024 anchorage geometry and source-specific rights.
 - [ ] Extend centroid-only overlay to full trajectories with uncertainty flags, then independently evaluate operational labels.
+
+- [x] Add local bounded full-observed-track polygon context and explicit unknowns, receipt verification and synthetic regression tests (pending CI and PR review).
+- [ ] Benchmark on authentic NOAA historical AIS and assess all-points vs centroid difference, including coverage and source vintage limitations.
+- [ ] Verify independent historical geometry with authoritative source/reviewer before operational inference.

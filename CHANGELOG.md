@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-004 observed-track evidence)
+- Local Shapely/SQLite full-track vs Polygon reference context with interval/cardinality checks, historic-vintage flags, source receipt hashes, strictly unverified statuses and synthetic/schema tests.
+
+
 ### Added (SPEC-004: NOAA Polygon reference)
 - Opt-in NOAA designated anchorage polygon source, conservative candidate spatial-context overlay and synthetic geometry regression tests. No event confirmation.
 

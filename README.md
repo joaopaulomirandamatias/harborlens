@@ -45,3 +45,7 @@ The opt-in [NOAA polygon source and conservative AIS centroid overlay](docs/data
 ### Verified NOAA anchorage polygon API integration (current reference only)
 
 An isolated engineering smoke retrieved 6 current NOAA Anchorage Area polygons and compared their geometries to 920 historical provisional AIS candidate centroids: 77 possible single overlaps and 843 no overlaps. No historical or operational validity is established. See [combined integration report](docs/data/noaa-anchorage-real-smoke-2026-11-09.md).
+
+## Full observed-track geospatial evidence (SPEC-004)
+
+A new local [full-track polygon evidence tool](docs/data/full-track-zone-evidence.md) checks each historical candidate against all cleaned AIS points in its time window, rather than its centroid alone. The source must have an integrity-matched polygon receipt. Every result remains unvalidated and historically unverified.
