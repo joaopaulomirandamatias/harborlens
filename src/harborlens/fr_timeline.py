@@ -12,7 +12,7 @@ import json
 import os
 from datetime import date, datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.request import Request, urlopen
 
 API = "https://www.federalregister.gov/api/v1/documents.json"
@@ -56,6 +56,11 @@ def _validate_page_url(url):
     if (u.scheme != "https" or u.netloc != "www.federalregister.gov"
             or u.path != "/api/v1/documents.json" or u.username or u.password or u.fragment):
         raise FederalRegisterAuditError("Federal Register pagination must stay on the fixed official API")
+    arguments = parse_qs(u.query)
+    if arguments.get("conditions[cfr][title]") != ["33"] or arguments.get("conditions[cfr][part]") != ["110"]:
+        raise FederalRegisterAuditError("Pagination must retain the requested 33 CFR Part 110 scope")
+    if not arguments.get("conditions[publication_date][gte]") or not arguments.get("conditions[publication_date][lte]"):
+        raise FederalRegisterAuditError("Pagination must retain date filters")
     return url
 
 

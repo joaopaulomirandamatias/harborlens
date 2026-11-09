@@ -73,3 +73,7 @@ The legal-coordinate registry was checked directly against official Government P
 ## Federal Register timeline source-index screen
 
 The opt-in [Part 110 historical Federal Register index screen](docs/data/fr-part110-timeline.md) discovers publications between annual CFR editions and records URLs, hashes and manual-review requirements. This is a documentary triage tool, **not** proof that a CFR section remained unchanged on any historical date, and it authorizes no AIS geospatial joins.
+
+### Verified Federal Register Part 110 historical index scan
+
+An official-source index query for 2023-07-01 through 2024-01-02 returned four Proposed Rule metadata entries, not a proven effective change to section 110.197. The complete source query page and result JSON were SHA-256 fingerprinted. The [real source scan report](docs/data/fr-part110-real-index-2023-2024.md) retains mandatory official FR/LSA review and historical datum/geometry gates.

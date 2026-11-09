@@ -55,3 +55,6 @@
 
 - [x] Add opt-in bounded FederalRegister.gov 33 CFR Part 110 publication-index screen with simulated pagination/host/source tests (pending CI review).
 - [ ] Read exact official Part 110 documents and GPO LSA for 2023-07-01 through 2024-01-02 before any legal-effect conclusion.
+
+- [x] Run live official FederalRegister.gov 33 CFR Part 110 publication-index query for 2023-07-01 to 2024-01-02, hash the source response and register four proposals (initial engineering screen).
+- [ ] Read exact official text/effective dates for identified documents and reconcile original GPO LSA/FR before certifying January 2 legal effect.

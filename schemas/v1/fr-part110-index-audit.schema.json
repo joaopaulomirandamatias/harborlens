@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/fr-part110-index-audit.schema.json",
+  "title": "Official Federal Register historical 33 CFR Part 110 publication index: not legal validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_api",
+    "cfr_scope",
+    "requested_publication_window",
+    "retrieved_at_utc",
+    "count",
+    "query_pages",
+    "documents",
+    "index_pagination_complete",
+    "cfr_section_110_197_effective_state",
+    "intervening_amendments_excluded",
+    "no_result_interpretation",
+    "mandatory_follow_up",
+    "ais_spatial_join_permitted",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "fr-part110-index-audit-v1"
+    },
+    "source_api": {
+      "const": "https://www.federalregister.gov/api/v1/documents.json"
+    },
+    "cfr_scope": {
+      "const": "33 CFR Part 110"
+    },
+    "requested_publication_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "through"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date"
+        },
+        "through": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300
+    },
+    "query_pages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "response_sha256",
+          "records"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "response_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 300
+          }
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "document_number",
+          "publication_date",
+          "effective_on",
+          "type",
+          "title",
+          "html_url",
+          "cfr_references",
+          "abstract",
+          "review_status"
+        ],
+        "properties": {
+          "document_number": {
+            "type": "string",
+            "minLength": 1
+          },
+          "publication_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "effective_on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "html_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "cfr_references": {
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "abstract": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "review_status": {
+            "const": "requires_manual_section_and_effective_date_review"
+          }
+        }
+      }
+    },
+    "index_pagination_complete": {
+      "const": true
+    },
+    "cfr_section_110_197_effective_state": {
+      "const": "NOT_DETERMINED"
+    },
+    "intervening_amendments_excluded": {
+      "const": false
+    },
+    "no_result_interpretation": {
+      "type": "string",
+      "minLength": 10
+    },
+    "mandatory_follow_up": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string"
+      }
+    },
+    "ais_spatial_join_permitted": {
+      "const": false
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 30
+    }
+  }
+}

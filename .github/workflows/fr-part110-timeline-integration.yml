@@ -1,0 +1,57 @@
+name: Official FR Part 110 Timeline Discovery (research only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  discover-historical-rule-publications:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install open-source CLI
+        run: python -m pip install -e '.[dev]'
+      - name: Scan official FederalRegister.gov Part 110 publication index
+        run: |
+          harborlens-fr-timeline \
+            --start 2023-07-01 \
+            --end 2024-01-02 \
+            --out results/fr-part110-timeline.json
+      - name: Summarize only index evidence and mandatory legal-review caveat
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('results/fr-part110-timeline.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          from jsonschema import Draft202012Validator, FormatChecker
+          schema=json.loads(Path('schemas/v1/fr-part110-index-audit.schema.json').read_text())
+          Draft202012Validator(schema,format_checker=FormatChecker()).validate(data)
+          assert data['cfr_scope']=='33 CFR Part 110'
+          assert data['cfr_section_110_197_effective_state']=='NOT_DETERMINED'
+          assert data['intervening_amendments_excluded'] is False
+          assert data['index_pagination_complete'] is True
+          assert len(data['documents'])==data['count']
+          summary={
+            'publication_window':data['requested_publication_window'],
+            'indexed_documents_requiring_review':data['count'],
+            'query_page_count':len(data['query_pages']),
+            'downloaded_page_sha256s':[x['response_sha256'] for x in data['query_pages']],
+            'report_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
+            'document_ids_and_types':[{'number':x['document_number'],'date':x['publication_date'],
+                         'type':x['type'],'effective_on':x['effective_on']} for x in data['documents']],
+            'exact_110_197_effective_state':'NOT_DETERMINED',
+            'lsi_lsa_official_full_text_review':'PENDING',
+            'historical_wgs84_geometry':'NOT VERIFIED',
+            'approved_ais_joins':0
+          }
+          print(json.dumps(summary,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+            f.write('### 2023–2024 33 CFR Part 110 Federal Register document index\n\n')
+            f.write('Official indexed publication candidates only, not legal effect, historic polygons or anchorage waiting evidence.\n\n')
+            for key,val in summary.items():
+              f.write(f'- **{key}**: {val}\n')
+          PY
