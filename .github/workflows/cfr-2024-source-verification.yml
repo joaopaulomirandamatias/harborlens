@@ -1,7 +1,5 @@
 name: Official 2024 CFR Anchorage Source Verification (research)
 on:
-  push:
-    branches: [integration/cfr-2024-source-verification]
   workflow_dispatch:
 
 permissions:
