@@ -18,8 +18,10 @@ class RegulatoryAnchorageTests(unittest.TestCase):
         self.assertTrue(all(x["source_reference"]=="33 CFR 110.197(a)" for x in report["areas"]))
 
     def test_precise_dms_conversion_and_lon_sign(self):
-        self.assertAlmostEqual(parse_dms('29°20\\'48.5"N',"lat"),29+20/60+48.5/3600,9)
-        self.assertAlmostEqual(parse_dms('94°42\\'54.0"W',"lon"),-(94+42/60+54/3600),9)
+        north = "29°20'48.5" + chr(34) + "N"
+        west = "94°42'54.0" + chr(34) + "W"
+        self.assertAlmostEqual(parse_dms(north, "lat"), 29+20/60+48.5/3600, 9)
+        self.assertAlmostEqual(parse_dms(west, "lon"), -(94+42/60+54/3600), 9)
 
     def test_source_datum_not_invented_for_a_b_c(self):
         report=inspect_regulated_areas()
@@ -46,10 +48,13 @@ class RegulatoryAnchorageTests(unittest.TestCase):
         self.assertTrue(all("historical_date_not_established_by_2024_07_01_edition" in a["review_blockers"] for a in report["areas"]))
 
     def test_reject_naive_invalid_dms(self):
-        for token in ("94°99'00.0\\\"W","94°59'60.0\\\"W","999°01'01\\\"W","94°01'00\\\"N","unknown"):
+        q = chr(34)
+        invalid = ("94°99'00.0"+q+"W", "94°59'60.0"+q+"W",
+                   "999°01'01"+q+"W", "94°01'00"+q+"N", "unknown")
+        for token in invalid:
             with self.subTest(value=token):
                 with self.assertRaises(RegulatoryGeometryError):
-                    parse_dms(token,"lon")
+                    parse_dms(token, "lon")
         with self.assertRaises(RegulatoryGeometryError):
             inspect_regulated_areas("2024-02-30")
 
