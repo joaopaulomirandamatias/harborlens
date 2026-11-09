@@ -1,7 +1,5 @@
 name: NOAA Anchorage Polygon GIS Integration (research only)
 on:
-  push:
-    branches: [integration/noaa-anchorage-geometry]
   workflow_dispatch:
 permissions:
   contents: read
