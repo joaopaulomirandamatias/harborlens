@@ -19,3 +19,6 @@
 
 - [x] Develop bounded NOAA PMEL ERDDAP client and mocked tests (on PR branch; review/CI pending).
 - [ ] Demonstrate actual NOAA API response and ingestion with source SHA, data QA and a reproduction log.
+
+- [x] Implement streaming date/area filter for a local daily NOAA zstd archive, with synthetic compressed tests (PR review/CI pending).
+- [ ] Execute at least one original NOAA daily file under a bounded integration runner and inspect continuous MMSI tracks.
