@@ -36,3 +36,7 @@
 - [x] Run initial official NOAA historical AIS/full-track geometry comparison and record aggregate results and hashes (2026-11-09).
 - [ ] Verify historical January 2024 geofence validity and source-specific redistribution rights.
 - [ ] Obtain independent maritime event labels and evaluate actual classification error rates.
+
+- [x] Implement bounded offline source-pinned NOAA ENC documentary edition/issue screening, source hash checks, and synthetic tests (under PR review).
+- [ ] Acquire genuinely historical 2024 ENC/anchorage polygon revisions; verify actual source, geometry, attribution and rights.
+- [ ] Add independent event-label evidence and classify only when a reviewed historical polygon is available.

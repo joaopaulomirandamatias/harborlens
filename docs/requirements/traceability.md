@@ -31,3 +31,7 @@ The experimental full-observed-track overlay, its source receipts, schema and sy
 ### Real NOAA full-track polygon source engineering (SPEC-004)
 
 The [historical AIS full observed-track integration](../data/noaa-full-track-context-smoke-2026-11-09.md) records a source-pinned centroid versus full-points comparison with bounded SQLite/Shapely processing and conservative status labels. This does NOT complete FR-011/FR-012 historical geometry or validated event requirements.
+
+### NOAA ENC documentary vintage (SPEC-004)
+
+A conservative offline [vintage audit](../data/geometry-vintage-audit.md) reports edition/issue date conflicts for a historical AIS time interval. It preserves historic geometry and operational event validity as not_verified regardless of user-provided dates; actual old geometry source files are not yet obtained.
