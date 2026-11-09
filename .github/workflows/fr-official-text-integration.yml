@@ -1,7 +1,5 @@
 name: Official Federal Register 2023 full-text triage (research)
 on:
-  push:
-    branches: [integration/fr-2023-official-text]
   workflow_dispatch:
 permissions:
   contents: read
