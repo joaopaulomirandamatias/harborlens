@@ -9,6 +9,10 @@
 ### Changed (schema migration)
 - `schemas/v1` candidate, multi-day feature, run manifest and multi-day manifest now require the censoring fields. Outputs produced before this change do not validate against the updated schemas; re-run the pipeline to regenerate them. Segmentation, method versions and event IDs are unchanged; `run_id` changes only when a window is known.
 
+### Added (SPEC-004 official Federal Register text triage)
+- Fixed-list full-text source verification of four 2023 Federal Register Part 110 index documents; official metadata/bytes hashed, source links restricted and relevance flags non-certifying.
+
+
 ### Added (SPEC-004: official 2024 CFR anchorages)
 - Source-pinned July 1, 2024 federal 33 CFR 110.197 Galveston anchorage DMS registry and fail-closed topology/datum inspection. A/B/C lack explicit NAD83 status; A East literal corner order fails Polygon validity. No guessed WGS84 geometry or operational classification.
 
@@ -73,3 +77,7 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 ### Source-pinned 2023/2024 Federal Register Part 110 index screening
 
 - Four Proposed Rule metadata entries returned from official FederalRegister.gov for the defined publication window; API page and report SHA-256 recorded. This is not a legal effect conclusion. See docs/data/fr-part110-real-index-2023-2024.md.
+
+### Federal Register original full-text evidence
+
+- Official 2023 source-metadata and raw-text hashes verified for four Part 110 index hits; no direct section 110.197 or Houston/Galveston text mentions in the four. [Source report](docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md). GPO LSA and exact January 2024 legal effect are still unverified.

@@ -52,6 +52,14 @@ A [GPO official-source engineering scan](../data/cfr-2023-2024-source-verificati
 
 The bounded [2023-07-01 to 2024-01-02 source query](../data/fr-part110-real-index-2023-2024.md) returned four proposed-rule index entries. Full official FR/LSA text/effective-date verification is still required; no legal or operational event status was upgraded.
 
+### Official Federal Register full-text document triage (SPEC-004)
+
+The source-pinned [2023 original document triage](../data/fr-2023-fulltext-triage.md) retrieves four official text records, records SHA-256 and location/target-section keyword signals, and always requires human legal-effect/LSA review. No historic geographic source or maritime activity is certified.
+
+### Official full-text source and relevance verification (SPEC-004)
+
+The four previously indexed 2023 Federal Register Part 110 document texts were fetched and hashed from original government URLs. All four had no direct 110.197/Houston/Galveston text hits, but this source-tied triage remains *non-certifying*; see [real-source evidence](../data/fr-2023-original-fulltext-evidence-2026-11-09.md). Legal effective-date and GPO LSA review still outstanding.
+
 ### SPEC-002: analysis-window censoring (BR-019, FR-021)
 
 `src/harborlens/censoring.py`, `ais.py` and `multiday.py` emit `left_censoring`/`right_censoring` per candidate plus `analysis_window` and `events.censoring` in both manifests. Evidence: synthetic tests in `tests/test_censoring.py` (edges, interior, unknown, sidecars, conflicts, truncation, internal gaps, schemas, CLI). Real-data censored shares have not been measured yet; the existing NOAA reports predate this rule.
