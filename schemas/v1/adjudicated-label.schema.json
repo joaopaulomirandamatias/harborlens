@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/adjudicated-label.schema.json",
+  "title": "HarborLens adjudicated label row (evaluation input)",
+  "description": "Final label for one sampled unit after double annotation and adjudication. true_* bounds are the adjudicated start/end of the labeled state, given only when assessable.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "sample_id",
+    "label",
+    "evidence_level",
+    "duration_judgement",
+    "true_start_utc",
+    "true_end_utc",
+    "adjudicator_id"
+  ],
+  "properties": {
+    "sample_id": {
+      "type": "string",
+      "pattern": "^S[0-9]{4}$"
+    },
+    "label": {
+      "enum": [
+        "at_berth",
+        "at_anchor",
+        "other_stationary",
+        "maneuvering",
+        "transit",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "evidence_level": {
+      "enum": [
+        "L2",
+        "L3"
+      ]
+    },
+    "duration_judgement": {
+      "enum": [
+        "assessable",
+        "not_assessable"
+      ]
+    },
+    "true_start_utc": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": ""
+        },
+        {
+          "format": "date-time"
+        }
+      ]
+    },
+    "true_end_utc": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": ""
+        },
+        {
+          "format": "date-time"
+        }
+      ]
+    },
+    "adjudicator_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]{0,7}$"
+    }
+  }
+}

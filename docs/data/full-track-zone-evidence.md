@@ -31,7 +31,7 @@ Every candidate retains 'stationary_candidate' and 'confidence_label=unvalidated
 - partial_observed_point_overlap: some observed points fall inside exactly one polygon; others lie outside.
 - multiple_zone_evidence_ambiguous: observations intersect more than one supplied polygon (possibly overlapping areas).
 - no_observed_point_overlap: no supplied polygon contains an observed point.
-- incomplete_track_unknown: the observed count, first/last timestamps, speed or gap check does not match the original candidate.
+- incomplete_track_unknown: the observed count, first/last timestamps, speed or gap check does not match the original candidate. Speed and gap limits are read from the candidate GeoJSON `harborlens_method` block; files written before `stationary-v0.2` fall back to 0.5 knots and 15 minutes, and the receipt records which source was used.
 - outside_declared_vintage_unknown: an optional user-declared source validity interval does not cover the candidate.
 
 Even the first status **does not** mean that the vessel was officially anchored, awaiting a berth, inside a legally designated anchorage in the historical year, or that the vessel's entire *continuous* route was within the polygon. It means *only* that the available discrete AIS points fall within a geometrical source reference.
@@ -40,8 +40,8 @@ Current NOAA spatial snapshots are not automatically historically applicable to 
 
 ## Source and integrity safeguards
 
-- Strict local file bounds: no more than 1.5 million cleaned AIS rows, 20,000 candidate events, 500 source polygons and 10,000 observations per event.
-- Maximum 768 MiB temporary SQLite database and 48 MiB output. SQLite is deleted after execution. These limits are engineering controls, not a certified public-upload sandbox.
+- Strict local file bounds: no more than 6 million cleaned AIS rows, 100,000 candidate events, 500 source polygons and 60,000 observations per event (sized for seven full Houston days; see the [scale benchmark](scale-benchmark-2026-11-09.md)).
+- Maximum 2,048 MiB temporary SQLite database and 256 MiB output. SQLite is deleted after execution. These limits are engineering controls, not a certified public-upload sandbox.
 - SHA-256 hashes of cleaned AIS, candidate input, polygon input, NOAA source receipt and annotated output.
 - No automatic download, raw-AIS upload, live tracking, navigation, berth estimation or government endorsement.
 - The output is GeoJSON plus a separate local JSON receipt with aggregate counters. Input files are not overwritten.

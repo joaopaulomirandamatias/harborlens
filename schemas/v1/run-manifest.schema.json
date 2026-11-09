@@ -17,7 +17,12 @@
     "provenance_schema_version",
     "source_metadata",
     "artifacts",
-    "provenance_warning"
+    "provenance_warning",
+    "analysis_window",
+    "input_truncated",
+    "limits",
+    "code_version",
+    "mmsi_categories"
   ],
   "properties": {
     "input_file": {
@@ -53,6 +58,7 @@
       "required": [
         "total",
         "in_bbox",
+        "missing_value",
         "invalid",
         "outside_bbox",
         "duplicate",
@@ -68,10 +74,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "invalid": {
-          "type": "integer",
-          "minimum": 0
-        },
         "outside_bbox": {
           "type": "integer",
           "minimum": 0
@@ -83,6 +85,15 @@
         "written": {
           "type": "integer",
           "minimum": 0
+        },
+        "missing_value": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows with an empty required field (not available), counted separately from malformed values."
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -92,11 +103,22 @@
     "events": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Diagnostics from the shared segmentation engine (stationary-v0.2); counts are QA, not traffic statistics.",
       "required": [
         "vessels",
         "points",
-        "moving_or_invalid_points",
+        "moving_points",
+        "timestamp_conflicts",
+        "gap_splits",
+        "identity_conflicts",
+        "implausible_jumps",
+        "spatial_splits",
+        "discarded_groups",
         "stationary_candidates",
+        "discarded_by_reason",
+        "candidates_per_mmsi",
+        "unparsable_rows",
+        "censoring",
         "warning"
       ],
       "properties": {
@@ -108,13 +130,120 @@
           "type": "integer",
           "minimum": 0
         },
-        "moving_or_invalid_points": {
+        "moving_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gap_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "implausible_jumps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_splits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discarded_groups": {
           "type": "integer",
           "minimum": 0
         },
         "stationary_candidates": {
           "type": "integer",
           "minimum": 0
+        },
+        "discarded_by_reason": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "too_few_points",
+            "too_short",
+            "radius_exceeded"
+          ],
+          "properties": {
+            "too_few_points": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "too_short": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "radius_exceeded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "candidates_per_mmsi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max",
+            "mmsi_with_multiple"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mmsi_with_multiple": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unparsable_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "censoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-run BR-019 censoring counts; left/right counts overlap in both_censored.",
+          "required": [
+            "rule_version",
+            "left_censored",
+            "right_censored",
+            "both_censored",
+            "uncensored",
+            "unknown"
+          ],
+          "properties": {
+            "rule_version": {
+              "const": "window-edge-v1"
+            },
+            "left_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "right_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "both_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uncensored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         },
         "warning": {
           "type": "string"
@@ -125,27 +254,47 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "method_version",
         "max_sog_knots",
         "min_duration_minutes",
         "max_gap_minutes",
         "max_radius_m",
-        "min_points"
+        "min_points",
+        "max_jump_knots",
+        "parameter_set"
       ],
       "properties": {
+        "method_version": {
+          "const": "stationary-v0.2"
+        },
         "max_sog_knots": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         "min_duration_minutes": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "max_gap_minutes": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "max_radius_m": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "min_points": {
-          "type": "number"
+          "type": "integer",
+          "minimum": 2
+        },
+        "max_jump_knots": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "parameter_set": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
         }
       }
     },
@@ -248,6 +397,217 @@
     "provenance_warning": {
       "type": "string",
       "minLength": 10
+    },
+    "analysis_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Analysis window used for BR-019 censoring flags. Describes observation coverage, not vessel activity.",
+      "required": [
+        "status",
+        "rule_version",
+        "edge_tolerance_minutes",
+        "blocks",
+        "internal_gaps",
+        "declarations",
+        "observed_time_range"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "rule_version": {
+          "const": "window-edge-v1"
+        },
+        "edge_tolerance_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "start_utc",
+              "end_utc"
+            ],
+            "properties": {
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "internal_gaps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declarations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input",
+              "source"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "enum": [
+                  "extraction_sidecar",
+                  "erddap_sidecar",
+                  "user_declared",
+                  "none"
+                ]
+              },
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sidecar_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "ignored_reason": {
+                "const": "input_truncated_by_max_rows"
+              }
+            }
+          }
+        },
+        "observed_time_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_utc",
+            "end_utc"
+          ],
+          "properties": {
+            "start_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "end_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "known"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "blocks": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocks": {
+            "maxItems": 0
+          },
+          "internal_gaps": {
+            "const": 0
+          }
+        }
+      }
+    },
+    "input_truncated": {
+      "type": "boolean",
+      "description": "True when --max-rows stopped ingestion before the end of the input."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_rows"
+      ],
+      "description": "Caps applied to this run (#35); null means no row cap.",
+      "properties": {
+        "max_rows": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "code_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_version",
+        "git_commit"
+      ],
+      "description": "harborlens package version (hashed into run_id) and, when known, the git commit (metadata only).",
+      "properties": {
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "mmsi_categories": {
+      "type": "object",
+      "description": "Accepted points per ITU-R M.585 MMSI category (QA flag; nothing is dropped).",
+      "propertyNames": {
+        "enum": [
+          "ship",
+          "group_of_ships",
+          "coast_station",
+          "sar_aircraft",
+          "aid_to_navigation",
+          "craft_associated_with_parent_ship",
+          "handheld_vhf",
+          "ais_sart",
+          "mob_device",
+          "epirb_ais",
+          "placeholder",
+          "leading_zero_ambiguous",
+          "other"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     }
   }
 }

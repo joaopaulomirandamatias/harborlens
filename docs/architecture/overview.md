@@ -1,21 +1,27 @@
 # Architecture — Current and Target
 
-**Current (implemented / synthetic):** an offline Python CLI with canonical CSV normalization, provisional stationary segmentation, CSV/GeoJSON event export and SHA-256 input provenance. No private data, SaaS, live feed, UI or HTTP endpoint.
+**Current (implemented; real-data use limited to source-pinned engineering smokes):** offline Python CLIs, no SaaS, live feed, UI or HTTP endpoint.
 
 ```mermaid
 flowchart LR
-  NOAA[NOAA-style historical CSV] --> QA[Normalize and quality-check]
-  QA --> C[Cleaned AIS observations]
-  C --> E[Stationary candidate inference]
-  E --> CSV[CSV + GeoJSON candidates]
-  QA --> M[SHA-256 + quality manifest]
-  E --> M
-  USACE[USACE dated facilities] -. later .-> G[Verified geofence registry]
-  G -. later .-> E2[Validatable berth/anchorage classifier]
-  BTS[BTS aggregates] -. comparison only .-> V[External validation reports]
-  E2 -. later .-> V
+  NOAA[NOAA daily archives<br/>2015-2023 ZIP / 2024+ zstd] --> X[Bounded extraction<br/>+ hashed sidecar with window and vintage]
+  X --> QA[Normalize, QA, MMSI category flags]
+  QA --> C[Cleaned AIS]
+  C --> E[Shared segmentation engine<br/>stationary-v0.2]
+  E --> K[Unvalidated candidates<br/>+ censoring + parameter_set]
+  QA --> M[Manifest: hashes, limits,<br/>code_version, run_id]
+  K --> M
+  K --> Z[Spatial context: centroid / full track<br/>vs NOAA polygons]
+  USACE[USACE facility points] --> Z
+  CFR[33 CFR 110.197 + Federal Register audits] -. reviewed WGS84 polygons pending .-> Z
+  K --> L[Blinded stratified labeling sample]
+  L --> A[Annotator agreement]
+  L --> V[Evaluation vs adjudicated labels]
+  K --> T[Threshold sensitivity, descriptive]
   EPA[EPA factors] -. later .-> S[Emission scenario model]
 ```
+
+Every candidate stays `stationary_candidate` with `confidence_label=unvalidated`; spatial context, censoring flags and evaluation tooling never turn it into a verified berth, anchorage, wait or port call. Real labels have not been collected yet.
 
 **Future open core:** source snapshot ledger, multi-day streaming partition, dated USACE geometries, uncertainty-aware classifier, independent evaluation, reference read-only API and historical map.
 

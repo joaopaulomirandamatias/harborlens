@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/label-record.schema.json",
+  "title": "HarborLens annotator label for one sampled AIS interval",
+  "description": "One annotator's judgement of one sample unit (docs/research/labeling-protocol.md). An L2 label is expert review of AIS, not independent ground truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sample_id",
+    "annotator_id",
+    "label",
+    "confidence",
+    "evidence_level",
+    "evidence_sources",
+    "fragment_of_longer_stop",
+    "duration_judgement",
+    "notes"
+  ],
+  "properties": {
+    "sample_id": {
+      "type": "string",
+      "pattern": "^S[0-9]{4}$"
+    },
+    "annotator_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]{0,7}$",
+      "description": "Pseudonymous annotator code; never a real name or email."
+    },
+    "label": {
+      "enum": [
+        "at_berth",
+        "at_anchor",
+        "other_stationary",
+        "maneuvering",
+        "transit",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "evidence_level": {
+      "enum": [
+        "L2",
+        "L3"
+      ]
+    },
+    "evidence_sources": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semicolon-separated sources consulted, e.g. 'ais_track;cfr_110_197;imagery'."
+    },
+    "fragment_of_longer_stop": {
+      "enum": [
+        "true",
+        "false",
+        "unknown"
+      ]
+    },
+    "duration_judgement": {
+      "enum": [
+        "assessable",
+        "not_assessable"
+      ]
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_level": {
+            "const": "L3"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_sources": {
+            "pattern": "operational_record"
+          }
+        }
+      }
+    }
+  ]
+}

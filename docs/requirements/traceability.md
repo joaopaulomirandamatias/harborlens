@@ -3,9 +3,9 @@
 | Requirement group | Spec | Current code or proposal | Evidence | State |
 | --- | --- | --- | --- | --- |
 | FR-001..004, FR-008; BR-002, BR-004..006 | SPEC-001 | `src/harborlens/ais.py`, `cli.py`, `download.py` | synthetic regression tests plus [isolated real NOAA daily ingestion smoke](../data/noaa-real-data-smoke-2024-01-02.md); no event truth | Implemented / initial real ingestion proven, completeness pending |
-| FR-005..007, FR-009; BR-001, BR-003, BR-007..008 | SPEC-002 | `infer_candidates` and `src/harborlens/multiday.py` (under PR review) | synthetic midnight/gap/conflict tests; real consecutive-day evaluation pending | Partial; real event validity unknown |
-| FR-010, FR-013..014; NFR-012 | SPEC-003 | local output hashes and CLI on feature branch; independent labels pending | synthetic checksum tests awaiting CI | Partial after merge |
-| FR-011..012, FR-015; BR-009..010 | SPEC-004 | `usace.py` POINT reference adapter plus planned dated polygon import | synthetic ArcGIS response and JSON Schema tests; no independent berth polygons or labels | Partial: reference points only |
+| FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019 | SPEC-002 | `segmentation.py` (shared engine), `ais.py`, `multiday.py`, `censoring.py` | synthetic engine, censoring and multi-day tests; [real two-day NOAA smoke](../data/noaa-consecutive-days-smoke-2024-01-02-03.md) | Implemented; real event validity unknown |
+| FR-010, FR-013..014; NFR-012 | SPEC-003 | `provenance.py` (`harborlens-verify`, `code_version`), `labeling.py`, `evaluation.py` | synthetic checksum, contract, labeling and evaluation tests | Partial: tooling implemented; no labels collected |
+| FR-011..012, FR-015; BR-009..010 | SPEC-004 | `usace.py`, `noaa_anchorages.py`, `zone_context.py`, `track_context.py`, `vintage.py`, `cfr_anchorages.py`, `fr_timeline.py`, `fr_fulltext.py` | synthetic and schema tests plus source-pinned real-source smokes; no reviewed dated polygons or labels | Partial: reference geometry and source audits only |
 | FR-016; BR-014 | SPEC-005 | EPA methodology design | emissions validation pending | Proposed |
 | FR-017..018 | SPEC-006 | future read-only API/map | contract and accessibility tests pending | Proposed |
 | FR-019..020 | SPEC-007 | managed service hypothesis | buyers, security, license and SLA gates pending | Proposed |
@@ -59,3 +59,35 @@ The source-pinned [2023 original document triage](../data/fr-2023-fulltext-triag
 ### Official full-text source and relevance verification (SPEC-004)
 
 The four previously indexed 2023 Federal Register Part 110 document texts were fetched and hashed from original government URLs. All four had no direct 110.197/Houston/Galveston text hits, but this source-tied triage remains *non-certifying*; see [real-source evidence](../data/fr-2023-original-fulltext-evidence-2026-11-09.md). Legal effective-date and GPO LSA review still outstanding.
+
+### SPEC-002: analysis-window censoring (BR-019, FR-021)
+
+`src/harborlens/censoring.py`, `ais.py` and `multiday.py` emit `left_censoring`/`right_censoring` per candidate plus `analysis_window` and `events.censoring` in both manifests. Evidence: synthetic tests in `tests/test_censoring.py` (edges, interior, unknown, sidecars, conflicts, truncation, internal gaps, schemas, CLI). Real-data censored shares have not been measured yet; the existing NOAA reports predate this rule.
+
+### SPEC-002: shared segmentation engine (FR-022, BR-003, #37; fixes #38)
+
+`src/harborlens/segmentation.py` is used by `ais.py` and `multiday.py`; `track_context.py` reads the candidates' `harborlens_method` block; `sensitivity.py` provides descriptive grids. Evidence: `tests/test_segmentation_engine.py` (single-file vs multi-day equivalence on a scenario that exercises every split and discard rule, non-default thresholds, parameter validation, track-context propagation, sensitivity schema). On the same scenario the previous code produced diverging candidates (vessel-type conflict ignored by the single-file command; a same-second fractional-timestamp candidate lost by the multi-day command).
+
+### SPEC-003: labeling pilot tooling (FR-013 partial, #8)
+
+`docs/research/labeling-protocol.md`, `src/harborlens/labeling.py` (`harborlens-label-sample`, `harborlens-label-agreement`) and the `label-record`, `label-sample` and `label-agreement` schemas. Evidence: `tests/test_labeling.py` (reproducibility, blinding, stratum coverage, negatives not overlapping candidates, integrity and overwrite refusal, allocation, kappa against a hand-computed value, invalid-sheet rejection, schema conformance). No labels have been collected; agreement is not accuracy.
+
+### SPEC-003: evaluator (FR-013, FR-014 partial, #9)
+
+`src/harborlens/evaluation.py` (`harborlens-evaluate`) with `adjudicated-label` and `evaluation-report` schemas. Evidence: `tests/test_evaluation.py` (confusion counts against a constructed truth, unknown and unlabeled exclusion, boundary errors on uncensored true positives, design-weighted precision and L3 basis, lineage and input validation, hand-computed precision/recall/F1/specificity and a Wilson reference interval). No real labels have been evaluated.
+
+### NFR-007 / FR-008 / FR-009: volume ceilings (#35)
+
+Ceilings in `archive_extract.py`, `multiday.py`, `track_context.py` and `ais.load_cleaned` were set from the synthetic [scale benchmark](../data/scale-benchmark-2026-11-09.md) (3.92 million rows: 78 s, 47 MiB RSS, 628 MiB scratch). Limits and the scratch peak are recorded in manifests and sidecars. Evidence: `tests/test_volume_caps.py`, `tools/benchmark_multiday.py`. NFR-007 for real data still requires the manual seven-day NOAA workflow.
+
+### SPEC-003 / NFR-002, NFR-003, NFR-010, NFR-012: contracts and run identity (#41)
+
+`tests/test_contracts.py` validates real CLI exports against `run-manifest`, `stationary-candidate` (CSV via `read_candidates_csv`) and the new `stationary-candidate-feature` schema; `run_id` includes the package version (`code_version` in both manifests; git commit recorded as metadata in CI). CI runs on Python 3.10 and 3.12; the suite was also run locally on 3.10, 3.12 and 3.13. `CITATION.cff` added.
+
+### SPEC-001 / FR-002, FR-015, BR-008: vessel attributes and MMSI QA flags (#39)
+
+`src/harborlens/vessel.py` (ITU-R M.585 categories, sentinel normalization, per-candidate attribute summary) used by `ais.py`, `multiday.py` and the shared engine. Evidence: `tests/test_vessel_attributes.py` (category table, sentinels, 2024 NOAA header, non-ship identifiers flagged not dropped, attribute equivalence across pipelines, legacy cleaned files). Schemas `ais-point`, candidate record/features and both manifests updated.
+
+### SPEC-001 / FR-001, FR-002: NOAA archive vintages (#36)
+
+`src/harborlens/vintages.py` drives `download.py`, `archive_extract.py` and the seven-day workflow; ingestion separates `missing_value` from `invalid`. Evidence: `tests/test_vintages.py` (registry and refusal, downloader URLs with a mocked network, legacy ZIP extraction through the pipeline, compression/year mismatch, nulls counted as missing). Layout verification for 2015–2023 and 2025–2026 is documentary; no archive of those years has been downloaded by this project yet.

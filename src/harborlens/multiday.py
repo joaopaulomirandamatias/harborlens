@@ -16,23 +16,37 @@ import json
 import math
 import sqlite3
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harborlens.ais import (
-    BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, header_alias,
-    haversine_m, parse_time, sha256,
+    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
+)
+from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
+from harborlens.segmentation import (
+    METHOD_VERSION, SegmentationParams, Segmenter, add_threshold_arguments,
+    geojson_method_member, params_from_args,
 )
 from harborlens.io_safe import AISInputError, stream_rows
-from harborlens.provenance import checksum, FILES
+from harborlens import __version__
+from harborlens.provenance import checksum, code_version, FILES
+from harborlens.censoring import (
+    AnalysisWindowError, WindowCensoring, declaration_record, declared_window,
+    observed_range, sidecar_window,
+)
 
-METHOD = "stationary-multiday-v0.1"
+METHOD = METHOD_VERSION
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+ONE_MICROSECOND = timedelta(microseconds=1)
 MULTIDAY_FIELDS = EVENT_FIELDS + ["source_files_json", "source_count", "crosses_utc_date"]
 MAX_FILES = 7
-MAX_POINTS = 1_500_000
-MAX_SCRATCH_MIB = 1024
-MAX_EXPORT_MIB = 512
-KNOTS_TO_MPS = 0.514444
+# Ceilings sized from a synthetic benchmark (~161 bytes of SQLite scratch per row,
+# ~47 MiB RSS independent of size, ~20 s per million rows) for seven full Houston
+# days (~3.9 million rows) with headroom. Limits still fail closed.
+MAX_POINTS = 6_000_000
+MAX_SCRATCH_MIB = 2048
+MAX_EXPORT_MIB = 2048
+DEFAULT_EXPORT_MIB = 1024
 
 
 def _csv_bytes(fields):
@@ -41,18 +55,24 @@ def _csv_bytes(fields):
     return stream.getvalue().encode("utf-8")
 
 
-def _utc(value):
-    return parse_time(value).isoformat().replace("+00:00", "Z")
+class ScratchMeter:
+    """Checks the SQLite scratch size against its cap and remembers the peak seen."""
 
+    def __init__(self, db_path, cap_bytes):
+        self.db_path = Path(db_path)
+        self.cap_bytes = cap_bytes
+        self.peak_bytes = 0
 
-def _enforce_scratch_limit(db_path, cap_bytes):
-    # The scratch database is deleted even on failure. Include journal bytes.
-    size = db_path.stat().st_size if db_path.exists() else 0
-    journal = db_path.with_name(db_path.name + "-journal")
-    if journal.exists():
-        size += journal.stat().st_size
-    if size > cap_bytes:
-        raise AISInputError("Multi-day SQLite scratch store exceeded configured disk cap")
+    def check(self):
+        # The scratch database is deleted even on failure. Include journal bytes.
+        size = self.db_path.stat().st_size if self.db_path.exists() else 0
+        journal = self.db_path.with_name(self.db_path.name + "-journal")
+        if journal.exists():
+            size += journal.stat().st_size
+        self.peak_bytes = max(self.peak_bytes, size)
+        if size > self.cap_bytes:
+            raise AISInputError("Multi-day SQLite scratch store exceeded configured disk cap")
+        return size
 
 
 def _make_db(path, max_scratch_mib):
@@ -69,11 +89,13 @@ def _make_db(path, max_scratch_mib):
           id INTEGER PRIMARY KEY,
           mmsi TEXT NOT NULL,
           ts TEXT NOT NULL,
+          epoch_us INTEGER NOT NULL,
           lat REAL NOT NULL,
           lon REAL NOT NULL,
           sog REAL NOT NULL,
           vessel_type TEXT NOT NULL,
           nav_status TEXT NOT NULL,
+          cog REAL, heading REAL, length REAL, width REAL, draft REAL, transceiver TEXT,
           lat_micro INTEGER NOT NULL,
           lon_micro INTEGER NOT NULL
         );
@@ -95,12 +117,13 @@ def _make_db(path, max_scratch_mib):
     return db
 
 
-def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
+def _load_files(db, inputs, bbox, max_points, meter):
     counts = {
-        "total": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
+        "total": 0, "missing_value": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
         "duplicate_across_files": 0, "written": 0,
     }
     source_items = []
+    first = last = None
     w, s, e, n = bbox
     row_inserts = db.cursor()
     for source_id, path in enumerate(inputs):
@@ -119,16 +142,20 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
         for row in stream_rows(path):
             if columns is None:
                 columns = {
-                    key: header_alias(list(row), key, required=key not in ("vessel_type", "nav_status"))
-                    for key in ("mmsi", "timestamp", "lat", "lon", "sog", "vessel_type", "nav_status")
+                    key: header_alias(list(row), key, required=key not in OPTIONAL_COLUMNS)
+                    for key in ALIASES
                 }
             file_rows += 1
             counts["total"] += 1
             if counts["total"] > max_points:
                 raise AISInputError("Input records exceed cap; refusing truncated multi-day result")
+            if any(not str(row.get(columns[k]) or "").strip() for k in ("mmsi", "timestamp", "lat", "lon", "sog")):
+                counts["missing_value"] += 1
+                continue
             try:
                 mmsi = str(row[columns["mmsi"]]).strip()
-                timestamp = _utc(row[columns["timestamp"]])
+                moment = parse_time(row[columns["timestamp"]])
+                timestamp = moment.isoformat().replace("+00:00", "Z")
                 lat = float(row[columns["lat"]])
                 lon = float(row[columns["lon"]])
                 sog = float(row[columns["sog"]])
@@ -147,13 +174,22 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
                 continue
             vessel_type = str(row.get(columns["vessel_type"], "") or "") if columns["vessel_type"] else ""
             nav_status = str(row.get(columns["nav_status"], "") or "") if columns["nav_status"] else ""
+            get = lambda name: row.get(columns[name], "") if columns[name] else ""  # noqa: E731
+            attrs = normalize_attributes(get("cog"), get("heading"), get("length"), get("width"),
+                                         get("draft"), get("transceiver"))
             key = (mmsi, timestamp, round(lat * 1_000_000), round(lon * 1_000_000))
             row_inserts.execute(
                 """INSERT OR IGNORE INTO observations
-                   (mmsi,ts,lat,lon,sog,vessel_type,nav_status,lat_micro,lon_micro)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
-                (mmsi, timestamp, lat, lon, sog, vessel_type, nav_status, key[2], key[3]),
+                   (mmsi,ts,epoch_us,lat,lon,sog,vessel_type,nav_status,lat_micro,lon_micro,
+                    cog,heading,length,width,draft,transceiver)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (mmsi, timestamp, (moment - EPOCH) // ONE_MICROSECOND,
+                 lat, lon, sog, vessel_type, nav_status, key[2], key[3],
+                 attrs["cog_deg"], attrs["heading_deg"], attrs["length_m"], attrs["width_m"],
+                 attrs["draft_m"], attrs["transceiver_class"]),
             )
+            first = moment if first is None or moment < first else first
+            last = moment if last is None or moment > last else last
             if row_inserts.rowcount:
                 obs_id = row_inserts.lastrowid
                 counts["written"] += 1
@@ -175,13 +211,38 @@ def _load_files(db, inputs, bbox, max_points, db_path, max_scratch_mib):
             )
             if counts["total"] % 5000 == 0:
                 db.commit()
-                _enforce_scratch_limit(db_path, max_scratch_mib * 1048576)
+                meter.check()
         if file_rows == 0:
             raise AISInputError(f"Source has no AIS observations: {path.name}")
         item["rows_scanned"] = file_rows
         db.commit()
-        _enforce_scratch_limit(db_path, max_scratch_mib * 1048576)
-    return counts, source_items
+        meter.check()
+    return counts, source_items, (first, last)
+
+
+def _resolve_windows(paths, source_items, window_start, window_end, tolerance_minutes):
+    """Build censoring blocks from verified per-input sidecars or one explicit window.
+
+    All inputs must carry a verified sidecar for the sidecar windows to be used;
+    a partial set yields ``unknown`` censoring rather than a misleading union.
+    """
+    sides = [sidecar_window(path, item["sha256"]) for path, item in zip(paths, source_items)]
+    explicit = declared_window(window_start, window_end)
+    if any(sides):
+        if explicit:
+            raise AnalysisWindowError(
+                "Inputs carry verified acquisition windows; do not also pass --window-start/--window-end"
+            )
+        declarations = [declaration_record(item["filename"], side)
+                        for item, side in zip(source_items, sides)]
+        windows = sides if all(sides) else None
+    elif explicit:
+        declarations = [declaration_record("all_inputs", explicit)]
+        windows = [explicit]
+    else:
+        declarations = [declaration_record(item["filename"], None) for item in source_items]
+        windows = None
+    return WindowCensoring(windows, tolerance_minutes, declarations)
 
 
 def _output_files(out):
@@ -194,13 +255,16 @@ def run_multiday(
     bbox=BBOX_HOUSTON,
     max_points=MAX_POINTS,
     max_scratch_mib=MAX_SCRATCH_MIB,
-    max_export_mib=256,
+    max_export_mib=DEFAULT_EXPORT_MIB,
     max_sog=0.5,
     min_duration_minutes=30,
     max_gap_minutes=15,
     max_radius_m=1000,
     min_points=8,
     max_jump_knots=65,
+    window_start=None,
+    window_end=None,
+    params=None,
 ):
     """Reconstruct provisional stationary candidates across 2–7 local AIS files.
 
@@ -218,9 +282,9 @@ def run_multiday(
     if (len(bbox) != 4 or not all(math.isfinite(float(v)) for v in bbox)
             or not (-180 <= bbox[0] < bbox[2] <= 180 and -90 <= bbox[1] < bbox[3] <= 90)):
         raise AISInputError("Invalid west/south/east/north research bounding box")
-    if not (max_sog >= 0 and min_duration_minutes > 0 and max_gap_minutes > 0
-            and max_radius_m > 0 and min_points >= 2 and max_jump_knots > 0):
-        raise AISInputError("Invalid inference parameters")
+    if params is None:
+        params = SegmentationParams(max_sog, min_duration_minutes, max_gap_minutes,
+                                    max_radius_m, min_points, max_jump_knots)
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     files = _output_files(out)
@@ -231,37 +295,41 @@ def run_multiday(
     with tempfile.TemporaryDirectory(prefix="harborlens-scratch-") as folder:
         db_path = Path(folder) / "ais.sqlite3"
         db = _make_db(db_path, max_scratch_mib)
+        meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
         try:
-            counts, source_items = _load_files(
-                db, paths, tuple(bbox), max_points, db_path, max_scratch_mib
+            counts, source_items, (first, last) = _load_files(
+                db, paths, tuple(bbox), max_points, meter
             )
             db.commit()
-            diagnostics = {
-                "vessels": 0, "points": counts["written"], "stationary_candidates": 0,
-                "cross_day_candidates": 0, "moving_points": 0,
-                "gap_splits": 0, "identity_conflicts": 0,
-                "implausible_jumps": 0, "timestamp_conflicts": 0,
-                "spatial_splits": 0, "discarded_groups": 0,
-                "warning": "Only unvalidated stationary candidates, not confirmed berths or waiting vessels.",
-            }
-            params = {
-                "method_version": METHOD, "max_sog_knots": max_sog,
-                "min_duration_minutes": min_duration_minutes,
-                "max_gap_minutes": max_gap_minutes, "max_radius_m": max_radius_m,
-                "min_points": min_points, "max_jump_knots": max_jump_knots,
-            }
-            _write_outputs(db, files, source_items, diagnostics, params, max_export_mib)
+            censoring = _resolve_windows(paths, source_items, window_start, window_end,
+                                         params.max_gap_minutes)
+            censoring.check_observed(first, last)
+            diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+            db.commit()
+            meter.check()
+            diagnostics["censoring"] = censoring.event_summary()
+            mmsi_categories = diagnostics.pop("mmsi_categories")
+            diagnostics["warning"] = ("Only unvalidated stationary candidates, "
+                                      "not confirmed berths or waiting vessels.")
+            identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
+                        "bbox": list(bbox), "method": params.manifest(),
+                        "harborlens_version": __version__}
+            if censoring.known:
+                identity["analysis_window"] = censoring.run_id_component()
             result = {
                 "mode": "multi_day_historical", "schema_version": "multi-day-1.0",
                 "input_files": source_items, "bbox_lon_lat": list(bbox),
                 "counts": counts, "events": diagnostics,
-                "method_parameters": params, "source_rights_status": "review_required",
+                "method_parameters": params.manifest(), "source_rights_status": "review_required",
+                "code_version": code_version(),
+                "analysis_window": censoring.summary(observed_range(first, last)),
+                "mmsi_categories": mmsi_categories,
+                "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
+                           "max_export_mib": max_export_mib},
+                "resources": {"scratch_peak_bytes": meter.peak_bytes,
+                              "scratch_measurement": "sampled at commits; includes rollback journal"},
                 "run_id": hashlib.sha256(
-                    json.dumps(
-                        {"source_hashes": sorted(x["sha256"] for x in source_items),
-                         "bbox": list(bbox), "method": params},
-                        sort_keys=True, separators=(",", ":")
-                    ).encode("utf-8")
+                    json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
                 "artifacts": {
                     name: {"sha256": checksum(path), "size_bytes": path.stat().st_size}
@@ -279,7 +347,24 @@ def run_multiday(
             db.close()
 
 
-def _write_outputs(db, files, sources, stats, params, export_cap_mib):
+class _SQLiteGroupStore:
+    """Group membership on disk, so a long candidate never sits in Python memory."""
+
+    def __init__(self, db):
+        self.db = db
+
+    def add(self, group_id, ref, lon, lat):
+        self.db.execute("INSERT INTO group_observations(group_id,observation_id) VALUES (?,?)",
+                        (group_id, ref))
+
+    def points(self, group_id):
+        return ((lon, lat) for lat, lon in self.db.execute(
+            "SELECT o.lat,o.lon FROM group_observations g "
+            "JOIN observations o ON o.id=g.observation_id WHERE g.group_id=?", (group_id,)))
+
+
+def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter):
+    """Stream sorted observations through the shared engine and write exports."""
     max_bytes = export_cap_mib * 1048576
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
@@ -290,154 +375,68 @@ def _write_outputs(db, files, sources, stats, params, export_cap_mib):
         normalized.writeheader()
         candidate_writer = csv.DictWriter(events, fieldnames=MULTIDAY_FIELDS, lineterminator="\n")
         candidate_writer.writeheader()
-        geo.write('{"type":"FeatureCollection","features":[\n')
-        stats["vessels"] = db.execute("SELECT count(DISTINCT mmsi) FROM observations").fetchone()[0]
-        cursor = db.execute(
-            "SELECT id,mmsi,ts,lat,lon,sog,vessel_type,nav_status "
-            "FROM observations ORDER BY mmsi,ts,id"
-        )
-        current = None
-        group_id = 0
-        first_feature = True
-        last_mmsi = None
-        num_rows = 0
+        geo.write('{"type":"FeatureCollection","harborlens_method":'
+                  + json.dumps(geojson_method_member(params), separators=(",", ":"))
+                  + ',"features":[\n')
+        state = {"first": True, "cross_day": 0}
+        categories = {}
 
-        def finish_group():
-            nonlocal current, first_feature
-            if current is None:
-                return
-            group = current
-            current = None
-            if group["count"] < params["min_points"]:
-                stats["discarded_groups"] += 1
-                return
-            span = (group["end_dt"] - group["start_dt"]).total_seconds() / 60
-            if span < params["min_duration_minutes"]:
-                stats["discarded_groups"] += 1
-                return
-            center = (group["sum_lon"] / group["count"], group["sum_lat"] / group["count"])
-            distances = (
-                haversine_m(center, (lon, lat))
-                for lat, lon in db.execute(
-                    "SELECT o.lat,o.lon FROM group_observations g "
-                    "JOIN observations o ON o.id=g.observation_id WHERE g.group_id=?",
-                    (group["gid"],)
-                )
-            )
-            max_distance = max(distances, default=0)
-            if max_distance > params["max_radius_m"]:
-                stats["discarded_groups"] += 1
-                return
+        def emit(record, group):
             seen_sources = [
                 item[0] for item in db.execute(
                     "SELECT DISTINCT s.source_id FROM group_observations g "
                     "JOIN observation_sources s ON s.observation_id=g.observation_id "
-                    "WHERE g.group_id=? ORDER BY s.source_id",
-                    (group["gid"],)
-                )
+                    "WHERE g.group_id=? ORDER BY s.source_id", (group["gid"],))
             ]
             refs = [sources[i]["source_ref"] for i in seen_sources]
-            start = group["start_dt"].isoformat().replace("+00:00", "Z")
-            end = group["end_dt"].isoformat().replace("+00:00", "Z")
-            eid = hashlib.sha256(f"{group['mmsi']}|{start}|{end}|{METHOD}".encode()).hexdigest()[:18]
             crossing = group["start_dt"].date() != group["end_dt"].date()
-            record = {
-                "event_id": eid, "mmsi": group["mmsi"],
-                "start_utc": start, "end_utc": end, "duration_min": round(span, 2),
-                "point_count": group["count"], "centroid_lon": round(center[0], 6),
-                "centroid_lat": round(center[1], 6),
-                "maximum_distance_m": round(max_distance, 1),
-                "type": "stationary_candidate", "method_version": METHOD,
-                "confidence_label": "unvalidated",
-                "source_files_json": json.dumps(refs, separators=(",", ":")),
-                "source_count": len(refs), "crosses_utc_date": crossing,
-            }
+            record = {**record, "source_files_json": json.dumps(refs, separators=(",", ":")),
+                      "source_count": len(refs), "crosses_utc_date": crossing}
             candidate_writer.writerow(record)
-            properties = {k: v for k, v in record.items() if k not in ("centroid_lon", "centroid_lat")}
+            properties = {k: v for k, v in record.items()
+                          if k not in ("centroid_lon", "centroid_lat", "source_files_json")}
             properties["source_files"] = refs
-            properties.pop("source_files_json")
-            feature = {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [record["centroid_lon"], record["centroid_lat"]]},
-                "properties": properties,
-            }
-            if not first_feature:
+            feature = {"type": "Feature",
+                       "geometry": {"type": "Point",
+                                    "coordinates": [record["centroid_lon"], record["centroid_lat"]]},
+                       "properties": properties}
+            if not state["first"]:
                 geo.write(",\n")
             geo.write(json.dumps(feature, separators=(",", ":")))
-            first_feature = False
-            stats["stationary_candidates"] += 1
-            if crossing:
-                stats["cross_day_candidates"] += 1
+            state["first"] = False
+            state["cross_day"] += crossing
 
-        def reset_group(obs_id, mmsi, time, lat, lon, vessel_type):
-            nonlocal current, group_id
-            group_id += 1
-            current = {
-                "gid": group_id, "mmsi": mmsi,
-                "start_dt": time, "end_dt": time,
-                "first": (lon, lat), "last": (lon, lat),
-                "sum_lat": 0.0, "sum_lon": 0.0, "count": 0,
-                "vessel_type": vessel_type,
-            }
-
-        for obs_id, mmsi, ts, lat, lon, sog, vessel_type, nav_status in cursor:
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            normalized.writerow({
-                "mmsi": mmsi, "timestamp_utc": ts, "lat": lat, "lon": lon,
-                "sog_knots": sog, "vessel_type": vessel_type,
-                "nav_status": nav_status,
-            })
-            num_rows += 1
+        engine = Segmenter(params, _SQLiteGroupStore(db), emit, censoring)
+        cursor = db.execute(
+            "SELECT id,mmsi,ts,lat,lon,sog,vessel_type,nav_status,cog,heading,length,width,draft,transceiver "
+            "FROM observations ORDER BY mmsi,epoch_us,id"
+        )
+        for num_rows, (obs_id, mmsi, ts, lat, lon, sog, vessel_type, nav_status,
+                       cog, heading, length, width, draft, transceiver) in enumerate(cursor, 1):
+            attrs = {"cog_deg": cog, "heading_deg": heading, "length_m": length, "width_m": width,
+                     "draft_m": draft, "transceiver_class": transceiver}
+            category = mmsi_category(mmsi)
+            categories[category] = categories.get(category, 0) + 1
+            normalized.writerow({"mmsi": mmsi, "timestamp_utc": ts, "lat": lat, "lon": lon,
+                                 "sog_knots": sog, "vessel_type": vessel_type, "nav_status": nav_status,
+                                 **{k: csv_value(v) for k, v in attrs.items()}, "mmsi_category": category})
             if num_rows % 10000 == 0:
                 clean.flush()
                 if clean.tell() > max_bytes:
                     raise AISInputError("Multi-day cleaned CSV exceeded export byte cap")
-                _enforce_scratch_limit(Path(db.execute("PRAGMA database_list").fetchone()[2]), max_bytes * 4)
-
-            if last_mmsi is not None and mmsi != last_mmsi:
-                finish_group()
-            last_mmsi = mmsi
-            if sog > params["max_sog_knots"]:
-                stats["moving_points"] += 1
-                finish_group()
-                continue
-            if current is not None:
-                gap = (dt - current["end_dt"]).total_seconds() / 60.0
-                velocity = haversine_m(current["last"], (lon, lat)) / max(gap * 60, 0.001) / KNOTS_TO_MPS
-                reason = None
-                if gap <= 0:
-                    reason = "timestamp_conflicts"
-                elif gap > params["max_gap_minutes"]:
-                    reason = "gap_splits"
-                elif current["vessel_type"] and vessel_type and vessel_type != current["vessel_type"]:
-                    reason = "identity_conflicts"
-                elif velocity > params["max_jump_knots"]:
-                    reason = "implausible_jumps"
-                elif haversine_m(current["first"], (lon, lat)) > 2 * params["max_radius_m"]:
-                    reason = "spatial_splits"
-                if reason:
-                    stats[reason] += 1
-                    finish_group()
-            if current is None:
-                reset_group(obs_id, mmsi, dt, lat, lon, vessel_type)
-            group = current
-            group["end_dt"] = dt
-            group["last"] = (lon, lat)
-            group["sum_lat"] += lat
-            group["sum_lon"] += lon
-            group["count"] += 1
-            if not group["vessel_type"] and vessel_type:
-                group["vessel_type"] = vessel_type
-            db.execute(
-                "INSERT INTO group_observations(group_id,observation_id) VALUES (?,?)",
-                (group["gid"], obs_id),
-            )
-        finish_group()
+                db.commit()
+                meter.check()
+            engine.feed(mmsi, datetime.fromisoformat(ts.replace("Z", "+00:00")),
+                        lat, lon, sog, vessel_type, obs_id, attrs)
+        stats = engine.close()
+        stats["cross_day_candidates"] = state["cross_day"]
+        stats["mmsi_categories"] = dict(sorted(categories.items()))
         geo.write("\n]}\n")
         for handle in (clean, events, geo):
             handle.flush()
             if handle.tell() > max_bytes:
                 raise AISInputError("Multi-day export exceeds configured byte cap")
+    return stats
 
 
 def main():
@@ -447,12 +446,19 @@ def main():
     parser.add_argument("--bbox", nargs=4, type=float, default=BBOX_HOUSTON, metavar=("W","S","E","N"))
     parser.add_argument("--max-points", type=int, default=MAX_POINTS)
     parser.add_argument("--max-scratch-mib", type=int, default=MAX_SCRATCH_MIB)
-    parser.add_argument("--max-export-mib", type=int, default=256)
+    parser.add_argument("--max-export-mib", type=int, default=DEFAULT_EXPORT_MIB)
+    parser.add_argument("--window-start", default=None,
+                        help="One analysis window covering all inputs (ISO 8601 with Z); "
+                             "only when inputs have no acquisition sidecars")
+    parser.add_argument("--window-end", default=None)
+    add_threshold_arguments(parser)
     args = parser.parse_args()
     result = run_multiday(
         args.input, args.out, bbox=tuple(args.bbox),
         max_points=args.max_points, max_scratch_mib=args.max_scratch_mib,
         max_export_mib=args.max_export_mib,
+        window_start=args.window_start, window_end=args.window_end,
+        params=params_from_args(args),
     )
     print(json.dumps(result, indent=2))
 

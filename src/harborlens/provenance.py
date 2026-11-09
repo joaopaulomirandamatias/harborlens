@@ -6,7 +6,11 @@ authenticity, rights, or actual vessel behavior.
 import argparse
 import hashlib
 import json
+import os
+import re
 from pathlib import Path
+
+from harborlens import __version__
 from urllib.parse import urlsplit
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
@@ -18,15 +22,36 @@ def checksum(path):
             h.update(block)
     return h.hexdigest()
 
+def code_version():
+    """Package version (part of run identity) and, in CI, the git commit (metadata only).
+
+    The commit comes from ``GITHUB_SHA`` or ``HARBORLENS_GIT_COMMIT`` when it is a
+    40-hex SHA; it is recorded but not hashed into run IDs, so identical code gives
+    identical run IDs locally and in CI. Bump the package version on any change
+    that can alter outputs.
+    """
+    commit = os.environ.get("HARBORLENS_GIT_COMMIT") or os.environ.get("GITHUB_SHA") or ""
+    return {"package_version": __version__,
+            "git_commit": commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None}
+
+
 def add_provenance(folder, manifest, source_url=None):
     if source_url is not None:
         parts = urlsplit(source_url)
         if parts.scheme not in ("https", "http") or not parts.netloc or parts.username or parts.password:
             raise ValueError("Source URL must be HTTP(S) without credentials")
     settings = {"input_sha256": manifest["input_sha256"], "bbox_lon_lat": manifest["bbox_lon_lat"],
-                "method_parameters": manifest["method_parameters"], "method_version": "stationary-v0.1"}
+                "method_parameters": manifest["method_parameters"],
+                "method_version": manifest["method_parameters"].get("method_version", "stationary-v0.1"),
+                "harborlens_version": __version__}
+    window = manifest.get("analysis_window") or {}
+    if window.get("status") == "known":
+        # A known window changes censoring outputs, so it is part of run identity.
+        # Runs without a window keep the legacy run_id derivation.
+        settings["analysis_window"] = [[b["start_utc"], b["end_utc"]] for b in window["blocks"]]
     manifest["run_id"] = hashlib.sha256(json.dumps(settings, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     manifest["provenance_schema_version"] = "1.1"
+    manifest["code_version"] = code_version()
     manifest["source_metadata"] = {"source_url": source_url, "metadata_origin": "user_declared",
                                    "rights_status": "review_required"}
     manifest["artifacts"] = {

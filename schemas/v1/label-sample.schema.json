@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/label-sample.schema.json",
+  "title": "HarborLens labeling-sample manifest (holds the blinding key)",
+  "description": "Seeded stratified sample drawn from one verified run. The key maps sample_id to candidate or negative; do not share it with annotators.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_manifest_sha256",
+    "run_id",
+    "method_version",
+    "parameter_set",
+    "seed",
+    "requested",
+    "frame",
+    "allocation",
+    "drawn",
+    "sheet_filename",
+    "sheet_sha256",
+    "key",
+    "rights_status",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "label-sample-v0.1"
+    },
+    "run_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "method_version": {
+      "const": "stationary-v0.2"
+    },
+    "parameter_set": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{12}$"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives",
+        "min_negative_minutes"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negatives": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_negative_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives",
+        "unparsable_cleaned_rows"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "negatives": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "unparsable_cleaned_rows": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "drawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negatives": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sheet_filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sheet_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "key": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sample_id",
+          "kind",
+          "event_id",
+          "stratum"
+        ],
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "pattern": "^S[0-9]{4}$"
+          },
+          "kind": {
+            "enum": [
+              "candidate",
+              "negative"
+            ]
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{18}$"
+          },
+          "stratum": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "warning": {
+      "type": "string"
+    }
+  }
+}

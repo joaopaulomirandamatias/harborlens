@@ -21,15 +21,20 @@ from pathlib import Path
 from harborlens.ais import parse_time
 from harborlens.io_safe import AISInputError, stream_rows
 from harborlens.provenance import checksum
+from harborlens.segmentation import SegmentationParams
 
-MAX_CANDIDATES = 20000
-MAX_AIS_POINTS = 1500000
-MAX_OBSERVATIONS_PER_EVENT = 10000
-MAX_GEOJSON_BYTES = 32 * 1048576
-MAX_OUTPUT_BYTES = 48 * 1048576
-MAX_SQLITE_MIB = 768
-GAP_LIMIT_MINUTES = 15
-MAX_CANDIDATE_SOG = 0.5
+# Sized for seven full Houston days: ~3.9 million cleaned rows and up to ~26,000
+# candidates (920 per six hours observed on 2024-01-02); a week-long stop at one
+# observation per minute has ~10,080 points.
+MAX_CANDIDATES = 100_000
+MAX_AIS_POINTS = 6_000_000
+MAX_OBSERVATIONS_PER_EVENT = 60_000
+MAX_GEOJSON_BYTES = 128 * 1048576
+MAX_OUTPUT_BYTES = 256 * 1048576
+MAX_SQLITE_MIB = 2048
+# Thresholds of candidate files written before stationary-v0.2 embedded their parameters.
+LEGACY_GAP_LIMIT_MINUTES = 15
+LEGACY_MAX_CANDIDATE_SOG = 0.5
 METHOD = "observed-track-polygon-v0.1"
 
 
@@ -100,11 +105,27 @@ def _source_receipt(polygons, explicit_receipt=None):
     return receipt, path
 
 
+def _candidate_method(doc):
+    """Thresholds the candidates were produced with (#37); legacy files fall back to v0.1 defaults."""
+    block = doc.get("harborlens_method")
+    if block is None:
+        return {"parameters_source": "legacy_default_v0.1", "max_sog_knots": LEGACY_MAX_CANDIDATE_SOG,
+                "max_gap_minutes": LEGACY_GAP_LIMIT_MINUTES, "method_version": None, "parameter_set": None}
+    try:
+        params = SegmentationParams.from_manifest(block)
+    except AISInputError as exc:
+        raise TrackEvidenceError(f"Invalid candidate method block: {exc}") from exc
+    return {"parameters_source": "candidate_geojson", "max_sog_knots": params.max_sog_knots,
+            "max_gap_minutes": params.max_gap_minutes, "method_version": block["method_version"],
+            "parameter_set": params.parameter_set}
+
+
 def _load_candidates(path):
     doc = _json_document(path)
     rows = doc.get("features")
     if doc.get("type") != "FeatureCollection" or not isinstance(rows, list) or len(rows) > MAX_CANDIDATES:
         raise TrackEvidenceError("Expected bounded candidate FeatureCollection")
+    method = _candidate_method(doc)
     identifiers = set()
     for feature in rows:
         if not isinstance(feature, dict) or feature.get("type") != "Feature":
@@ -129,7 +150,9 @@ def _load_candidates(path):
             raise TrackEvidenceError("Invalid temporal candidate metadata") from exc
         if not (start < end and 1 <= expected <= MAX_OBSERVATIONS_PER_EVENT):
             raise TrackEvidenceError("Candidate duration or observation count outside limits")
-    return rows
+        if method["parameter_set"] and props.get("parameter_set") != method["parameter_set"]:
+            raise TrackEvidenceError("Candidate parameter_set differs from the collection method block")
+    return rows, method
 
 
 def _ingest_observations(path, database, max_points):
@@ -185,7 +208,7 @@ def _temporal_compatibility(props, receipt):
     return "inside_unreviewed_declared_vintage"
 
 
-def _assess_one(db, feature, zones, geoms, tree, point_factory, receipt):
+def _assess_one(db, feature, zones, geoms, tree, point_factory, receipt, method):
     p = feature["properties"]
     mmsi = str(p["mmsi"])
     start = _epoch_microseconds(p["start_utc"])
@@ -210,7 +233,7 @@ def _assess_one(db, feature, zones, geoms, tree, point_factory, receipt):
             gap = (ts - previous) / 60000000
             max_gap = max(max_gap,gap)
         previous = last = ts
-        moving += sog > MAX_CANDIDATE_SOG
+        moving += sog > method["max_sog_knots"]
         pt = point_factory(lon,lat)
         members = []
         for ix in tree.query(pt):
@@ -223,7 +246,7 @@ def _assess_one(db, feature, zones, geoms, tree, point_factory, receipt):
             hits[match] += 1
     complete = (
         total == expected and moving == 0 and first == start and last == end
-        and max_gap <= GAP_LIMIT_MINUTES
+        and max_gap <= method["max_gap_minutes"]
     )
     if not complete:
         status = "incomplete_track_unknown"
@@ -270,7 +293,7 @@ def run_track_context(cleaned, candidates, polygons, out, polygon_receipt=None,
     if not (1 <= max_points <= MAX_AIS_POINTS and 16 <= scratch_mib <= MAX_SQLITE_MIB):
         raise TrackEvidenceError("Configured point/scratch limits exceeded")
     receipt, receipt_path = _source_receipt(polygons,polygon_receipt)
-    features = _load_candidates(candidates)
+    features, method = _load_candidates(candidates)
     zone_ids, geoms, tree, point_factory = _load_zones(polygons)
     with tempfile.TemporaryDirectory(prefix="harborlens-track-") as work:
         db_path = Path(work)/"observations.sqlite"
@@ -292,7 +315,7 @@ def run_track_context(cleaned, candidates, polygons, out, polygon_receipt=None,
             outcomes=Counter()
             result_features=[]
             for item in features:
-                evidence=_assess_one(db,item,zone_ids,geoms,tree,point_factory,receipt)
+                evidence=_assess_one(db,item,zone_ids,geoms,tree,point_factory,receipt,method)
                 outcomes[evidence["status"]]+=1
                 old=item["properties"]
                 result_features.append({
@@ -316,6 +339,7 @@ def run_track_context(cleaned, candidates, polygons, out, polygon_receipt=None,
                 "cleaned_rows_scanned":rowcount,
                 "invalid_cleaned_rows":invalid,
                 "candidate_count":len(features),
+                "candidate_method":method,
                 "zone_polygon_count":len(zone_ids),
                 "outcome_counts":dict(sorted(outcomes.items())),
                 "polygon_source_retrieved_at_utc":receipt.get("retrieved_at_utc"),

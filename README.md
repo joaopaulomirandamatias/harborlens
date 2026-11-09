@@ -4,6 +4,18 @@
 
 HarborLens explores auditable AIS ingest and provisional low-speed stationary candidates in the Houston–Galveston area. A candidate is **not** a verified berth, anchorage, queue, port call, or emissions claim.
 
+## Status at a glance
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Ingestion and provenance (SPEC-001) | Implemented | Synthetic tests; source-pinned NOAA 2024 smokes; 2015–2023 and 2025+ layouts documentary only |
+| Stationary candidates (SPEC-002) | Implemented, unvalidated | One shared engine (`stationary-v0.2`), censoring flags, synthetic 7-day scale benchmark; real two-day smoke |
+| Validation tooling (SPEC-003) | Partial | Labeling protocol, blinded sampler, agreement and evaluation CLIs; **no labels collected, no accuracy measured** |
+| Zones and regulatory sources (SPEC-004) | Partial | USACE points, current NOAA polygons, CFR/Federal Register audits; no reviewed dated polygons |
+| Emissions, API/map, managed service (SPEC-005–007) | Proposed | Not built |
+
+Status per requirement: [functional requirements](docs/requirements/functional.md) and [traceability](docs/requirements/traceability.md).
+
 ```bash
 python -m pip install -e .
 python -m unittest discover -s tests -v
