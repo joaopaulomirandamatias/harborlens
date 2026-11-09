@@ -50,3 +50,7 @@ Following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
 ### Added (SPEC-004: historical source-vintage screening)
 
 - Offline NOAA ENC documentary date audit checks current polygon/source hashes and optional unverified ENC metadata; all outputs deny automatic historical certification and retain review_required rights.
+
+### NOAA historical geometry vintage source smoke
+
+- Official current NOAA Anchorage Areas Polygon retrieval, source checksum and documentary January 2024 audit passed with non-certifying no_documentary_enc_evidence status. See docs/data/noaa-geometry-vintage-smoke-2026-11-09.md.

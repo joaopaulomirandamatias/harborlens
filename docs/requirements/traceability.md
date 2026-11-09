@@ -35,3 +35,7 @@ The [historical AIS full observed-track integration](../data/noaa-full-track-con
 ### NOAA ENC documentary vintage (SPEC-004)
 
 A conservative offline [vintage audit](../data/geometry-vintage-audit.md) reports edition/issue date conflicts for a historical AIS time interval. It preserves historic geometry and operational event validity as not_verified regardless of user-provided dates; actual old geometry source files are not yet obtained.
+
+### NOAA geometry-vintage real source integration
+
+An isolated [official NOAA current-polygon vintage smoke](../data/noaa-geometry-vintage-smoke-2026-11-09.md) passed source hash and report schema checks but correctly retained no_documentary_enc_evidence, historical_geometry_validity=not_verified and rights=review_required for January 2024. Actual historical geofence validation remains pending.

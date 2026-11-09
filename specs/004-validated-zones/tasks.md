@@ -40,3 +40,6 @@
 - [x] Implement bounded offline source-pinned NOAA ENC documentary edition/issue screening, source hash checks, and synthetic tests (under PR review).
 - [ ] Acquire genuinely historical 2024 ENC/anchorage polygon revisions; verify actual source, geometry, attribution and rights.
 - [ ] Add independent event-label evidence and classify only when a reviewed historical polygon is available.
+
+- [x] Run a bounded real NOAA current source-vintage audit and verify the unreviewed January 2024 status; see [integration report](../../docs/data/noaa-geometry-vintage-smoke-2026-11-09.md).
+- [ ] Obtain actual historical January 2024 ENC/anchorage source and establish polygon-version equivalence independently.
