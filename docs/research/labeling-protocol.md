@@ -55,7 +55,7 @@ Transmitted `nav_status` is auxiliary evidence only (BR-011).
 ## 6. Pilot size and sampling
 
 - Target: **at least 100 units**, roughly 70 candidates and 30 negatives, from one run. One hundred is a pilot objective, not a statistical guarantee.
-- Strata for candidates: duration band (`<60`, `60–180`, `>180` minutes) × censoring (`uncensored`, `censored`, `unknown`) × vessel group (cargo, tanker, passenger, tug/service, other or unknown). Every non-empty stratum gets at least one unit; the rest is allocated proportionally.
+- Strata for candidates: duration band (`<60`, `60–180`, `>180` minutes) × censoring (`uncensored`, `censored`, `unknown`) × vessel group (cargo, tanker, passenger, tug/service, other or unknown). Candidates also carry `transceiver_class`, `length_m`, `draft_m` and `mmsi_category` for post-stratified analysis; units with a non-ship `mmsi_category` stay in the sample and are expected to be labeled `other_stationary` or `unknown`. Every non-empty stratum gets at least one unit; the rest is allocated proportionally.
 - Sampling is seeded and reproducible; the manifest records the run, `parameter_set`, seed, frame counts per stratum and the hidden candidate/negative key.
 
 ## 7. Data rights and storage

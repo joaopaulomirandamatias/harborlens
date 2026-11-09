@@ -20,7 +20,8 @@
     "analysis_window",
     "limits",
     "resources",
-    "code_version"
+    "code_version",
+    "mmsi_categories"
   ],
   "properties": {
     "mode": {
@@ -603,6 +604,31 @@
           ],
           "pattern": "^[0-9a-f]{40}$"
         }
+      }
+    },
+    "mmsi_categories": {
+      "type": "object",
+      "description": "Accepted points per ITU-R M.585 MMSI category (QA flag; nothing is dropped).",
+      "propertyNames": {
+        "enum": [
+          "ship",
+          "group_of_ships",
+          "coast_station",
+          "sar_aircraft",
+          "aid_to_navigation",
+          "craft_associated_with_parent_ship",
+          "handheld_vhf",
+          "ais_sart",
+          "mob_device",
+          "epirb_ais",
+          "placeholder",
+          "leading_zero_ambiguous",
+          "other"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
       }
     }
   }

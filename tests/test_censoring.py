@@ -178,7 +178,8 @@ class SingleFileCensoringTests(unittest.TestCase):
         validator = Draft202012Validator(candidate_schema, format_checker=FormatChecker())
         for event in events:
             validator.validate(event)
-        self.assertEqual(EVENT_FIELDS[-2:], ["left_censoring", "right_censoring"])
+        position = EVENT_FIELDS.index("confidence_label")
+        self.assertEqual(EVENT_FIELDS[position + 1:position + 3], ["left_censoring", "right_censoring"])
 
     def test_real_extractor_sidecar_feeds_censoring(self):
         import zstandard

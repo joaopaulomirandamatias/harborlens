@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added (SPEC-001: vessel attributes and MMSI QA flags, #39)
+- Cleaned AIS keeps `cog_deg`, `heading_deg`, `length_m`, `width_m`, `draft_m`, `transceiver_class` (NOAA sentinels → empty) and an ITU-R M.585 `mmsi_category` flag; new columns are appended. Rows are never dropped by category; both manifests report `mmsi_categories`.
+- Candidates carry `vessel_type`, `transceiver_class`, `length_m`, `draft_m` and `mmsi_category` for stratified evaluation; `read_candidates_csv` returns missing values as `None`.
+- Schema migration: `ais-point`, `stationary-candidate`, both candidate feature schemas and both manifests require the new fields; regenerate earlier outputs. Older cleaned CSV files without the new columns still load.
+
 ### Changed (SPEC-003: contracts and run identity, #41)
 - Package version `0.2.0.dev0` (method `stationary-v0.2`). Both manifests record `code_version`; the package version is part of `run_id` (the CI git commit is recorded as metadata only). Bump the version for any output-changing change (CONTRIBUTING).
 - New `stationary-candidate-feature.schema.json` for single-file GeoJSON features and `harborlens.ais.read_candidates_csv` for typed CSV records; real CLI exports are now validated in tests.

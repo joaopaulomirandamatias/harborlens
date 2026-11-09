@@ -20,8 +20,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harborlens.ais import (
-    BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, header_alias, parse_time, sha256,
+    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
 )
+from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
 from harborlens.segmentation import (
     METHOD_VERSION, SegmentationParams, Segmenter, add_threshold_arguments,
     geojson_method_member, params_from_args,
@@ -94,6 +95,7 @@ def _make_db(path, max_scratch_mib):
           sog REAL NOT NULL,
           vessel_type TEXT NOT NULL,
           nav_status TEXT NOT NULL,
+          cog REAL, heading REAL, length REAL, width REAL, draft REAL, transceiver TEXT,
           lat_micro INTEGER NOT NULL,
           lon_micro INTEGER NOT NULL
         );
@@ -140,8 +142,8 @@ def _load_files(db, inputs, bbox, max_points, meter):
         for row in stream_rows(path):
             if columns is None:
                 columns = {
-                    key: header_alias(list(row), key, required=key not in ("vessel_type", "nav_status"))
-                    for key in ("mmsi", "timestamp", "lat", "lon", "sog", "vessel_type", "nav_status")
+                    key: header_alias(list(row), key, required=key not in OPTIONAL_COLUMNS)
+                    for key in ALIASES
                 }
             file_rows += 1
             counts["total"] += 1
@@ -169,13 +171,19 @@ def _load_files(db, inputs, bbox, max_points, meter):
                 continue
             vessel_type = str(row.get(columns["vessel_type"], "") or "") if columns["vessel_type"] else ""
             nav_status = str(row.get(columns["nav_status"], "") or "") if columns["nav_status"] else ""
+            get = lambda name: row.get(columns[name], "") if columns[name] else ""  # noqa: E731
+            attrs = normalize_attributes(get("cog"), get("heading"), get("length"), get("width"),
+                                         get("draft"), get("transceiver"))
             key = (mmsi, timestamp, round(lat * 1_000_000), round(lon * 1_000_000))
             row_inserts.execute(
                 """INSERT OR IGNORE INTO observations
-                   (mmsi,ts,epoch_us,lat,lon,sog,vessel_type,nav_status,lat_micro,lon_micro)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                   (mmsi,ts,epoch_us,lat,lon,sog,vessel_type,nav_status,lat_micro,lon_micro,
+                    cog,heading,length,width,draft,transceiver)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (mmsi, timestamp, (moment - EPOCH) // ONE_MICROSECOND,
-                 lat, lon, sog, vessel_type, nav_status, key[2], key[3]),
+                 lat, lon, sog, vessel_type, nav_status, key[2], key[3],
+                 attrs["cog_deg"], attrs["heading_deg"], attrs["length_m"], attrs["width_m"],
+                 attrs["draft_m"], attrs["transceiver_class"]),
             )
             first = moment if first is None or moment < first else first
             last = moment if last is None or moment > last else last
@@ -297,6 +305,7 @@ def run_multiday(
             db.commit()
             meter.check()
             diagnostics["censoring"] = censoring.event_summary()
+            mmsi_categories = diagnostics.pop("mmsi_categories")
             diagnostics["warning"] = ("Only unvalidated stationary candidates, "
                                       "not confirmed berths or waiting vessels.")
             identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
@@ -311,6 +320,7 @@ def run_multiday(
                 "method_parameters": params.manifest(), "source_rights_status": "review_required",
                 "code_version": code_version(),
                 "analysis_window": censoring.summary(observed_range(first, last)),
+                "mmsi_categories": mmsi_categories,
                 "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
                            "max_export_mib": max_export_mib},
                 "resources": {"scratch_peak_bytes": meter.peak_bytes,
@@ -366,6 +376,7 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
                   + json.dumps(geojson_method_member(params), separators=(",", ":"))
                   + ',"features":[\n')
         state = {"first": True, "cross_day": 0}
+        categories = {}
 
         def emit(record, group):
             seen_sources = [
@@ -394,12 +405,18 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
 
         engine = Segmenter(params, _SQLiteGroupStore(db), emit, censoring)
         cursor = db.execute(
-            "SELECT id,mmsi,ts,lat,lon,sog,vessel_type,nav_status "
+            "SELECT id,mmsi,ts,lat,lon,sog,vessel_type,nav_status,cog,heading,length,width,draft,transceiver "
             "FROM observations ORDER BY mmsi,epoch_us,id"
         )
-        for num_rows, (obs_id, mmsi, ts, lat, lon, sog, vessel_type, nav_status) in enumerate(cursor, 1):
+        for num_rows, (obs_id, mmsi, ts, lat, lon, sog, vessel_type, nav_status,
+                       cog, heading, length, width, draft, transceiver) in enumerate(cursor, 1):
+            attrs = {"cog_deg": cog, "heading_deg": heading, "length_m": length, "width_m": width,
+                     "draft_m": draft, "transceiver_class": transceiver}
+            category = mmsi_category(mmsi)
+            categories[category] = categories.get(category, 0) + 1
             normalized.writerow({"mmsi": mmsi, "timestamp_utc": ts, "lat": lat, "lon": lon,
-                                 "sog_knots": sog, "vessel_type": vessel_type, "nav_status": nav_status})
+                                 "sog_knots": sog, "vessel_type": vessel_type, "nav_status": nav_status,
+                                 **{k: csv_value(v) for k, v in attrs.items()}, "mmsi_category": category})
             if num_rows % 10000 == 0:
                 clean.flush()
                 if clean.tell() > max_bytes:
@@ -407,9 +424,10 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
                 db.commit()
                 meter.check()
             engine.feed(mmsi, datetime.fromisoformat(ts.replace("Z", "+00:00")),
-                        lat, lon, sog, vessel_type, obs_id)
+                        lat, lon, sog, vessel_type, obs_id, attrs)
         stats = engine.close()
         stats["cross_day_candidates"] = state["cross_day"]
+        stats["mmsi_categories"] = dict(sorted(categories.items()))
         geo.write("\n]}\n")
         for handle in (clean, events, geo):
             handle.flush()
