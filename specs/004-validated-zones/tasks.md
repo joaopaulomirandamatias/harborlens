@@ -24,3 +24,7 @@
 - [x] Implement bounded NOAA designated anchorage Polygon import and synthetic tests (PR review pending).
 - [x] Implement centroid spatial overlap with holes, boundaries, ambiguity and unknown semantics (PR review pending).
 - [ ] Verify historically dated geometry, source terms and independent operational event labels.
+
+- [x] Perform controlled NOAA polygon real-source retrieval and synthetic-to-real centroid overlay; see [engineering evidence](../../docs/data/noaa-anchorage-real-smoke-2026-11-09.md).
+- [ ] Independently verify historical 2024 anchorage geometry and source-specific rights.
+- [ ] Extend centroid-only overlay to full trajectories with uncertainty flags, then independently evaluate operational labels.

@@ -19,3 +19,7 @@ A bounded real USACE FeatureServer acquisition passed with 723 reference points 
 ### NOAA polygons for SPEC-004
 
 Current Polygon reference import and unverified centroid overlap supplement the USACE point catalog; historical and event validity remain pending.
+
+### Real NOAA designated Anchorage Area context
+
+The [2026-11-09 official-source integration](../data/noaa-anchorage-real-smoke-2026-11-09.md) confirmed Polygon/MultiPolygon source acquisition and provisional historical AIS centroid overlap. Date compatibility, legal rights and operational event status are explicitly not validated.

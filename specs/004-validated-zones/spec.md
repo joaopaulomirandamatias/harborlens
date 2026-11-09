@@ -23,3 +23,7 @@ No operational navigation, autonomous control, live vessel tracking, regulatory 
 ## Definition of Done
 
 Accepted and reviewed requirements, passing boundary/negative tests, documented source rights, updated JSON schema and traceability, explicit uncertainty and reproducible evidence attached to the linked issue/PR.
+
+## SPEC-004 reference polygon integration result
+
+An authentic current NOAA Anchorage Area polygon query succeeded, and an unvalidated centroid overlay against historical NOAA AIS completed. This implements reference-only spatial context, **not dated historical polygons or verified operational berth/anchorage classifications**. See the [engineering report](../../docs/data/noaa-anchorage-real-smoke-2026-11-09.md).

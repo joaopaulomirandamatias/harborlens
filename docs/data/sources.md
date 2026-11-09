@@ -38,3 +38,7 @@ A bounded Houston query on 2026-11-09 returned 723 reference points and a verifi
 ## NOAA designated anchorage polygons
 
 The [official NOAA OceanReports Designated Anchorage Areas](https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0) service supplies current polygons; the opt-in importer and conservative centroid context are documented in [NOAA anchorage guide](noaa-anchorages.md). Historical date suitability and event ground truth remain unverified.
+
+### Current NOAA Anchorage polygons: integration evidence
+
+An opt-in 2026-11-09 NOAA OceanReports query returned 6 Anchorage Area polygons. A separate historical AIS centroid overlap produced only provisional location context; see the [source-pinned report](noaa-anchorage-real-smoke-2026-11-09.md). Source-rights and historic validity remain unverified.

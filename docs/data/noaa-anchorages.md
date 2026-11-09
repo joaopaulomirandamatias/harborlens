@@ -34,3 +34,7 @@ Every result retains confidence_label=unvalidated and historical_validity=not_ve
 - Analyze full track/zone spatial correspondence and conflicts, not just candidate centroids.
 - Obtain independent terminal/port reference labels before any operational interpretation.
 - No source GeoJSON or private AIS dataset is committed to the public repository.
+
+## First real NOAA Polygon and historical AIS context integration
+
+The [2026-11-09 source-pinned engineering report](noaa-anchorage-real-smoke-2026-11-09.md) records 6 current NOAA geometries, 920 historical unvalidated candidate centroids, 77 possible overlaps and 843 without observed overlaps. The comparison is purely geometrical and is NOT proof of any 2024 berth, anchoring or waiting event.
