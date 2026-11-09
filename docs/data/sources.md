@@ -46,3 +46,7 @@ An opt-in 2026-11-09 NOAA OceanReports query returned 6 Anchorage Area polygons.
 ## NOAA ENC documentary source dates
 
 Official [NOAA ENC Dates](https://charts.noaa.gov/ENCs/ENCDates.html) explains base edition/application dates and update issue dates. A [local geometry-vintage audit](geometry-vintage-audit.md) can flag documentary conflicts against AIS study dates, but cannot authenticate the current NOAA Polygon source as historically identical.
+
+### Official 2023 and 2024 USCG anchorage legal text
+
+The [GPO source verification report](cfr-2023-2024-source-verification.md) compares official annual 33 CFR 110.197 text. Both editions contained all 16 corresponding DMS coordinate pairs; A/B/C datum and A East topology remain unresolved. No official historical WGS84 geometry or operational event truth is inferred.

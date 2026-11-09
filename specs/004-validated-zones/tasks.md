@@ -48,3 +48,7 @@
 - [ ] Check precise January 2, 2024 effective regulations against historical CFR/Federal Register/LSA, not just the July edition.
 - [ ] Resolve A/B/C coordinate datum from authoritative sources and A East polygon vertex order with review evidence; do not auto-repair.
 - [ ] Publish only reviewed, temporally appropriate WGS84 geometries before AIS matching.
+
+- [x] Retrieve official GPO 2023 and 2024 annual CFR 33 Section 110.197 and compare all 16 anchor DMS pairs, recording downloaded-source SHA-256 (2026-11-09).
+- [ ] Verify exact January 2, 2024 effective legal timeline using Federal Register/LSA and source date corrections.
+- [ ] Resolve A/B/C datum and A East literal self-intersection using agency-approved geometry or original exhibits.

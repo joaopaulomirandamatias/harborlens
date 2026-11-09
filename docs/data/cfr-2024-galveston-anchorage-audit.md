@@ -60,3 +60,7 @@ Each run produces the same deterministic source transcription fingerprint; it do
 ### Scientific and legal boundaries
 
 A regulatory anchorage boundary proves only the designated legal area in its confirmed edition and datum, not whether an individual vessel anchored, waited for service or remained continuously inside its limits. Vessel location reporting and anchoring are different observations. This software is not a navigation aid, regulatory interpretation service or evidence of government endorsement.
+
+## Actual official GPO 2023/2024 source verification
+
+The source-pinned [2023/2024 annual edition comparison](cfr-2023-2024-source-verification.md) verified all sixteen DMS corner pairs in both independently downloaded official government files, stored the complete downloaded HTML checksums and retained explicit datum/topology and Jan-2024 legal-date blockers. This does not certify any GIS polygon for AIS matching.

@@ -1,0 +1,107 @@
+name: Official 2024 CFR Anchorage Source Verification (research)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-2024-regulatory-coordinates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install package and geographic topology dependency
+        run: python -m pip install -e '.[geo,dev]'
+      - name: Fetch official 2024 annual CFR and verify DMS coordinate transcription
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, os, re
+          from urllib.request import Request, urlopen
+          from harborlens.cfr_anchorages import BOUNDARIES, SOURCE_URL, inspect_regulated_areas
+
+          request=Request(SOURCE_URL,headers={'User-Agent':'HarborLens-open-research/0.1','Accept':'text/html'})
+          with urlopen(request,timeout=45) as response:
+              raw=response.read(28*1024*1024+1)
+          assert len(raw)<=28*1024*1024, 'Official document exceeds size cap'
+          text=html.unescape(raw.decode('utf-8',errors='replace'))
+          text=re.sub(r'<[^>]+>',' ',text)
+          match=re.search(r'Sec\.\s+110\.197\s+Galveston\s+Harbor',text)
+          assert match, 'Official 2024 CFR section not found'
+          tail=text[match.start():]
+          end=re.search(r'Sec\.\s+110\.205\s+Chicago',tail)
+          assert end, 'Official CFR section end not found'
+          segment=tail[:end.start()]
+          def normalized(value):
+              return (value.replace('[deg]','°').replace('[min]','′').replace('[sec]','″')
+                    .replace("'","′").replace('"','″'))
+          normalized_section=re.sub(r'\s+','',normalized(segment))
+          total=0
+          missing=[]
+          for area,vertices in BOUNDARIES.items():
+              for lat,lon in vertices:
+                  if normalized(lat) not in normalized_section or normalized(lon) not in normalized_section:
+                      missing.append(area)
+                  total+=1
+          assert not missing, 'CFR source/transcription mismatch for areas: '+','.join(sorted(set(missing)))
+          result=inspect_regulated_areas('2024-01-02')
+          summary={
+              'official_2024_source':'GPO 2024 Title 33 annual CFR, revised as of July 1',
+              'official_source_sha256':hashlib.sha256(raw).hexdigest(),
+              'source_text_coordinate_pairs_matched':total,
+              'areas_in_regulation':len(BOUNDARIES),
+              'literal_topology_invalid_areas':[a['id'] for a in result['areas'] if a['literal_ring_topology']!='valid_literal_ring'],
+              'datum_unspecified_areas':[a['id'] for a in result['areas'] if a['source_datum']=='not_explicitly_specified'],
+              'jan_2024_legal_history_status':result['evidence_date_scope'],
+              'approved_ais_spatial_joins':0,
+              'noaa_current_polygon_equivalence':'NOT VERIFIED',
+              'operational_events':'NOT VERIFIED'
+          }
+          print(json.dumps(summary,indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
+              output.write('### Official July 2024 CFR vs HarborLens legal-coordinate transcription\n\n')
+              output.write('Federal regulation coordinates, not certified WGS84 GIS or verified port activity.\n\n')
+              for key,value in summary.items():
+                  output.write(f'- **{key}**: {value}\n')
+          PY
+      - name: Cross-check 2023 annual CFR text for pre-2024 baseline
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import hashlib,html,json,re
+          from urllib.request import Request,urlopen
+          from harborlens.cfr_anchorages import BOUNDARIES
+          url='https://www.govinfo.gov/content/pkg/CFR-2023-title33-vol1/html/CFR-2023-title33-vol1.htm'
+          request=Request(url,headers={'User-Agent':'HarborLens-open-research/0.1'})
+          with urlopen(request,timeout=45) as response:
+              body=response.read(28*1024*1024+1)
+          assert len(body)<=28*1024*1024,'Source exceeds cap'
+          text=re.sub(r'<[^>]+>',' ',html.unescape(body.decode('utf-8',errors='replace')))
+          section=re.search(r'Sec\.\s+110\.197\s+Galveston\s+Harbor',text)
+          assert section,'2023 official CFR section missing'
+          tail=text[section.start():]
+          next_section=re.search(r'Sec\.\s+110\.205\s+Chicago',tail)
+          assert next_section,'2023 section end missing'
+          canonical=re.sub(r'\s+','',tail[:next_section.start()]
+               .replace('[deg]','°').replace('[min]','′').replace('[sec]','″')
+               .replace("'","′").replace('"','″'))
+          matched=0
+          for coords in BOUNDARIES.values():
+              for lat,lon in coords:
+                  convert=lambda x:x.replace("'","′").replace('"','″')
+                  if convert(lat) in canonical and convert(lon) in canonical:
+                      matched+=1
+          print(json.dumps({
+              'official_2023_source_sha256':hashlib.sha256(body).hexdigest(),
+              'coordinate_pairs_matching_2024_transcription':matched,
+              'total_pairs':16,
+              '2023_2024_annual_text_consistency':matched==16,
+              'intervening_2024_regulatory_amendments_checked':False,
+              'legal_validity_on_2024_01_02':'NOT_FULLY_VERIFIED',
+              'source_datum_geometry_review':'PENDING'
+          },indent=2))
+          assert matched==16,'2023 and 2024 coordinates differ or extraction incomplete'
+          PY

@@ -65,3 +65,7 @@ An isolated live NOAA current polygon query and offline date audit passed, but n
 ## Government-dated 2024 USCG regulatory anchorages (source transcription audit)
 
 The [2024 Federal CFR §110.197 legal-coordinate source audit](docs/data/cfr-2024-galveston-anchorage-audit.md) transcribes the four Galveston/Bolivar Roads anchorage areas and performs conservative datum/topology checks. **It never emits automatically usable WGS84 GIS polygons**, because A/B/C lack an explicit NAD83 datum and A East has an invalid literal vertex sequence. The 2024 edition dates to July 1; January 2 historical applicability requires separate verification. No AIS operational-event classification.
+
+### Two official annual CFR editions compared
+
+The legal-coordinate registry was checked directly against official Government Publishing Office 2023 and 2024 annual Title 33 source HTML. All 16 DMS coordinate pairs were present in both. A/B/C datum and A East topology blockers remain unresolved, as does exact January 2, 2024 legal applicability. See the [2023/2024 source verification report](docs/data/cfr-2023-2024-source-verification.md).
