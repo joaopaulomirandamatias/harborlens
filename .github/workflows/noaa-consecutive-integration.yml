@@ -1,7 +1,5 @@
 name: NOAA consecutive-day integration (research only)
 on:
-  push:
-    branches: [integration/noaa-consecutive-days]
   workflow_dispatch:
 
 permissions:
