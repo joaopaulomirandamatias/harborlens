@@ -1,6 +1,6 @@
 # NOAA daily AIS archive extraction — SPEC-001
 
-**Status:** experimental open-source functionality; tests use a synthetic zstd-compressed file. The real NOAA daily archive has not yet been processed in this code path.
+**Status:** experimental open-source functionality with synthetic regression tests and one successful real NOAA daily archive ingestion smoke. Event classification remains unvalidated. See [integration evidence](noaa-real-data-smoke-2024-01-02.md).
 
 NOAA Marine Cadastre publishes [historical daily Zstandard AIS archives](https://noaaocm.blob.core.windows.net/ais/csv2/csv2024/index.html). For example, the index lists a nationwide compressed archive for 2024-01-02, roughly 189 MiB. Because it contains all US waters, the original archive is not appropriate to commit to Git or to use directly in port-specific benchmarks.
 

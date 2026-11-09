@@ -1,7 +1,5 @@
 name: NOAA nationwide daily archive integration (research only)
 on:
-  push:
-    branches: [integration/noaa-daily]
   workflow_dispatch:
 permissions:
   contents: read
