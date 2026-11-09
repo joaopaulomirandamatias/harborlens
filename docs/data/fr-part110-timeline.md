@@ -35,3 +35,7 @@ The CLI uses the fixed FederalRegister.gov public API with bounded query time, t
 ## First official live index scan (2026-11-09)
 
 The [source-pinned research report](fr-part110-real-index-2023-2024.md) logs four Proposed Rule index entries returned for the study window, one official response-page hash and the JSON output hash. A fully returned search page is not a full legal timeline or verification of 33 CFR 110.197 on January 2, 2024.
+
+## Original document verification
+
+The [full-text triage guide](fr-2023-fulltext-triage.md) verifies the original official text files for the four index hits. GPO monthly LSA and exact legal effective-date review remain separate requirements; a matching keyword or a nonmatching text is never a legal conclusion.

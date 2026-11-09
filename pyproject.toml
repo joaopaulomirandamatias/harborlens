@@ -31,6 +31,7 @@ harborlens-geometry-vintage = "harborlens.vintage:main"
 harborlens-sensitivity = "harborlens.sensitivity:main"
 harborlens-cfr-anchorage-audit = "harborlens.cfr_anchorages:main"
 harborlens-fr-timeline = "harborlens.fr_timeline:main"
+harborlens-fr-fulltext = "harborlens.fr_fulltext:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
