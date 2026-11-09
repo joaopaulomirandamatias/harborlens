@@ -1,0 +1,92 @@
+name: NOAA consecutive-day integration (research only)
+on:
+  push:
+    branches: [integration/noaa-consecutive-days]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  consecutive-day-houston:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install optional NOAA support
+        run: python -m pip install -e '.[noaa]'
+      - name: Obtain capped daily archives from official NOAA source
+        run: |
+          harborlens-download-noaa --date 2024-01-02 --directory data --max-mib 300
+          harborlens-download-noaa --date 2024-01-03 --directory data --max-mib 300
+      - name: Extract adjoining Houston windows
+        run: |
+          harborlens-extract-noaa-archive \
+            --input data/ais-2024-01-02.csv.zst \
+            --out data/houston-2024-01-02.csv \
+            --start 2024-01-02T18:00:00Z \
+            --end 2024-01-02T23:59:59Z \
+            --bbox -95.7 29.1 -94.2 30.1 \
+            --max-rows 250000 --max-output-mib 64
+          harborlens-extract-noaa-archive \
+            --input data/ais-2024-01-03.csv.zst \
+            --out data/houston-2024-01-03.csv \
+            --start 2024-01-03T00:00:00Z \
+            --end 2024-01-03T05:59:59Z \
+            --bbox -95.7 29.1 -94.2 30.1 \
+            --max-rows 250000 --max-output-mib 64
+      - name: Reconstruct multi-day candidates and measure resource usage
+        run: |
+          python - <<'PY'
+          import json
+          import resource
+          import time
+          from pathlib import Path
+          from harborlens.multiday import run_multiday
+
+          beginning = time.perf_counter()
+          result = run_multiday(
+              [Path('data/houston-2024-01-02.csv'), Path('data/houston-2024-01-03.csv')],
+              Path('results/noaa-multiday'), max_points=500000,
+              max_scratch_mib=1024, max_export_mib=256,
+          )
+          duration = time.perf_counter() - beginning
+          summary = {
+              'days': 2,
+              'input_sha256': [x['sha256'] for x in result['input_files']],
+              'total_records': result['counts']['total'],
+              'accepted_records': result['counts']['written'],
+              'distinct_mmsi': result['events']['vessels'],
+              'duplicate_across_files': result['counts']['duplicate_across_files'],
+              'stationary_candidates_unvalidated': result['events']['stationary_candidates'],
+              'cross_midnight_candidates_unvalidated': result['events']['cross_day_candidates'],
+              'gap_splits': result['events']['gap_splits'],
+              'identity_conflicts': result['events']['identity_conflicts'],
+              'timestamp_conflicts': result['events']['timestamp_conflicts'],
+              'implausible_jumps': result['events']['implausible_jumps'],
+              'run_id': result['run_id'],
+              'elapsed_seconds': round(duration, 2),
+              'peak_rss_kib': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+              'source_rights_status': result['source_rights_status'],
+          }
+          print(json.dumps(summary, indent=2))
+          Path('summary.json').write_text(json.dumps(summary, indent=2))
+          PY
+          harborlens-verify --manifest results/noaa-multiday/manifest.json
+      - name: Publish aggregate engineering metrics only
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          summary = json.loads(Path('summary.json').read_text())
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as out:
+              out.write('### Two consecutive NOAA daily archives — Houston research sample\n\n')
+              out.write('No raw AIS is committed, uploaded, or used for navigation. '
+                        'Event labels are unvalidated and data rights need review.\n\n')
+              for key, value in summary.items():
+                  out.write(f'- **{key}**: {value}\n')
+          PY
