@@ -27,7 +27,8 @@ from harborlens.segmentation import (
     geojson_method_member, params_from_args,
 )
 from harborlens.io_safe import AISInputError, stream_rows
-from harborlens.provenance import checksum, FILES
+from harborlens import __version__
+from harborlens.provenance import checksum, code_version, FILES
 from harborlens.censoring import (
     AnalysisWindowError, WindowCensoring, declaration_record, declared_window,
     observed_range, sidecar_window,
@@ -299,7 +300,8 @@ def run_multiday(
             diagnostics["warning"] = ("Only unvalidated stationary candidates, "
                                       "not confirmed berths or waiting vessels.")
             identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
-                        "bbox": list(bbox), "method": params.manifest()}
+                        "bbox": list(bbox), "method": params.manifest(),
+                        "harborlens_version": __version__}
             if censoring.known:
                 identity["analysis_window"] = censoring.run_id_component()
             result = {
@@ -307,6 +309,7 @@ def run_multiday(
                 "input_files": source_items, "bbox_lon_lat": list(bbox),
                 "counts": counts, "events": diagnostics,
                 "method_parameters": params.manifest(), "source_rights_status": "review_required",
+                "code_version": code_version(),
                 "analysis_window": censoring.summary(observed_range(first, last)),
                 "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
                            "max_export_mib": max_export_mib},

@@ -19,7 +19,8 @@
     "warning",
     "analysis_window",
     "limits",
-    "resources"
+    "resources",
+    "code_version"
   ],
   "properties": {
     "mode": {
@@ -579,6 +580,28 @@
         },
         "scratch_measurement": {
           "type": "string"
+        }
+      }
+    },
+    "code_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_version",
+        "git_commit"
+      ],
+      "description": "harborlens package version (hashed into run_id) and, when known, the git commit (metadata only).",
+      "properties": {
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
         }
       }
     }
