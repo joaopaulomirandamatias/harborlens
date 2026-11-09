@@ -1,0 +1,37 @@
+name: FR official full text metadata discovery (integration only)
+on:
+  push:
+    branches: [integration/fr-fulltext-source-discovery]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect official API full-text source URLs
+        run: |
+          python - <<'PY'
+          import json
+          from urllib.request import Request,urlopen
+          for number in ('2023-15652','2023-28652','2023-28654','2023-28656'):
+              url='https://www.federalregister.gov/api/v1/documents/'+number+'.json'
+              with urlopen(Request(url,headers={'User-Agent':'HarborLens-research/0.1'}),timeout=45) as response:
+                  raw=response.read(250000+1)
+              assert len(raw)<250000
+              doc=json.loads(raw)
+              print(json.dumps({
+                  'number':number,
+                  'publication_date':doc.get('publication_date'),
+                  'type':doc.get('type'),
+                  'title':doc.get('title'),
+                  'raw_text_url':doc.get('raw_text_url'),
+                  'full_text_xml_url':doc.get('full_text_xml_url'),
+                  'html_url':doc.get('html_url'),
+                  'effective_on':doc.get('effective_on'),
+              },indent=2))
+          PY
