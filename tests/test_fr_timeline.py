@@ -65,6 +65,13 @@ class FederalRegisterTests(unittest.TestCase):
                 "next_page_url":"https://malicious.example/api/v1/documents.json"
             }))
 
+    def test_reject_same_host_pagination_that_drops_scope(self):
+        url = "https://www.federalregister.gov/api/v1/documents.json?conditions%5Bcfr%5D%5Btitle%5D=40&conditions%5Bcfr%5D%5Bpart%5D=52&conditions%5Bpublication_date%5D%5Bgte%5D=2023-07-01&conditions%5Bpublication_date%5D%5Blte%5D=2024-01-02"
+        with self.assertRaisesRegex(FederalRegisterAuditError, "Part 110 scope"):
+            scan_part110(opener=lambda req, timeout: Response({
+                "count":2, "results":[doc("A")], "next_page_url":url
+            }))
+
     def test_reject_duplicate_document_numbers(self):
         with self.assertRaisesRegex(FederalRegisterAuditError,"Repeated"):
             scan_part110(opener=lambda req,timeout: Response({
