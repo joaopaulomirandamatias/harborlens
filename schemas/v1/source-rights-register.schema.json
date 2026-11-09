@@ -49,7 +49,10 @@
             "pattern": "^https://"
           },
           "terms_url": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^https://"
           },
           "rights_status": {
@@ -173,6 +176,42 @@
                 "evidence_url": {
                   "type": "string",
                   "pattern": "^https://"
+                },
+                "terms_url": {
+                  "type": "string",
+                  "pattern": "^https://"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "pending"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            },
+            "then": {
+              "properties": {
+                "rights_status": {
+                  "const": "review_required"
+                },
+                "permitted_uses": {
+                  "properties": {
+                    "research": {
+                      "const": "unreviewed"
+                    },
+                    "public_aggregates": {
+                      "const": "unreviewed"
+                    },
+                    "commercial": {
+                      "const": "unreviewed"
+                    }
+                  }
                 }
               }
             }

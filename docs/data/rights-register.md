@@ -4,7 +4,7 @@
 
 ## Registry and review
 
-The machine-readable register is [rights-register.json](rights-register.json). It deliberately separates the source URL from the terms URL, exact dataset version, proposed uses, rights decision, reviewer, UTC review time, evidence URL, SHA-256 of the reviewed terms snapshot, and attribution. Do not paste private credentials, personal vessel data or raw AIS into this register.
+The machine-readable register is [rights-register.json](rights-register.json). Pending sources may have a null `terms_url` when exact applicable licensing terms have not been verified; a generic dataset webpage must not be mislabeled as a legal grant. It deliberately separates the source URL from the terms URL, exact dataset version, proposed uses, rights decision, reviewer, UTC review time, evidence URL, SHA-256 of the reviewed terms snapshot, and attribution. Do not paste private credentials, personal vessel data or raw AIS into this register.
 
 **Before approving an entry**, a named reviewer must verify the exact dataset, date/vintage and hosting route; capture primary-source terms and a SHA-256 snapshot; record specific permitted uses (`research`, `public_aggregates`, `commercial`) and actual restrictions; record attribution and evidence URL; obtain specialist/legal review when commercial reuse is proposed. An archived public webpage is evidence of access, not evidence of every reuse right. Approval is proposed through an independently reviewed PR, not by automatic scraping.
 
