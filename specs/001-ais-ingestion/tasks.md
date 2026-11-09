@@ -17,10 +17,10 @@
 
 ## Official subset adapter
 
-- [x] Develop bounded NOAA PMEL ERDDAP client and mocked tests (on PR branch; review/CI pending).
+- [x] Develop bounded NOAA PMEL ERDDAP client and mocked tests (merged in #19).
 - [ ] Demonstrate actual NOAA API response and ingestion with source SHA, data QA and a reproduction log.
 
-- [x] Implement streaming date/area filter for a local daily NOAA zstd archive, with synthetic compressed tests (PR review/CI pending).
+- [x] Implement streaming date/area filter for a local daily NOAA zstd archive, with synthetic compressed tests (merged in #20).
 - [ ] Execute at least one original NOAA daily file under a bounded integration runner and inspect continuous MMSI tracks.
 
 ## Volume ceilings (issue #35)

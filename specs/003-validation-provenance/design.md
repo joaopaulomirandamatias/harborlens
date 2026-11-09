@@ -1,6 +1,6 @@
 # SPEC-003: Technical Design
 
-**State:** PROPOSED
+**State:** PARTIAL — local provenance, labeling and evaluation tooling; no labels collected
 
 ## Architecture and approach
 

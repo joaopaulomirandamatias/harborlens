@@ -1,6 +1,6 @@
 # SPEC-002: Implementation Work Items
 
-**State:** PARTIAL — SYNTHETIC ONLY. Checking a task requires traceable PR/test evidence.
+**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured. Checking a task requires traceable PR/test evidence.
 
 - [x] Preserve existing single-file regression tests; add multi-day cases (synthetic CI verified)
 - [x] Implement SQLite-based multi-file sorting and midnight candidate continuity (PR under review)
