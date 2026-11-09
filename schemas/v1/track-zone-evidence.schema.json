@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/track-zone-evidence.schema.json",
+  "title": "Observed-track spatial relationship, explicitly not operational truth",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "observed_points",
+    "candidate_expected_points",
+    "observation_count_matches",
+    "moving_points_in_window",
+    "max_observed_gap_minutes",
+    "points_in_multiple_polygons",
+    "polygon_point_hits",
+    "source_polygon_ids",
+    "temporal_compatibility",
+    "historical_validity",
+    "operational_event_validation",
+    "source_rights",
+    "method",
+    "warning"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "incomplete_track_unknown",
+        "multiple_zone_evidence_ambiguous",
+        "no_observed_point_overlap",
+        "all_observed_points_within_one_polygon",
+        "partial_observed_point_overlap",
+        "outside_declared_vintage_unknown"
+      ]
+    },
+    "observed_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_expected_points": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "observation_count_matches": {
+      "type": "boolean"
+    },
+    "moving_points_in_window": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_observed_gap_minutes": {
+      "type": "number",
+      "minimum": 0
+    },
+    "points_in_multiple_polygons": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "polygon_point_hits": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "source_polygon_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "temporal_compatibility": {
+      "enum": [
+        "historical_validity_not_established",
+        "outside_declared_vintage",
+        "inside_unreviewed_declared_vintage"
+      ]
+    },
+    "historical_validity": {
+      "const": "not_verified"
+    },
+    "operational_event_validation": {
+      "const": "not_verified"
+    },
+    "source_rights": {
+      "const": "review_required"
+    },
+    "method": {
+      "const": "observed-track-polygon-v0.1"
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 20
+    }
+  }
+}

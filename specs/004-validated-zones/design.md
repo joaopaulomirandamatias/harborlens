@@ -24,3 +24,7 @@ Use a fixed USACE-hosted ArcGIS FeatureServer Layer 0 query, with WGS84 output, 
 ## Proposed NOAA Polygon context
 
 An opt-in source-pinned NOAA polygon feature importer uses bounded ArcGIS object IDs and validates Shapely topology. A separate local overlay maps only unvalidated candidate centroids and reports ambiguous or provisional context. NOAA current source geometry is not verified for 2024 operational activity.
+
+## Full observed-track context (SPEC-004 incremental implementation)
+
+The next research slice stores canonical cleaned AIS rows in an ephemeral, indexed SQLite database and queries each candidate by MMSI and timestamp. It checks observed cardinality, start/end times, speed and gaps, then uses a Shapely STRtree to test all observed points against source Polygon/MultiPolygon geometry (including holes). The status is solely geometric and explicitly preserves no-data, overlapping and source-date ambiguity. Polygon-receipt SHA-256 must match the source geometry file; only historically unreviewed metadata are supported. No full-truth berth or anchor claim is enabled.

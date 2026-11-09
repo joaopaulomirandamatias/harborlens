@@ -38,3 +38,7 @@ Every result retains confidence_label=unvalidated and historical_validity=not_ve
 ## First real NOAA Polygon and historical AIS context integration
 
 The [2026-11-09 source-pinned engineering report](noaa-anchorage-real-smoke-2026-11-09.md) records 6 current NOAA geometries, 920 historical unvalidated candidate centroids, 77 possible overlaps and 843 without observed overlaps. The comparison is purely geometrical and is NOT proof of any 2024 berth, anchoring or waiting event.
+
+## Full observed-track context (additional CLI)
+
+The separate [full-track evidence command](full-track-zone-evidence.md) checks all cleaned AIS observations associated with each stationary candidate rather than only the centroid. Even an all-points overlap remains spatial context only, not a confirmed operational event or historically authoritative 2024 geofence.

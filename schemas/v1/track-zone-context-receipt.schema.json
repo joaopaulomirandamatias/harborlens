@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/track-zone-context-receipt.schema.json",
+  "title": "HarborLens full observed AIS track/polygon overlap output receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "method",
+    "inputs",
+    "output_sha256",
+    "cleaned_rows_scanned",
+    "invalid_cleaned_rows",
+    "candidate_count",
+    "zone_polygon_count",
+    "outcome_counts",
+    "polygon_source_retrieved_at_utc",
+    "historical_validity",
+    "rights_status",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "full-track-context-v0.1"
+    },
+    "method": {
+      "const": "observed-track-polygon-v0.1"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cleaned_ais_sha256",
+        "candidate_geojson_sha256",
+        "polygon_geojson_sha256",
+        "polygon_receipt_sha256"
+      ],
+      "properties": {
+        "cleaned_ais_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "candidate_geojson_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "polygon_geojson_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "polygon_receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "output_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cleaned_rows_scanned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invalid_cleaned_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "zone_polygon_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "outcome_counts": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "polygon_source_retrieved_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "historical_validity": {
+      "const": "not_verified"
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 20
+    }
+  }
+}

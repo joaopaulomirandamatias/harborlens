@@ -23,3 +23,7 @@ Current Polygon reference import and unverified centroid overlap supplement the 
 ### Real NOAA designated Anchorage Area context
 
 The [2026-11-09 official-source integration](../data/noaa-anchorage-real-smoke-2026-11-09.md) confirmed Polygon/MultiPolygon source acquisition and provisional historical AIS centroid overlap. Date compatibility, legal rights and operational event status are explicitly not validated.
+
+### SPEC-004: Full-track spatial evidence increment
+
+The experimental full-observed-track overlay, its source receipts, schema and synthetic tests are tracked under the current SPEC-004 work. It compares discrete AIS observations against unreviewed NOAA polygons and preserves unknown/ambiguous states; this is NOT independently validated berth/anchorage/waiting classification.
