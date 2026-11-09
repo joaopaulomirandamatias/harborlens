@@ -16,7 +16,9 @@
     "maximum_distance_m",
     "type",
     "method_version",
-    "confidence_label"
+    "confidence_label",
+    "left_censoring",
+    "right_censoring"
   ],
   "properties": {
     "event_id": {
@@ -65,6 +67,22 @@
     },
     "confidence_label": {
       "const": "unvalidated"
+    },
+    "left_censoring": {
+      "enum": [
+        "censored",
+        "not_censored",
+        "unknown"
+      ],
+      "description": "BR-019 window-edge censoring of the observed start/end; 'censored' means duration_min is a lower bound."
+    },
+    "right_censoring": {
+      "enum": [
+        "censored",
+        "not_censored",
+        "unknown"
+      ],
+      "description": "BR-019 window-edge censoring of the observed start/end; 'censored' means duration_min is a lower bound."
     }
   }
 }

@@ -25,6 +25,11 @@ def add_provenance(folder, manifest, source_url=None):
             raise ValueError("Source URL must be HTTP(S) without credentials")
     settings = {"input_sha256": manifest["input_sha256"], "bbox_lon_lat": manifest["bbox_lon_lat"],
                 "method_parameters": manifest["method_parameters"], "method_version": "stationary-v0.1"}
+    window = manifest.get("analysis_window") or {}
+    if window.get("status") == "known":
+        # A known window changes censoring outputs, so it is part of run identity.
+        # Runs without a window keep the legacy run_id derivation.
+        settings["analysis_window"] = [[b["start_utc"], b["end_utc"]] for b in window["blocks"]]
     manifest["run_id"] = hashlib.sha256(json.dumps(settings, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     manifest["provenance_schema_version"] = "1.1"
     manifest["source_metadata"] = {"source_url": source_url, "metadata_origin": "user_declared",

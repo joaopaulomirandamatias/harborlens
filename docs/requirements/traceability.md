@@ -51,3 +51,7 @@ A [GPO official-source engineering scan](../data/cfr-2023-2024-source-verificati
 ### Official Federal Register Part 110 index evidence
 
 The bounded [2023-07-01 to 2024-01-02 source query](../data/fr-part110-real-index-2023-2024.md) returned four proposed-rule index entries. Full official FR/LSA text/effective-date verification is still required; no legal or operational event status was upgraded.
+
+### SPEC-002: analysis-window censoring (BR-019, FR-021)
+
+`src/harborlens/censoring.py`, `ais.py` and `multiday.py` emit `left_censoring`/`right_censoring` per candidate plus `analysis_window` and `events.censoring` in both manifests. Evidence: synthetic tests in `tests/test_censoring.py` (edges, interior, unknown, sidecars, conflicts, truncation, internal gaps, schemas, CLI). Real-data censored shares have not been measured yet; the existing NOAA reports predate this rule.

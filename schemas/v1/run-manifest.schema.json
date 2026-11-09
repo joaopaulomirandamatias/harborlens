@@ -17,7 +17,9 @@
     "provenance_schema_version",
     "source_metadata",
     "artifacts",
-    "provenance_warning"
+    "provenance_warning",
+    "analysis_window",
+    "input_truncated"
   ],
   "properties": {
     "input_file": {
@@ -97,6 +99,7 @@
         "points",
         "moving_or_invalid_points",
         "stationary_candidates",
+        "censoring",
         "warning"
       ],
       "properties": {
@@ -118,6 +121,44 @@
         },
         "warning": {
           "type": "string"
+        },
+        "censoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-run BR-019 censoring counts; left/right counts overlap in both_censored.",
+          "required": [
+            "rule_version",
+            "left_censored",
+            "right_censored",
+            "both_censored",
+            "uncensored",
+            "unknown"
+          ],
+          "properties": {
+            "rule_version": {
+              "const": "window-edge-v1"
+            },
+            "left_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "right_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "both_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uncensored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -248,6 +289,153 @@
     "provenance_warning": {
       "type": "string",
       "minLength": 10
+    },
+    "analysis_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Analysis window used for BR-019 censoring flags. Describes observation coverage, not vessel activity.",
+      "required": [
+        "status",
+        "rule_version",
+        "edge_tolerance_minutes",
+        "blocks",
+        "internal_gaps",
+        "declarations",
+        "observed_time_range"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "rule_version": {
+          "const": "window-edge-v1"
+        },
+        "edge_tolerance_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "start_utc",
+              "end_utc"
+            ],
+            "properties": {
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "internal_gaps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declarations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input",
+              "source"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "enum": [
+                  "extraction_sidecar",
+                  "erddap_sidecar",
+                  "user_declared",
+                  "none"
+                ]
+              },
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sidecar_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "ignored_reason": {
+                "const": "input_truncated_by_max_rows"
+              }
+            }
+          }
+        },
+        "observed_time_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_utc",
+            "end_utc"
+          ],
+          "properties": {
+            "start_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "end_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "known"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "blocks": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocks": {
+            "maxItems": 0
+          },
+          "internal_gaps": {
+            "const": 0
+          }
+        }
+      }
+    },
+    "input_truncated": {
+      "type": "boolean",
+      "description": "True when --max-rows stopped ingestion before the end of the input."
     }
   }
 }

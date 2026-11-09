@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added (SPEC-002: analysis-window censoring, BR-019 / FR-021, #34)
+- `left_censoring` / `right_censoring` on every stationary candidate (single-file and multi-day), `analysis_window` and `events.censoring` in both manifests, `--window-start/--window-end` CLI flags, and automatic use of verified extraction/ERDDAP sidecars.
+- Manual NOAA workflows now publish aggregate censoring counts.
+
+### Changed (schema migration)
+- `schemas/v1` candidate, multi-day feature, run manifest and multi-day manifest now require the censoring fields. Outputs produced before this change do not validate against the updated schemas; re-run the pipeline to regenerate them. Segmentation, method versions and event IDs are unchanged; `run_id` changes only when a window is known.
+
 ### Added (SPEC-004: official 2024 CFR anchorages)
 - Source-pinned July 1, 2024 federal 33 CFR 110.197 Galveston anchorage DMS registry and fail-closed topology/datum inspection. A/B/C lack explicit NAD83 status; A East literal corner order fails Polygon validity. No guessed WGS84 geometry or operational classification.
 

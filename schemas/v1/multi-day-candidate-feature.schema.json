@@ -57,7 +57,9 @@
         "confidence_label",
         "source_count",
         "source_files",
-        "crosses_utc_date"
+        "crosses_utc_date",
+        "left_censoring",
+        "right_censoring"
       ],
       "additionalProperties": false,
       "properties": {
@@ -112,6 +114,22 @@
         },
         "crosses_utc_date": {
           "type": "boolean"
+        },
+        "left_censoring": {
+          "enum": [
+            "censored",
+            "not_censored",
+            "unknown"
+          ],
+          "description": "BR-019 window-edge censoring of the observed start/end; 'censored' means duration_min is a lower bound."
+        },
+        "right_censoring": {
+          "enum": [
+            "censored",
+            "not_censored",
+            "unknown"
+          ],
+          "description": "BR-019 window-edge censoring of the observed start/end; 'censored' means duration_min is a lower bound."
         }
       }
     }
