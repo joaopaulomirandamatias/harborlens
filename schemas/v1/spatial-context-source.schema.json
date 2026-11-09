@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/spatial-context-source.schema.json",
+  "title": "Unverified centroid overlap report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_sha256",
+    "polygon_sha256",
+    "output_sha256",
+    "counts",
+    "rights_status",
+    "historical_validity",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "context-v0.1"
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "polygon_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "output_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_candidates",
+        "one_overlap",
+        "multiple_overlaps",
+        "no_overlap"
+      ],
+      "properties": {
+        "total_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "one_overlap": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "multiple_overlaps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_overlap": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "historical_validity": {
+      "const": "not_verified"
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

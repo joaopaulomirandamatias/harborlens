@@ -34,3 +34,7 @@ The [USDOT/BTS public catalog](https://catalog.data.gov/dataset/docks) attribute
 ### Official USACE facility POINT retrieval evidence
 
 A bounded Houston query on 2026-11-09 returned 723 reference points and a verified GeoJSON digest. Details and source caveats are recorded in [the integration report](usace-points-smoke-2026-11-09.md).
+
+## NOAA designated anchorage polygons
+
+The [official NOAA OceanReports Designated Anchorage Areas](https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0) service supplies current polygons; the opt-in importer and conservative centroid context are documented in [NOAA anchorage guide](noaa-anchorages.md). Historical date suitability and event ground truth remain unverified.

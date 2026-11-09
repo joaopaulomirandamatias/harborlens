@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-004: NOAA Polygon reference)
+- Opt-in NOAA designated anchorage polygon source, conservative candidate spatial-context overlay and synthetic geometry regression tests. No event confirmation.
+
+
 ### Added (SPEC-004: initial)
 - Bounded opt-in official USACE point-feature reference import with output/source hashes, contracts and synthetic regression tests; no inferred berth polygons or port-event truth.
 

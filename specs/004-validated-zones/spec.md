@@ -1,6 +1,6 @@
 # SPEC-004: Dated facilities, anchorages and event classification
 
-**Status:** PARTIAL — source-pinned USACE POINT adapter implemented; authoritative dated polygons and independent event labels remain proposed. **Created:** 2026-11-08.
+**Status:** PARTIAL — USACE point adapter plus NOAA current polygon/centroid context in review; historical dated polygons and independent event labels pending. **Created:** 2026-11-08.
 
 ## Problem / user story
 
