@@ -58,6 +58,6 @@ The integration ran in an ephemeral GitHub Actions runner. The workflow will be 
 
 ## Censoring caveat (added with BR-019)
 
-This run predates the analysis-window censoring flags. Candidates that touch the edges of the extracted window have durations that are only lower bounds, and their number was not measured here. Re-running the manual workflow records `left_censoring`/`right_censoring` and run-level counts from the extraction sidecar.
+This run predates the analysis-window censoring flags. Measured on the [2026-11-09 re-run](noaa-real-data-rerun-2026-11-09.md), which reproduced every count in this report: 704 of the 920 candidates touch an edge of the six-hour window, so their durations are lower bounds.
 
 **NOT FOR NAVIGATION. NOT VERIFIED ANCHORAGE, BERTHING, VESSEL WAITING OR PORT CALLS.**
