@@ -1,6 +1,6 @@
 # SPEC-004: Technical Design
 
-**State:** PROPOSED
+**State:** PARTIAL — reference geometry and regulatory source audits; no validated classification
 
 ## Architecture and approach
 

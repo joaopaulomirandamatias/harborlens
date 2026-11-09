@@ -16,7 +16,12 @@
     "source_rights_status",
     "run_id",
     "artifacts",
-    "warning"
+    "warning",
+    "analysis_window",
+    "limits",
+    "resources",
+    "code_version",
+    "mmsi_categories"
   ],
   "properties": {
     "mode": {
@@ -85,6 +90,7 @@
       "additionalProperties": false,
       "required": [
         "total",
+        "missing_value",
         "invalid",
         "outside_bbox",
         "duplicate",
@@ -93,10 +99,6 @@
       ],
       "properties": {
         "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "invalid": {
           "type": "integer",
           "minimum": 0
         },
@@ -115,24 +117,37 @@
         "written": {
           "type": "integer",
           "minimum": 0
+        },
+        "missing_value": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows with an empty required field (not available), counted separately from malformed values."
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
     "events": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Diagnostics from the shared segmentation engine (stationary-v0.2); counts are QA, not traffic statistics.",
       "required": [
         "vessels",
         "points",
-        "stationary_candidates",
-        "cross_day_candidates",
         "moving_points",
+        "timestamp_conflicts",
         "gap_splits",
         "identity_conflicts",
         "implausible_jumps",
-        "timestamp_conflicts",
         "spatial_splits",
         "discarded_groups",
+        "stationary_candidates",
+        "discarded_by_reason",
+        "candidates_per_mmsi",
+        "cross_day_candidates",
+        "censoring",
         "warning"
       ],
       "properties": {
@@ -144,15 +159,11 @@
           "type": "integer",
           "minimum": 0
         },
-        "stationary_candidates": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "cross_day_candidates": {
-          "type": "integer",
-          "minimum": 0
-        },
         "moving_points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_conflicts": {
           "type": "integer",
           "minimum": 0
         },
@@ -168,10 +179,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "timestamp_conflicts": {
-          "type": "integer",
-          "minimum": 0
-        },
         "spatial_splits": {
           "type": "integer",
           "minimum": 0
@@ -179,6 +186,93 @@
         "discarded_groups": {
           "type": "integer",
           "minimum": 0
+        },
+        "stationary_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discarded_by_reason": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "too_few_points",
+            "too_short",
+            "radius_exceeded"
+          ],
+          "properties": {
+            "too_few_points": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "too_short": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "radius_exceeded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "candidates_per_mmsi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max",
+            "mmsi_with_multiple"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mmsi_with_multiple": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "cross_day_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "censoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-run BR-019 censoring counts; left/right counts overlap in both_censored.",
+          "required": [
+            "rule_version",
+            "left_censored",
+            "right_censored",
+            "both_censored",
+            "uncensored",
+            "unknown"
+          ],
+          "properties": {
+            "rule_version": {
+              "const": "window-edge-v1"
+            },
+            "left_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "right_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "both_censored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uncensored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         },
         "warning": {
           "type": "string"
@@ -195,11 +289,12 @@
         "max_gap_minutes",
         "max_radius_m",
         "min_points",
-        "max_jump_knots"
+        "max_jump_knots",
+        "parameter_set"
       ],
       "properties": {
         "method_version": {
-          "const": "stationary-multiday-v0.1"
+          "const": "stationary-v0.2"
         },
         "max_sog_knots": {
           "type": "number",
@@ -224,6 +319,11 @@
         "max_jump_knots": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "parameter_set": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Fingerprint of method_version plus segmentation thresholds; candidates from different threshold sets never share it."
         }
       }
     },
@@ -302,6 +402,240 @@
     "warning": {
       "type": "string",
       "minLength": 10
+    },
+    "analysis_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Analysis window used for BR-019 censoring flags. Describes observation coverage, not vessel activity.",
+      "required": [
+        "status",
+        "rule_version",
+        "edge_tolerance_minutes",
+        "blocks",
+        "internal_gaps",
+        "declarations",
+        "observed_time_range"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "rule_version": {
+          "const": "window-edge-v1"
+        },
+        "edge_tolerance_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "start_utc",
+              "end_utc"
+            ],
+            "properties": {
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "internal_gaps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declarations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input",
+              "source"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "enum": [
+                  "extraction_sidecar",
+                  "erddap_sidecar",
+                  "user_declared",
+                  "none"
+                ]
+              },
+              "start_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sidecar_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "ignored_reason": {
+                "const": "input_truncated_by_max_rows"
+              }
+            }
+          }
+        },
+        "observed_time_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_utc",
+            "end_utc"
+          ],
+          "properties": {
+            "start_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "end_utc": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "known"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "blocks": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocks": {
+            "maxItems": 0
+          },
+          "internal_gaps": {
+            "const": 0
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Fail-closed caps applied to this run (#35).",
+      "required": [
+        "max_points",
+        "max_scratch_mib",
+        "max_export_mib"
+      ],
+      "properties": {
+        "max_points": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6000000
+        },
+        "max_scratch_mib": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 2048
+        },
+        "max_export_mib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scratch_peak_bytes",
+        "scratch_measurement"
+      ],
+      "properties": {
+        "scratch_peak_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scratch_measurement": {
+          "type": "string"
+        }
+      }
+    },
+    "code_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_version",
+        "git_commit"
+      ],
+      "description": "harborlens package version (hashed into run_id) and, when known, the git commit (metadata only).",
+      "properties": {
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "mmsi_categories": {
+      "type": "object",
+      "description": "Accepted points per ITU-R M.585 MMSI category (QA flag; nothing is dropped).",
+      "propertyNames": {
+        "enum": [
+          "ship",
+          "group_of_ships",
+          "coast_station",
+          "sar_aircraft",
+          "aid_to_navigation",
+          "craft_associated_with_parent_ship",
+          "handheld_vhf",
+          "ais_sart",
+          "mob_device",
+          "epirb_ais",
+          "placeholder",
+          "leading_zero_ambiguous",
+          "other"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     }
   }
 }

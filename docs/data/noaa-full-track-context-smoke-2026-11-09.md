@@ -56,4 +56,8 @@ The integration ran in an ephemeral GitHub Actions runner. The workflow will be 
 4. Benchmark end-to-end resource usage (download, extraction, SQLite disk and memory) under multiple data volumes and source records.
 5. Keep issue #7 open while source rights, dated polygon provenance and operational event truth remain unresolved.
 
+## Censoring caveat (added with BR-019)
+
+This run predates the analysis-window censoring flags. Candidates that touch the edges of the extracted window have durations that are only lower bounds, and their number was not measured here. Re-running the manual workflow records `left_censoring`/`right_censoring` and run-level counts from the extraction sidecar.
+
 **NOT FOR NAVIGATION. NOT VERIFIED ANCHORAGE, BERTHING, VESSEL WAITING OR PORT CALLS.**

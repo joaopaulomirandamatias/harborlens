@@ -1,6 +1,6 @@
 # SPEC-003: Independent event validation and data lineage
 
-**Status:** PROPOSED · **Created:** 2026-11-08.
+**Status:** PARTIAL — local provenance, labeling and evaluation tooling; no labels collected · **Created:** 2026-11-08; **Updated:** 2026-11-09.
 
 ## Problem / user story
 
@@ -15,6 +15,9 @@ FR-010, FR-013..014; BR-012..013; NFR-010, NFR-012
 1. **Given** a source snapshot and derived run; **when** an analyst requests provenance; **then** dataset URL/version, hash, method, parameters, rights, exclusions and output fingerprints are shown.
 2. **Given** expert-labeled positive, negative and unknown cases; **when** validation runs; **then** confusion matrix, precision/recall/F1, MAE and coverage by cohort are reported.
 3. **Given** only aggregated BTS metrics exist; **when** a comparative report is produced; **then** the document states aggregate trend validation cannot prove individual event truth.
+4. **Given** a verified run; **when** a labeling sample is drawn with a seed; **then** the same seed reproduces the same blinded sheet, every non-empty stratum (duration band × censoring × vessel group, plus negative movement intervals) is represented, and the candidate/negative key exists only in the sampling manifest.
+5. **Given** two completed sheets from different annotators; **when** agreement is computed; **then** raw agreement, Cohen's kappa (seven labels and collapsed classes), the inter-annotator confusion matrix and every disagreement are reported, `unknown` labels are counted separately, and the report states that agreement is not accuracy.
+6. **Given** an adjudicated label file for a sample drawn from a verified run; **when** `harborlens-evaluate` runs; **then** TP/FP/FN/TN, precision, recall, F1 and specificity with Wilson 95% intervals, a stratum-weighted precision, cohort metrics (evidence level, vessel group, censoring) and boundary MAE/median error for uncensored true positives are reported; `mixed`, `unknown` and unlabeled units are counted separately and never as correct; and the report states whether any L2 labels were used.
 
 ## Non-goals and safety
 
