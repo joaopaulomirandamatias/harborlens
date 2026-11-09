@@ -15,7 +15,7 @@
 - [ ] Source rights and security reviewed
 - [ ] No unsupported accuracy, emissions or customer claims
 
-- [ ] Benchmark source ingestion and scratch disk/memory usage on two authorized consecutive NOAA daily subsets.
+- [x] Benchmark source ingestion and scratch disk/memory usage on two authorized consecutive NOAA daily subsets. Measured on seven consecutive full days instead ([2026-11-09 re-run](../../docs/data/noaa-real-data-rerun-2026-11-09.md))
 - [ ] Validate source-data rights and real boundary/coverage independently.
 
 - [x] Run one source-pinned consecutive-day NOAA engineering smoke and record process runtime/peak RSS, in the [real-data report](../../docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
@@ -24,7 +24,7 @@
 ## Analysis-window censoring (issue #34)
 
 - [x] Shared censoring module, sidecar verification, explicit window flags, schema updates and synthetic regression tests (`tests/test_censoring.py`)
-- [ ] Re-run the manual NOAA daily and consecutive-day workflows to measure censored shares on real data
+- [x] Re-run the manual NOAA daily and consecutive-day workflows to measure censored shares on real data ([2026-11-09 re-run](../../docs/data/noaa-real-data-rerun-2026-11-09.md))
 - [ ] Apply BR-019 in future duration metrics (SPEC-003 evaluator, #9)
 
 ## Shared segmentation engine (issue #37)
@@ -32,10 +32,10 @@
 - [x] One engine for both CLIs, configurable thresholds, `parameter_set` per candidate, diagnostics by reason, track-context parameter propagation (`tests/test_segmentation_engine.py`)
 - [x] Integer-microsecond ordering in multi-day runs (#38)
 - [x] Descriptive `harborlens-sensitivity` grid report and schema
-- [ ] Re-run one source-pinned NOAA smoke with `stationary-v0.2` and record the effect of the unified rules
+- [x] Re-run one source-pinned NOAA smoke with `stationary-v0.2` and record the effect of the unified rules ([2026-11-09 re-run](../../docs/data/noaa-real-data-rerun-2026-11-09.md))
 - [ ] Use the sensitivity grid on real data only to describe fragmentation; select thresholds only after labels exist (#8, #9)
 
 ## Volume ceilings (issue #35)
 
 - [x] Multi-day, track-context and in-memory ceilings sized from a synthetic 3.92-million-row benchmark ([report](../../docs/data/scale-benchmark-2026-11-09.md)); scratch peak recorded in the manifest; export-phase scratch check uses the configured scratch cap
-- [ ] Confirm resource use on seven real NOAA days (NFR-007)
+- [x] Confirm resource use on seven real NOAA days (NFR-007) ([2026-11-09 re-run](../../docs/data/noaa-real-data-rerun-2026-11-09.md))
