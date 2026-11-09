@@ -52,3 +52,6 @@
 - [x] Retrieve official GPO 2023 and 2024 annual CFR 33 Section 110.197 and compare all 16 anchor DMS pairs, recording downloaded-source SHA-256 (2026-11-09).
 - [ ] Verify exact January 2, 2024 effective legal timeline using Federal Register/LSA and source date corrections.
 - [ ] Resolve A/B/C datum and A East literal self-intersection using agency-approved geometry or original exhibits.
+
+- [x] Add opt-in bounded FederalRegister.gov 33 CFR Part 110 publication-index screen with simulated pagination/host/source tests (pending CI review).
+- [ ] Read exact official Part 110 documents and GPO LSA for 2023-07-01 through 2024-01-02 before any legal-effect conclusion.
