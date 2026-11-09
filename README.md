@@ -53,3 +53,7 @@ A new local [full-track polygon evidence tool](docs/data/full-track-zone-evidenc
 ### First authentic full observed-track comparison
 
 A bounded official NOAA 2024 AIS vs current NOAA anchorage Polygon smoke processed 920 unvalidated candidate episodes. Of these, 74 had every **observed** AIS point within a single Polygon, 5 had partial point coverage and 841 had no recorded-point overlap. The previous centroid-only baseline had 77 overlaps. Neither method confirms anchorage, waiting or the polygon's 2024 historical authority. See [full-track source-pinned engineering report](docs/data/noaa-full-track-context-smoke-2026-11-09.md).
+
+## Historical NOAA ENC geometry vintage audit
+
+The [offline NOAA geometry-vintage audit](docs/data/geometry-vintage-audit.md) checks source hashes and flags ENC edition/issue date contradictions. It explicitly does not confirm that the current anchorage polygons matched 2024 or that any vessel was waiting or anchored.

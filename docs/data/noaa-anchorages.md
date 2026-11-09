@@ -46,3 +46,7 @@ The separate [full-track evidence command](full-track-zone-evidence.md) checks a
 ## Full observed-track comparison with current NOAA polygons
 
 The [real source-pinned comparison](noaa-full-track-context-smoke-2026-11-09.md) demonstrates the limitations of centroid-only spatial context. Historical validity and event truth remain explicitly NOT VERIFIED.
+
+## Additional version evidence gate
+
+The [NOAA ENC date-audit guide](geometry-vintage-audit.md) describes a separate local command for source-edition/issue metadata conflicts. Source dates are not evidence the current polygon matches its historical 2024 footprint.

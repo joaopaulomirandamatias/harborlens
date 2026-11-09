@@ -27,3 +27,7 @@ Accepted and reviewed requirements, passing boundary/negative tests, documented 
 ## SPEC-004 reference polygon integration result
 
 An authentic current NOAA Anchorage Area polygon query succeeded, and an unvalidated centroid overlay against historical NOAA AIS completed. This implements reference-only spatial context, **not dated historical polygons or verified operational berth/anchorage classifications**. See the [engineering report](../../docs/data/noaa-anchorage-real-smoke-2026-11-09.md).
+
+## Additional documentary date audit
+
+A conservative, offline tool now records NOAA polygon source/receipt SHA-256 and optionally unverified ENC edition/last-issue metadata. Reports can flag charts published after the study but never approve historic polygon geometry or vessel operational state. Actual 2024 archival geometry and independent event validation remain open.

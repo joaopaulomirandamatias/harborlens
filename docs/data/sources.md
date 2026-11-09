@@ -42,3 +42,7 @@ The [official NOAA OceanReports Designated Anchorage Areas](https://maps.coast.n
 ### Current NOAA Anchorage polygons: integration evidence
 
 An opt-in 2026-11-09 NOAA OceanReports query returned 6 Anchorage Area polygons. A separate historical AIS centroid overlap produced only provisional location context; see the [source-pinned report](noaa-anchorage-real-smoke-2026-11-09.md). Source-rights and historic validity remain unverified.
+
+## NOAA ENC documentary source dates
+
+Official [NOAA ENC Dates](https://charts.noaa.gov/ENCs/ENCDates.html) explains base edition/application dates and update issue dates. A [local geometry-vintage audit](geometry-vintage-audit.md) can flag documentary conflicts against AIS study dates, but cannot authenticate the current NOAA Polygon source as historically identical.

@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/geometry-vintage-audit.schema.json",
+  "title": "Geometry documentary vintage audit, with mandatory historical non-certification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "study_window_utc",
+    "polygon_sha256",
+    "polygon_receipt_sha256",
+    "source_retrieved_at_utc",
+    "source_rights",
+    "historical_geometry_validity",
+    "operational_event_validation",
+    "date_assessment",
+    "documentary_evidence",
+    "evidence_metadata_sha256",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "geometry-vintage-audit-v1"
+    },
+    "study_window_utc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "end": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "polygon_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "polygon_receipt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_retrieved_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source_rights": {
+      "const": "review_required"
+    },
+    "historical_geometry_validity": {
+      "const": "not_verified"
+    },
+    "operational_event_validation": {
+      "const": "not_verified"
+    },
+    "date_assessment": {
+      "enum": [
+        "no_documentary_enc_evidence",
+        "edition_postdates_study",
+        "update_issue_after_study_start",
+        "document_dates_compatible_but_geometry_unverified"
+      ]
+    },
+    "documentary_evidence": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "cell_id",
+            "edition_number",
+            "edition_date",
+            "last_issue_date",
+            "evidence_url",
+            "referenced_document_sha256",
+            "evidence_status"
+          ],
+          "properties": {
+            "kind": {
+              "const": "NOAA_ENC"
+            },
+            "cell_id": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{5,16}$"
+            },
+            "edition_number": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "edition_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "last_issue_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "evidence_url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://"
+            },
+            "referenced_document_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "evidence_status": {
+              "const": "user_supplied_unverified"
+            }
+          }
+        }
+      ]
+    },
+    "evidence_metadata_sha256": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 40
+    }
+  }
+}
