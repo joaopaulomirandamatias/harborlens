@@ -20,7 +20,8 @@
     "provenance_warning",
     "analysis_window",
     "input_truncated",
-    "limits"
+    "limits",
+    "code_version"
   ],
   "properties": {
     "input_file": {
@@ -551,6 +552,28 @@
             "null"
           ],
           "minimum": 0
+        }
+      }
+    },
+    "code_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_version",
+        "git_commit"
+      ],
+      "description": "harborlens package version (hashed into run_id) and, when known, the git commit (metadata only).",
+      "properties": {
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
         }
       }
     }

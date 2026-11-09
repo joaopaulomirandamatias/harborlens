@@ -79,3 +79,7 @@ The four previously indexed 2023 Federal Register Part 110 document texts were f
 ### NFR-007 / FR-008 / FR-009: volume ceilings (#35)
 
 Ceilings in `archive_extract.py`, `multiday.py`, `track_context.py` and `ais.load_cleaned` were set from the synthetic [scale benchmark](../data/scale-benchmark-2026-11-09.md) (3.92 million rows: 78 s, 47 MiB RSS, 628 MiB scratch). Limits and the scratch peak are recorded in manifests and sidecars. Evidence: `tests/test_volume_caps.py`, `tools/benchmark_multiday.py`. NFR-007 for real data still requires the manual seven-day NOAA workflow.
+
+### SPEC-003 / NFR-002, NFR-003, NFR-010, NFR-012: contracts and run identity (#41)
+
+`tests/test_contracts.py` validates real CLI exports against `run-manifest`, `stationary-candidate` (CSV via `read_candidates_csv`) and the new `stationary-candidate-feature` schema; `run_id` includes the package version (`code_version` in both manifests; git commit recorded as metadata in CI). CI runs on Python 3.10 and 3.12; the suite was also run locally on 3.10, 3.12 and 3.13. `CITATION.cff` added.

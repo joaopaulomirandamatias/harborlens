@@ -176,6 +176,18 @@ def infer_candidates(cleaned, max_sog=0.5, min_duration_minutes=30,
     rows,unparsable=load_cleaned(cleaned)
     return segment_rows(rows,params,censoring,unparsable)
 
+# Typed columns of stationary_candidates.csv (schemas/v1/stationary-candidate.schema.json);
+# all other columns are strings.
+CANDIDATE_CSV_TYPES={"duration_min":float,"point_count":int,"centroid_lon":float,
+                     "centroid_lat":float,"maximum_distance_m":float}
+
+def read_candidates_csv(path):
+    """Read stationary_candidates.csv back into typed records matching the candidate schema."""
+    with Path(path).open(newline="",encoding="utf-8") as stream:
+        return [{k:(CANDIDATE_CSV_TYPES[k](v) if k in CANDIDATE_CSV_TYPES else v)
+                 for k,v in row.items() if k in EVENT_FIELDS}
+                for row in csv.DictReader(stream)]
+
 def write_events(events,out,params=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)

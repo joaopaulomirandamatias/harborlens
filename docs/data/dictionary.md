@@ -9,4 +9,6 @@
 
 Time is RFC 3339 UTC; positions are decimal WGS84 degrees with longitude first in GeoJSON; SOG is knots, distance meters, duration minutes. Identifier MMSI is not a stable guaranteed vessel identity. All candidate confidence is **unvalidated** pending expert labeling and official event comparison.
 
+In `stationary_candidates.csv`, `duration_min`, `centroid_lon`, `centroid_lat` and `maximum_distance_m` are decimals and `point_count` is an integer; `harborlens.ais.read_candidates_csv` returns typed records. Manifests carry `code_version` (`package_version`, which is part of `run_id`, and `git_commit` when known from CI).
+
 `method_version` is `stationary-v0.2` for both commands. `parameter_set` is a 12-hex fingerprint of the method version and thresholds; candidate GeoJSON files also carry the full thresholds in a top-level `harborlens_method` member. A threshold-sensitivity report (`schemas/v1/sensitivity-report.schema.json`) lists counts per setting and is descriptive only.

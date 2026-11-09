@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-003: contracts and run identity, #41)
+- Package version `0.2.0.dev0` (method `stationary-v0.2`). Both manifests record `code_version`; the package version is part of `run_id` (the CI git commit is recorded as metadata only). Bump the version for any output-changing change (CONTRIBUTING).
+- New `stationary-candidate-feature.schema.json` for single-file GeoJSON features and `harborlens.ais.read_candidates_csv` for typed CSV records; real CLI exports are now validated in tests.
+- CI matrix on Python 3.10 and 3.12 (minimum and current).
+- `CITATION.cff`.
+
 ### Changed (SPEC-001/SPEC-002: volume ceilings, #35)
 - Ceilings sized for seven full Houston days from a synthetic 3.92-million-row benchmark (`docs/data/scale-benchmark-2026-11-09.md`, `tools/benchmark_multiday.py`): extraction 1,000,000 rows / 256 MiB; multi-day 6 million rows, 2,048 MiB scratch, 1,024 MiB default export; track-context 6 million rows, 100,000 candidates, 60,000 points per candidate; in-memory tools 6 million rows, checked while reading. All limits still fail closed.
 - Manifests and the extraction sidecar record `limits`; the multi-day manifest records `resources.scratch_peak_bytes`. The export-phase scratch check now uses the configured scratch cap instead of four times the export cap.
