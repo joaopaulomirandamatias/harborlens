@@ -31,7 +31,7 @@ jobs:
             --max-uncompressed-gib 8
       - name: Process historical records and check local hashes
         run: |
-          harborlens --input data/houston-2024-01-02.csv --out results/noaa-daily
+          harborlens --input data/houston-2024-01-02.csv --out results/noaa-daily --source-url https://noaaocm.blob.core.windows.net/ais/csv2/csv2024/ais-2024-01-02.csv.zst
           harborlens-verify --manifest results/noaa-daily/manifest.json
       - name: Publish aggregate QA only (no MMSIs or raw AIS)
         run: |
@@ -42,7 +42,9 @@ jobs:
           source=json.loads(Path("data/houston-2024-01-02.csv.source.json").read_text())
           result=json.loads(Path("results/noaa-daily/manifest.json").read_text())
           with Path("data/houston-2024-01-02.csv").open(newline="") as f:
-              frequencies=Counter(x["MMSI"] for x in csv.DictReader(f))
+              reader=csv.DictReader(f)
+              mmsi_key=next(name for name in reader.fieldnames if name.casefold()=="mmsi")
+              frequencies=Counter(row[mmsi_key] for row in reader)
           output={
               "source_archive_sha256":source["input_sha256"],
               "subset_sha256":source["output_sha256"],
