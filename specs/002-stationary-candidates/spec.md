@@ -1,6 +1,6 @@
 # SPEC-002: Stationary candidate inference and multi-day continuity
 
-**Status:** IMPLEMENTED for preliminary multi-day historical reconstruction; real two-day engineering smoke passed, independent event truth still unvalidated. **Created:** 2026-11-08; **Updated:** 2026-11-09.
+**Status:** PARTIAL — SYNTHETIC ONLY · **Created:** 2026-11-08.
 
 ## Problem / user story
 
