@@ -77,3 +77,7 @@ The optional evidence contract is schemas/v1/noaa-enc-documentary-evidence.schem
 4. Use independently labeled operational port/terminal events before declaring anchorage waiting or berth occupancy.
 
 **NOT FOR NAVIGATION. NO CERTIFIED HISTORICAL GEOMETRY OR VESSEL EVENTS.**
+
+## Initial live NOAA source test (2026-11-09)
+
+The [source-pinned geometry vintage engineering report](noaa-geometry-vintage-smoke-2026-11-09.md) verifies NOAA current polygon receipt SHA-256 and the conservative no_documentary_enc_evidence result against January 2024. It does not prove a historical 2024 anchorage polygon.

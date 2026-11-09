@@ -57,3 +57,7 @@ A bounded official NOAA 2024 AIS vs current NOAA anchorage Polygon smoke process
 ## Historical NOAA ENC geometry vintage audit
 
 The [offline NOAA geometry-vintage audit](docs/data/geometry-vintage-audit.md) checks source hashes and flags ENC edition/issue date contradictions. It explicitly does not confirm that the current anchorage polygons matched 2024 or that any vessel was waiting or anchored.
+
+### Official NOAA vintage-audit smoke (historically unverified)
+
+An isolated live NOAA current polygon query and offline date audit passed, but no archival 2024 ENC documentation was supplied. The output correctly retains geometry validity=not_verified and rights=review_required. See [source-pinned integration report](docs/data/noaa-geometry-vintage-smoke-2026-11-09.md).
