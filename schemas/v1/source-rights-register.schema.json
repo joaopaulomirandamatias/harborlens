@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarborLens source-rights review register (SPEC-003)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "dataset_version",
+          "source_url",
+          "terms_url",
+          "rights_status",
+          "decision",
+          "permitted_uses",
+          "attribution",
+          "reviewed_by",
+          "reviewed_at_utc",
+          "terms_sha256",
+          "evidence_url",
+          "review_note"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]{3,100}$"
+          },
+          "dataset_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "terms_url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "rights_status": {
+            "enum": [
+              "review_required",
+              "reviewed_public_domain_attribution_required",
+              "reviewed_permitted_with_conditions"
+            ]
+          },
+          "decision": {
+            "enum": [
+              "pending",
+              "reviewed"
+            ]
+          },
+          "permitted_uses": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "research",
+              "public_aggregates",
+              "commercial"
+            ],
+            "properties": {
+              "research": {
+                "enum": [
+                  "allowed",
+                  "prohibited",
+                  "unreviewed"
+                ]
+              },
+              "public_aggregates": {
+                "enum": [
+                  "allowed",
+                  "prohibited",
+                  "unreviewed"
+                ]
+              },
+              "commercial": {
+                "enum": [
+                  "allowed",
+                  "prohibited",
+                  "unreviewed"
+                ]
+              }
+            }
+          },
+          "attribution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reviewed_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reviewed_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "Z$"
+          },
+          "terms_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "evidence_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^https://"
+          },
+          "review_note": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "reviewed"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            },
+            "then": {
+              "properties": {
+                "rights_status": {
+                  "enum": [
+                    "reviewed_public_domain_attribution_required",
+                    "reviewed_permitted_with_conditions"
+                  ]
+                },
+                "attribution": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reviewed_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reviewed_at_utc": {
+                  "type": "string",
+                  "pattern": "Z$"
+                },
+                "terms_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "evidence_url": {
+                  "type": "string",
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
