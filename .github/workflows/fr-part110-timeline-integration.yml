@@ -27,6 +27,9 @@ jobs:
           from pathlib import Path
           p=Path('results/fr-part110-timeline.json')
           data=json.loads(p.read_text(encoding='utf-8'))
+          from jsonschema import Draft202012Validator, FormatChecker
+          schema=json.loads(Path('schemas/v1/fr-part110-index-audit.schema.json').read_text())
+          Draft202012Validator(schema,format_checker=FormatChecker()).validate(data)
           assert data['cfr_scope']=='33 CFR Part 110'
           assert data['cfr_section_110_197_effective_state']=='NOT_DETERMINED'
           assert data['intervening_amendments_excluded'] is False
