@@ -39,3 +39,7 @@ A conservative offline [vintage audit](../data/geometry-vintage-audit.md) report
 ### NOAA geometry-vintage real source integration
 
 An isolated [official NOAA current-polygon vintage smoke](../data/noaa-geometry-vintage-smoke-2026-11-09.md) passed source hash and report schema checks but correctly retained no_documentary_enc_evidence, historical_geometry_validity=not_verified and rights=review_required for January 2024. Actual historical geofence validation remains pending.
+
+### 2024 federal anchorage source transcription (SPEC-004)
+
+The official annual July 1, 2024 [33 CFR §110.197](../data/cfr-2024-galveston-anchorage-audit.md) supplies DMS corner coordinates for four Galveston/Bolivar Roads regulatory anchorages. An offline, schema-tested audit checks datum/topology and **blocks** GIS/AIS use of unverified rings. Historical status on January 2 and qualified source/geometry review are separate gates. This does not meet FR-011/012 authoritative AIS classification.

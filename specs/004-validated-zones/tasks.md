@@ -43,3 +43,8 @@
 
 - [x] Run a bounded real NOAA current source-vintage audit and verify the unreviewed January 2024 status; see [integration report](../../docs/data/noaa-geometry-vintage-smoke-2026-11-09.md).
 - [ ] Obtain actual historical January 2024 ENC/anchorage source and establish polygon-version equivalence independently.
+
+- [x] Discover official July 1, 2024 GPO CFR §110.197 legal boundary coordinates and 33 CFR 110.1(d) datum caveat; add DMS transcription, topology/datum audit and synthetic tests (PR review pending).
+- [ ] Check precise January 2, 2024 effective regulations against historical CFR/Federal Register/LSA, not just the July edition.
+- [ ] Resolve A/B/C coordinate datum from authoritative sources and A East polygon vertex order with review evidence; do not auto-repair.
+- [ ] Publish only reviewed, temporally appropriate WGS84 geometries before AIS matching.

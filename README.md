@@ -61,3 +61,7 @@ The [offline NOAA geometry-vintage audit](docs/data/geometry-vintage-audit.md) c
 ### Official NOAA vintage-audit smoke (historically unverified)
 
 An isolated live NOAA current polygon query and offline date audit passed, but no archival 2024 ENC documentation was supplied. The output correctly retains geometry validity=not_verified and rights=review_required. See [source-pinned integration report](docs/data/noaa-geometry-vintage-smoke-2026-11-09.md).
+
+## Government-dated 2024 USCG regulatory anchorages (source transcription audit)
+
+The [2024 Federal CFR §110.197 legal-coordinate source audit](docs/data/cfr-2024-galveston-anchorage-audit.md) transcribes the four Galveston/Bolivar Roads anchorage areas and performs conservative datum/topology checks. **It never emits automatically usable WGS84 GIS polygons**, because A/B/C lack an explicit NAD83 datum and A East has an invalid literal vertex sequence. The 2024 edition dates to July 1; January 2 historical applicability requires separate verification. No AIS operational-event classification.
