@@ -1,7 +1,5 @@
 name: USACE facilities point-catalog integration (research only)
 on:
-  push:
-    branches: [integration/usace-smoke-fixed]
   workflow_dispatch:
 
 permissions:
