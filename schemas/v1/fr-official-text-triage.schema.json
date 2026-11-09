@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/fr-official-text-triage.schema.json",
+  "title": "FederalRegister.gov full-text source audit, noncertifying",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sources",
+    "retrieved_at_utc",
+    "document_count",
+    "documents",
+    "full_text_fetch_complete",
+    "lsa_full_review_complete",
+    "section_110_197_historical_effect",
+    "ais_geofence_approval",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "fr-2023-official-text-audit-v1"
+    },
+    "sources": {
+      "type": "string"
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "document_count": {
+      "const": 4
+    },
+    "documents": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "document_number",
+          "publication_date",
+          "official_metadata_url",
+          "official_raw_text_url",
+          "official_html_url",
+          "metadata_sha256",
+          "raw_text_sha256",
+          "text_characters",
+          "title",
+          "indexed_document_type",
+          "indexed_effective_date",
+          "text_mentions_110_197",
+          "location_text_signals",
+          "text_mentions_withdrawal",
+          "review_status"
+        ],
+        "properties": {
+          "document_number": {
+            "enum": [
+              "2023-15652",
+              "2023-28652",
+              "2023-28654",
+              "2023-28656"
+            ]
+          },
+          "publication_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "official_metadata_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "official_raw_text_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "official_html_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "metadata_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "raw_text_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "text_characters": {
+            "type": "integer",
+            "minimum": 301
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "indexed_document_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "indexed_effective_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text_mentions_110_197": {
+            "type": "boolean"
+          },
+          "location_text_signals": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "galveston_or_houston",
+              "columbia_river",
+              "hudson_river"
+            ],
+            "properties": {
+              "galveston_or_houston": {
+                "type": "boolean"
+              },
+              "columbia_river": {
+                "type": "boolean"
+              },
+              "hudson_river": {
+                "type": "boolean"
+              }
+            }
+          },
+          "text_mentions_withdrawal": {
+            "type": "boolean"
+          },
+          "review_status": {
+            "const": "human_review_full_text_and_legal_effect_required"
+          }
+        }
+      }
+    },
+    "full_text_fetch_complete": {
+      "const": true
+    },
+    "lsa_full_review_complete": {
+      "const": false
+    },
+    "section_110_197_historical_effect": {
+      "const": "NOT_DETERMINED"
+    },
+    "ais_geofence_approval": {
+      "const": false
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 30
+    }
+  }
+}

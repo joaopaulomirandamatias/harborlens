@@ -77,3 +77,7 @@ The opt-in [Part 110 historical Federal Register index screen](docs/data/fr-part
 ### Verified Federal Register Part 110 historical index scan
 
 An official-source index query for 2023-07-01 through 2024-01-02 returned four Proposed Rule metadata entries, not a proven effective change to section 110.197. The complete source query page and result JSON were SHA-256 fingerprinted. The [real source scan report](docs/data/fr-part110-real-index-2023-2024.md) retains mandatory official FR/LSA review and historical datum/geometry gates.
+
+## Official Part 110 publication full-text triage
+
+After the Part 110 index screen, the optional [official full-text source audit](docs/data/fr-2023-fulltext-triage.md) verifies original FederalRegister.gov metadata and raw published documents for four 2023 proposals/withdrawals, retaining source SHA-256 and explicit human-review requirements. No legal-effect or historical GIS approval is inferred.
