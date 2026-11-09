@@ -43,6 +43,18 @@ class GovInfoLSATests(unittest.TestCase):
             self.assertEqual(v["target_110_197_direct_occurrences"],0)
             self.assertEqual(v["part110_proposed_fr_pages"],["47837","89644","89646","89648"])
 
+    def test_json_schema_forbids_effective_law_or_ais_approval(self):
+        from jsonschema import Draft202012Validator, FormatChecker
+        schema_path = (Path(__file__).resolve().parents[1] / "schemas" / "v1" /
+                       "govinfo-lsa-dec-jan-comparison.schema.json")
+        schema = json.loads(schema_path.read_text())
+        Draft202012Validator.check_schema(schema)
+        record = compare_official_lsa(opener, reader_factory)
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        validator.validate(record)
+        record["legal_effect_on_study_date"] = "VERIFIED"
+        self.assertGreater(len(list(validator.iter_errors(record))), 0)
+
     def test_bad_proposed_page_reference_refused(self):
         altered=lambda raw: FakeReader(TITLE + PROPOSED.replace("89648","89649"))
         with self.assertRaisesRegex(LSAComparisonError,"citations changed"):

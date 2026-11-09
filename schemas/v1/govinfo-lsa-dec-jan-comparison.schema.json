@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json",
+  "title": "HarborLens historical GPO LSA comparison (non-certifying)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "retrieved_at_utc",
+    "source_months",
+    "documents",
+    "proposed_part110_pages_match",
+    "study_target",
+    "legal_effect_on_study_date",
+    "intervening_amendments_excluded",
+    "historical_wgs84_geometry_approved",
+    "ais_spatial_join_permitted",
+    "mandatory_follow_up"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "govinfo-lsa-dec-jan-v1"
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_months": {
+      "const": [
+        "2023-12",
+        "2024-01"
+      ]
+    },
+    "documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "2023-12",
+        "2024-01"
+      ],
+      "properties": {
+        "2023-12": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "official_pdf_url",
+            "official_pdf_sha256",
+            "pdf_page_count",
+            "title33_pdf_pages_1based",
+            "title33_extracted_text_sha256",
+            "target_110_197_direct_occurrences",
+            "part110_proposed_fr_pages"
+          ],
+          "properties": {
+            "official_pdf_url": {
+              "type": "string",
+              "pattern": "^https://www\\.govinfo\\.gov/content/pkg/LSA-202[34]-\\d{2}/pdf/LSA-202[34]-\\d{2}\\.pdf$"
+            },
+            "official_pdf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "pdf_page_count": {
+              "type": "integer",
+              "minimum": 26,
+              "maximum": 299
+            },
+            "title33_pdf_pages_1based": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "title33_extracted_text_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "target_110_197_direct_occurrences": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "part110_proposed_fr_pages": {
+              "const": [
+                "47837",
+                "89644",
+                "89646",
+                "89648"
+              ]
+            }
+          }
+        },
+        "2024-01": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "official_pdf_url",
+            "official_pdf_sha256",
+            "pdf_page_count",
+            "title33_pdf_pages_1based",
+            "title33_extracted_text_sha256",
+            "target_110_197_direct_occurrences",
+            "part110_proposed_fr_pages"
+          ],
+          "properties": {
+            "official_pdf_url": {
+              "type": "string",
+              "pattern": "^https://www\\.govinfo\\.gov/content/pkg/LSA-202[34]-\\d{2}/pdf/LSA-202[34]-\\d{2}\\.pdf$"
+            },
+            "official_pdf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "pdf_page_count": {
+              "type": "integer",
+              "minimum": 26,
+              "maximum": 299
+            },
+            "title33_pdf_pages_1based": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "title33_extracted_text_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "target_110_197_direct_occurrences": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "part110_proposed_fr_pages": {
+              "const": [
+                "47837",
+                "89644",
+                "89646",
+                "89648"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "proposed_part110_pages_match": {
+      "const": true
+    },
+    "study_target": {
+      "const": "33 CFR 110.197 on 2024-01-02"
+    },
+    "legal_effect_on_study_date": {
+      "const": "NOT_DETERMINED"
+    },
+    "intervening_amendments_excluded": {
+      "const": false
+    },
+    "historical_wgs84_geometry_approved": {
+      "const": false
+    },
+    "ais_spatial_join_permitted": {
+      "const": false
+    },
+    "mandatory_follow_up": {
+      "type": "string",
+      "minLength": 60
+    }
+  }
+}
