@@ -19,6 +19,7 @@ dev = ["pytest>=8", "jsonschema>=4"]
 harborlens = "harborlens.cli:main"
 harborlens-download-noaa = "harborlens.download:main"
 harborlens-verify = "harborlens.provenance:main"
+harborlens-fetch-erddap = "harborlens.erddap:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
