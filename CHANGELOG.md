@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: source-rights adapter receipts)
+- Optional per-purpose, exact-source-version source-rights registry lookups with SHA-256 receipts for NOAA ERDDAP, local daily archive extraction, NOAA anchorage polygons and USACE point catalog; existing default rights remain review_required. Synthetic-only source and schema regression tests; no license or vessel-event approval.
+
 ### Added (SPEC-004 official Federal Register text triage)
 - Fixed-list full-text source verification of four 2023 Federal Register Part 110 index documents; official metadata/bytes hashed, source links restricted and relevance flags non-certifying.
 

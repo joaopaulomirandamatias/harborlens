@@ -17,6 +17,8 @@ from pathlib import Path
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from harborlens.rights import PURPOSES, rights_receipt
+
 BASE = "https://data.pmel.noaa.gov/pmel/erddap/tabledap/AIS2024_AIS.csv"
 INFO = "https://data.pmel.noaa.gov/pmel/erddap/info/AIS2024_AIS/index.html"
 FIELDS = ("MMSI", "time", "Lat", "Lon", "SOG", "VesselType", "Status")
@@ -102,7 +104,8 @@ def normalize_response(raw: bytes) -> tuple[bytes, int]:
     return result.getvalue().encode("utf-8"), count
 
 
-def fetch_subset(start, end, bbox, output, max_mib=8, opener=None):
+def fetch_subset(start, end, bbox, output, max_mib=8, opener=None,
+                 rights_register=None, rights_purpose="research"):
     """Explicit, testable network operation. No remote access in unit tests."""
     output = Path(output)
     metadata = output.with_name(output.name + ".source.json")
@@ -111,6 +114,8 @@ def fetch_subset(start, end, bbox, output, max_mib=8, opener=None):
     url = build_url(start, end, bbox)
     if output.exists() or metadata.exists():
         raise FileExistsError("Refusing overwrite of existing AIS file or metadata")
+    rights = rights_receipt("noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+                            purpose=rights_purpose, register_path=rights_register)
     request = Request(url, headers={"User-Agent": "HarborLens-research/0.1", "Accept": "text/csv"})
     with (opener or urlopen)(request, timeout=45) as response:
         raw = download_bytes(response, max_mib * 1048576)
@@ -125,7 +130,8 @@ def fetch_subset(start, end, bbox, output, max_mib=8, opener=None):
         "raw_sha256": hashlib.sha256(raw).hexdigest(),
         "csv_sha256": hashlib.sha256(normalized).hexdigest(),
         "response_bytes": len(raw), "rows": count,
-        "rights_status": "review_required",
+        "rights_status": rights["rights_status"],
+        "rights_review": rights,
         "warning": "Historical AIS, not verified port events; review origin and reuse rights.",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -153,8 +159,12 @@ def main():
     parser.add_argument("--bbox", nargs=4, type=float, default=HOUSTON, metavar=("W", "S", "E", "N"))
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--max-mib", type=int, default=8)
+    parser.add_argument("--rights-register", type=Path, default=None)
+    parser.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     args = parser.parse_args()
-    print(json.dumps(fetch_subset(args.start, args.end, args.bbox, args.out, args.max_mib), indent=2))
+    print(json.dumps(fetch_subset(args.start, args.end, args.bbox, args.out, args.max_mib,
+                                  rights_register=args.rights_register,
+                                  rights_purpose=args.rights_purpose), indent=2))
 
 
 if __name__ == "__main__":

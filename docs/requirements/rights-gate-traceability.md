@@ -13,3 +13,9 @@
 - **Not implemented:** independent human decision for any source, adapter integrations, commercial licensing determination, data redistribution or historical geometry certification.
 - **Safety:** no event accuracy claims; no live navigation; no proprietary or raw data stored.
 - **Validation:** run `python -m unittest discover -s tests -p 'test_rights.py' -v` in the project environment. PR CI is the authoritative integration check.
+
+## Follow-on integration: source rights receipts (dependent on #55)
+
+- **FR-010, NFR-013/NFR-019, BR-015/BR-016:** Four NOAA/USACE adapters now emit version/purpose-bound `rights_review` provenance using the local registry. Exact dataset IDs or output/input SHA-256 digests prevent broad year/catalog assertions from being automatically reused across mutable snapshots.
+- **Verification:** `tests/test_rights_adapters.py` covers synthetic matching, mismatching, invalid registry, prohibited purpose, hash evidence, and new versioned receipt schema. Existing acquisition tests remain applicable.
+- **Residual gates:** PR review and CI; independent actual reviewer/terms; explicit enforcement at export/publication boundaries; independently verified dated geometry. No confirmed events or authorized distribution.

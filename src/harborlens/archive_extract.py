@@ -19,6 +19,8 @@ from pathlib import Path
 from harborlens.ais import BBOX_HOUSTON, header_alias, parse_time, sha256
 from harborlens.io_safe import LimitedReader, MAX_COMPRESSED_BYTES, AISInputError
 
+from harborlens.rights import PURPOSES, rights_receipt
+
 MAX_UNCOMPRESSED_GIB = 8
 MAX_OUTPUT_MIB = 128
 MAX_MATCHING_ROWS = 250000
@@ -43,6 +45,7 @@ def _csv_row_bytes(row):
 def extract_archive(
     source, output, start, end, bbox=BBOX_HOUSTON,
     max_rows=MAX_MATCHING_ROWS, max_output_mib=64, max_uncompressed_gib=8,
+    rights_register=None, rights_purpose="research",
 ):
     source, output = Path(source), Path(output)
     if source.suffix.lower() != ".zst" or not source.name.lower().endswith(".csv.zst"):
@@ -127,10 +130,14 @@ def extract_archive(
         if counters["selected"] == 0:
             raise AISInputError("No observations matched; do not infer absence of vessel traffic")
 
+        input_digest = sha256(source)
+        rights = rights_receipt("noaa_ocm_ais_daily",
+            dataset_version=f"{a.year}/archive-sha256:{input_digest}",
+            purpose=rights_purpose, register_path=rights_register)
         report = {
             "source_type": "local_noaa_daily_archive",
             "input_filename": source.name,
-            "input_sha256": sha256(source),
+            "input_sha256": input_digest,
             "output_filename": output.name,
             "output_sha256": sha256(temporary),
             "window_start_utc": a.isoformat().replace("+00:00", "Z"),
@@ -138,7 +145,8 @@ def extract_archive(
             "bbox_lon_lat": [w, s, e, n],
             "counts": counters,
             "bytes_written": bytes_written,
-            "rights_status": "review_required",
+            "rights_status": rights["rights_status"],
+            "rights_review": rights,
             "warning": "Origin of local archive and commercial reuse rights not independently authenticated.",
         }
         with temp_meta.open("x", encoding="utf-8") as meta:
@@ -163,10 +171,13 @@ def main():
     p.add_argument("--max-rows", type=int, default=MAX_MATCHING_ROWS)
     p.add_argument("--max-output-mib", type=int, default=64)
     p.add_argument("--max-uncompressed-gib", type=int, default=8)
+    p.add_argument("--rights-register", type=Path, default=None)
+    p.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a = p.parse_args()
     print(json.dumps(extract_archive(
         a.input, a.out, a.start, a.end, a.bbox,
-        a.max_rows, a.max_output_mib, a.max_uncompressed_gib
+        a.max_rows, a.max_output_mib, a.max_uncompressed_gib,
+        rights_register=a.rights_register, rights_purpose=a.rights_purpose
     ), indent=2))
 
 

@@ -16,3 +16,7 @@ Versioned source snapshot schema, label guide, stratified evaluation, provenance
 ## Decisions and tradeoffs
 
 Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible uncertainty and independent reproducibility over premature complex infrastructure. Schema-breaking changes require a migration note and regression tests.
+
+## Incremental design: source-rights decisions in acquisition receipts
+
+The optional `rights_receipt` function reads a bounded local registry once, checks a source/version/purpose-specific reviewer assertion, and fingerprints the very bytes evaluated. NOAA ERDDAP binds to `AIS2024_AIS`; local archives bind to the source-file digest; mutable USACE and NOAA polygon query results bind to canonical output hashes. No registry or a missing/unmatched/malformed decision yields `review_required`. This is audit metadata only, not export authorization. Historical validity, event truth and license verification remain independent controls. See `docs/data/rights-adapter-integration.md`.

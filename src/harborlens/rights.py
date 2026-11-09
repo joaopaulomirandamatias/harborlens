@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 MAX_REGISTRY_BYTES = 256 * 1024
@@ -33,14 +33,10 @@ def _valid_utc_time(value):
         return False
 
 
-def load_registry(path):
-    """Load an explicit local decision record; never fetch from the network."""
-    target = Path(path)
-    if not target.is_file() or target.stat().st_size > MAX_REGISTRY_BYTES:
-        raise ValueError("Missing or excessive rights register")
+def _parse_registry_bytes(raw):
     try:
-        data = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError) as exc:
+        data = json.loads(raw)
+    except (UnicodeError, ValueError) as exc:
         raise ValueError("Rights register is unreadable") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise ValueError("Unsupported rights register version")
@@ -62,21 +58,21 @@ def load_registry(path):
     return data
 
 
-def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
-    """Return only conservative decisions for an exact source, vintage and use.
+def load_registry(path):
+    """Load bounded local bytes, with no remote request or registry trust leap."""
+    with Path(path).open("rb") as stream:
+        raw = stream.read(MAX_REGISTRY_BYTES + 1)
+    if len(raw) > MAX_REGISTRY_BYTES:
+        raise ValueError("Missing or excessive rights register")
+    return _parse_registry_bytes(raw)
 
-    Invalid or absent records fail closed to review_required. A reviewer entry
-    is an audit assertion, not cryptographic authentication or legal approval.
-    """
+
+def _rights_status_from_registry(registry, source_id, dataset_version, purpose):
     if purpose not in PURPOSES:
         raise ValueError("Unsupported use purpose")
     if not source_id or not dataset_version:
         return PENDING
-    try:
-        records = load_registry(register_path)["sources"]
-    except (ValueError, OSError):
-        return PENDING
-    matched = [r for r in records if r["source_id"] == source_id
+    matched = [r for r in registry["sources"] if r["source_id"] == source_id
                and r["dataset_version"] == dataset_version]
     if len(matched) != 1:
         return PENDING
@@ -107,6 +103,60 @@ def rights_status_for(source_id, *, dataset_version, purpose="research", registe
     if rights[purpose] == "prohibited":
         return RESTRICTED
     return PENDING
+
+
+def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
+    """Return conservative status for a source version and a particular purpose."""
+    if purpose not in PURPOSES:
+        raise ValueError("Unsupported use purpose")
+    try:
+        registry = load_registry(register_path)
+    except (ValueError, OSError):
+        return PENDING
+    return _rights_status_from_registry(registry, source_id, dataset_version, purpose)
+
+
+def rights_receipt(source_id, *, dataset_version, purpose="research", register_path=None):
+    """Snapshot a registry read once and produce an auditable sidecar receipt.
+
+    Caller-visible reviewed statuses are *recorded assertions*, never legal
+    guarantees. Absence/malformed data always produce review_required.
+    """
+    import hashlib
+
+    if purpose not in PURPOSES:
+        raise ValueError("Unsupported use purpose")
+    result = {
+        "schema_version": 1,
+        "source_id": source_id,
+        "dataset_version": dataset_version,
+        "purpose": purpose,
+        "registry_sha256": None,
+        "evaluation": "not_supplied",
+        "rights_status": PENDING,
+    }
+    if register_path is None:
+        return result
+    try:
+        path = Path(register_path)
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_REGISTRY_BYTES + 1)
+        if len(raw) > MAX_REGISTRY_BYTES:
+            raise ValueError("Rights register exceeds configured limit")
+        # Parse the identical bytes whose fingerprint is returned in the receipt.
+        document = _parse_registry_bytes(raw)
+    except (OSError, UnicodeError, ValueError):
+        result["evaluation"] = "invalid_registry"
+        return result
+    result["registry_sha256"] = hashlib.sha256(raw).hexdigest()
+    result["rights_status"] = _rights_status_from_registry(
+        document, source_id, dataset_version, purpose
+    )
+    result["evaluation"] = (
+        "reviewed_record" if result["rights_status"] != PENDING
+        else "pending_or_unmatched"
+    )
+    return result
 
 
 def main(argv=None):
