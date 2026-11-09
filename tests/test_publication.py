@@ -237,7 +237,7 @@ class PublicationGateTests(unittest.TestCase):
         self.approve(summary)
         self.produce()
         saved = self.out.read_bytes()
-        with self.assertRaises(FileExistsError):
+        with self.assertRaisesRegex(ReleaseDenied, "new JSON file"):
             self.produce()
         self.assertEqual(self.out.read_bytes(), saved)
 
