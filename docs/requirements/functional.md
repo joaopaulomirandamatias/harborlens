@@ -12,7 +12,7 @@
 | FR-006 | P0 | Export cleaned AIS CSV, candidate CSV, candidate GeoJSON and JSON manifest | Synthetic implementation | SPEC-001 |
 | FR-007 | P0 | Prohibit claiming an inferred candidate as verified berth, anchorage, waiting or port call | Synthetic implementation | SPEC-002 |
 | FR-008 | P0 | Expose optional AOI/row limits; perform no network access on installation or ordinary CLI execution | Synthetic implementation | SPEC-001 |
-| FR-009 | P1 | Join consecutive days without corrupting event continuity; track conflicting MMSI and gaps | Proposed | SPEC-002 |
+| FR-009 | P1 | Join consecutive days without corrupting event continuity; track conflicting MMSI and gaps | Implemented in initial two-day research pipeline; real event accuracy requires independent validation | SPEC-002 |
 | FR-010 | P1 | Publish source snapshots with URL, dataset/vintage, file hash, rights and output fingerprints | Proposed | SPEC-003 |
 | FR-011 | P1 | Load externally verified dated geofences for facilities and anchorage areas | Proposed | SPEC-004 |
 | FR-012 | P1 | Assign unknown rather than false berth/anchor states; require external event validation for authoritative labels | Proposed | SPEC-004 |

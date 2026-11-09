@@ -25,3 +25,7 @@ For temporal trajectories use authorized daily historical compressed archives ra
 ## Experimental multi-day AIS candidates
 
 A separate local tool can reconstruct provisional low-speed candidate segments across UTC midnight from two or more existing historic AIS subsets, using an ephemeral SQLite sort and per-file input lineage. No automatic downloads. See [multi-day engineering guide](docs/data/multiday.md). No real multi-day accuracy or official berth/waiting claims are established.
+
+## First real consecutive-day engineering run
+
+An isolated GitHub Actions run successfully processed two authentic NOAA daily archives around UTC midnight. The tool reported 564 unvalidated cross-midnight candidate episodes among 286,696 cleaned points, with roughly 46 MiB process RSS and a 5.4-second multi-day stage. These are software results, not independently confirmed waiting vessels. See [the source-pinned engineering report](docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
