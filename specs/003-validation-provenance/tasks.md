@@ -42,3 +42,9 @@
 - [x] Add synthetic attack-path tests, reviewed-release and summary schemas, and a publication-safety design note.
 - [ ] Independent code/security review, real source-rights decisions and operational privacy governance before any public release.
 - [ ] Separately address multi-day source lineage, signed approvals, organizational publication controls and third-party source authentication.
+
+## Signed reviewer-attestation hardening
+
+- [x] Add Ed25519 release approval verification, pinned SPKI fingerprint and expected reviewer ID; deny unsigned/mismatched claims (pending PR independent review and CI).
+- [x] Add synthetic positive/negative cryptographic regression tests and updated JSON Schemas, CLI and signing documentation.
+- [ ] Establish institution-controlled reviewer key custody, trust-root distribution, rotation and independent source-rights verification before real publication.

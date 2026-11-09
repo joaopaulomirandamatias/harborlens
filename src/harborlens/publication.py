@@ -17,6 +17,7 @@ from pathlib import Path
 
 from harborlens.provenance import checksum, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
+from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
 
 MAX_DOCUMENT_BYTES = 1024 * 1024
 MIN_OBSERVATIONS = 100
@@ -182,13 +183,16 @@ def summary_sha256(summary):
     return hashlib.sha256(_canonical(summary)).hexdigest()
 
 
-def _validate_review(path, expected_sha, purpose, needs_conditions):
+def _validate_review(path, expected_sha, purpose, needs_conditions, *,
+                     trusted_public_key, expected_public_key_sha256,
+                     expected_reviewer_id):
     review = _json_file(path)
     if (set(review) != {
             "schema_version", "decision", "summary_sha256", "purpose",
             "reviewer_id", "reviewed_at_utc", "privacy_reviewed",
             "source_rights_reviewed", "scientific_limitations_reviewed",
-            "conditions_reviewed"
+            "conditions_reviewed", "signature_algorithm",
+            "public_key_sha256", "signature_b64"
         } or review.get("schema_version") != 1
             or review.get("decision") != "approved"
             or review.get("summary_sha256") != expected_sha
@@ -212,10 +216,21 @@ def _validate_review(path, expected_sha, purpose, needs_conditions):
     now = datetime.now(timezone.utc)
     if not now - timedelta(days=30) <= moment <= now + timedelta(minutes=5):
         raise ReleaseDenied("Publication review is stale or in the future")
+    try:
+        verify_review_signature(
+            review,
+            trusted_public_key=trusted_public_key,
+            expected_public_key_sha256=expected_public_key_sha256,
+            expected_reviewer_id=expected_reviewer_id,
+        )
+    except ReviewSignatureError as exc:
+        raise ReleaseDenied("Signed reviewer approval cannot be authenticated: " + str(exc)) from exc
     return review
 
 
-def release_summary(run_dir, source_file, register, out, review, purpose="public_aggregates"):
+def release_summary(run_dir, source_file, register, out, review,
+                    purpose="public_aggregates", *, trusted_public_key=None,
+                    expected_public_key_sha256=None, expected_reviewer_id=None):
     """Create a reviewed, sanitized local release JSON; never auto-upload it."""
     out = Path(out)
     if out.suffix.lower() != ".json" or out.is_file() or out.is_symlink():
@@ -224,7 +239,10 @@ def release_summary(run_dir, source_file, register, out, review, purpose="public
     digest = summary_sha256(summary)
     approval = _validate_review(
         review, digest, purpose,
-        summary["rights_status"] == "reviewed_permitted_with_conditions"
+        summary["rights_status"] == "reviewed_permitted_with_conditions",
+        trusted_public_key=trusted_public_key,
+        expected_public_key_sha256=expected_public_key_sha256,
+        expected_reviewer_id=expected_reviewer_id,
     )
     result = {
         "summary": summary,
@@ -261,6 +279,9 @@ def main(argv=None):
     parser.add_argument("--purpose", choices=RELEASE_PURPOSES, default="public_aggregates")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--review", type=Path)
+    parser.add_argument("--trusted-reviewer-key", type=Path)
+    parser.add_argument("--trusted-reviewer-key-sha256")
+    parser.add_argument("--trusted-reviewer-id")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -272,11 +293,21 @@ def main(argv=None):
                               "summary_sha256": digest, "purpose": args.purpose},
                              indent=2))
             return
-        if args.review is None or args.out is None:
-            raise ReleaseDenied("--review and --out are required without --dry-run")
+        if (args.review is None or args.out is None
+                or args.trusted_reviewer_key is None
+                or args.trusted_reviewer_key_sha256 is None
+                or args.trusted_reviewer_id is None):
+            raise ReleaseDenied(
+                "--review, --out, --trusted-reviewer-key, "
+                "--trusted-reviewer-key-sha256 and --trusted-reviewer-id "
+                "are required without --dry-run"
+            )
         release = release_summary(args.run, args.source_file,
                                   args.rights_register, args.out, args.review,
-                                  args.purpose)
+                                  args.purpose,
+                                  trusted_public_key=args.trusted_reviewer_key,
+                                  expected_public_key_sha256=args.trusted_reviewer_key_sha256,
+                                  expected_reviewer_id=args.trusted_reviewer_id)
         print(json.dumps({"decision": "locally_staged_not_uploaded",
                           "summary_sha256": release["summary_sha256"],
                           "output": str(args.out)}, indent=2))

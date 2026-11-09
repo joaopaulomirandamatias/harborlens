@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Manually reviewed HarborLens aggregate release approval",
-  "description": "Exact summary fingerprint and human attestations; not a cryptographic signature or external legal opinion.",
+  "description": "Cryptographically signed, reviewer-pinned SHA-256 and purpose assertions; not proof of upstream data rights.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,10 @@
     "privacy_reviewed",
     "source_rights_reviewed",
     "scientific_limitations_reviewed",
-    "conditions_reviewed"
+    "conditions_reviewed",
+    "signature_algorithm",
+    "public_key_sha256",
+    "signature_b64"
   ],
   "properties": {
     "schema_version": {
@@ -52,6 +55,17 @@
     },
     "conditions_reviewed": {
       "type": "boolean"
+    },
+    "signature_algorithm": {
+      "const": "Ed25519"
+    },
+    "public_key_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signature_b64": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{86}==$"
     }
   }
 }

@@ -12,7 +12,7 @@ The only emitted payload is an explicit allowlist: scanned/retained observations
 
 The gate currently supports single-file **NOAA PMEL ERDDAP AIS2024_AIS** and a provenance-matched local **NOAA daily archive extraction**, **not** arbitrary independent inputs, non-AIS sources, multi-day derived runs, or raw GeoJSON downloads. Future connectors must add their own independently tested provenance links and suppression rules.
 
-## Two-step, human-reviewed release
+## Two-step, cryptographically signed reviewer release
 
 After independently reviewing and recording the precise source rights, run the command with `--dry-run` to get the SHA-256 fingerprint of its proposed summary. This dry run **also requires an approved purpose-specific rights record**.
 
@@ -23,7 +23,7 @@ harborlens-release-summary --run results/houston-single \
   --purpose public_aggregates --dry-run
 ```
 
-Create a **local** review JSON from the exact proposed summary fingerprint; replace all illustrative placeholders with actual decisions. The fixture below is an example of **format**, not authorization:
+Create a **signed local** review JSON from the exact proposed summary fingerprint; replace all illustrative placeholders with actual decisions. The fixture below is an example of **format**, not authorization:
 
 ```json
 {
@@ -36,11 +36,14 @@ Create a **local** review JSON from the exact proposed summary fingerprint; repl
   "privacy_reviewed": true,
   "source_rights_reviewed": true,
   "scientific_limitations_reviewed": true,
-  "conditions_reviewed": false
+  "conditions_reviewed": false,
+  "signature_algorithm": "Ed25519",
+  "public_key_sha256": "externally-pinned-64-hex-key-fingerprint",
+  "signature_b64": "Ed25519-signature-over-canonical-review"
 }
 ```
 
-The reviewer must check **data rights, privacy, scientific limitations and any special license conditions**. The reviewer decision must match the exact summary digest/purpose and be recent (within 30 days); an altered registry or output manifests produces a different digest and requires another review.
+The reviewer must check **data rights, privacy, scientific limitations and any special license conditions**. Fields in the example are placeholders, not a valid signature. The review must be signed offline using a reviewer-controlled Ed25519 private key; see [signed review and trust-root procedure](signed-release-review.md). The publisher independently pins the reviewer's public-key fingerprint and identity. The Ed25519-signed reviewer decision must match the exact summary digest/purpose, expected public-key fingerprint, reviewer identity and be recent (within 30 days); an altered registry or output manifests produces a different digest and requires another review.
 
 To **stage a local release only**, supply that review JSON:
 
@@ -49,10 +52,13 @@ harborlens-release-summary --run results/houston-single \
   --source-file data/houston-acquired.csv \
   --rights-register docs/data/rights-register.json \
   --purpose public_aggregates --review private/release-review.json \
+  --trusted-reviewer-key private/reviewer-public.pem \
+  --trusted-reviewer-key-sha256 64-hex-fingerprint-from-independent-channel \
+  --trusted-reviewer-id independent-reviewer-id \
   --out private/release/public-summary.json
 ```
 
-The command writes a single non-overwriting JSON file with `summary`, `summary_sha256` and `release_review`, on the **local machine only**. It never uploads or commits the file to GitHub, Notion or any provider. Directory/file access, immutable signing of approvals, audit retention, exact upstream license authentication, key management and organizational DLP still require a deployment-specific design.
+The command writes a single non-overwriting JSON file with `summary`, `summary_sha256` and `release_review`, on the **local machine only**. It never uploads or commits the file to GitHub, Notion or any provider. Directory/file access, externally pinned reviewer trust roots, protection of signing keys, audit retention, exact upstream license authentication, key management and organizational DLP still require a deployment-specific design.
 
 ## Security and scientific guarantees / non-guarantees
 

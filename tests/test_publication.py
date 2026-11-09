@@ -7,6 +7,10 @@ from __future__ import annotations
 import io
 import contextlib
 import hashlib
+import base64
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import zstandard
 import json
@@ -25,6 +29,7 @@ from harborlens.publication import (
     main as release_main
 )
 from harborlens.rights import rights_receipt
+from harborlens.review_signatures import public_key_fingerprint, review_message
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +66,13 @@ class PublicationGateTests(unittest.TestCase):
         self.rundir = self.folder / "run"
         self.out = self.folder / "release.json"
         self.review = self.folder / "review.json"
+        self.private_key = Ed25519PrivateKey.generate()  # synthetic test only
+        self.trusted_key = self.folder / "trusted-reviewer.pem"
+        self.trusted_key.write_bytes(self.private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ))
+        _, self.trusted_key_sha256 = public_key_fingerprint(self.trusted_key)
         self.registry.write_text(
             (ROOT / "docs/data/rights-register.json").read_text(encoding="utf-8"),
             encoding="utf-8",
@@ -96,6 +108,14 @@ class PublicationGateTests(unittest.TestCase):
         })
         self.registry.write_text(json.dumps(data), encoding="utf-8")
 
+    def sign_review(self, review):
+        """Attach a valid signature over the canonical, pinned review claims."""
+        review["signature_b64"] = ""
+        review["signature_b64"] = base64.b64encode(
+            self.private_key.sign(review_message(review))
+        ).decode("ascii")
+        return review
+
     def approve(self, summary, *, conditions=False):
         review = {
             "schema_version": 1,
@@ -108,13 +128,20 @@ class PublicationGateTests(unittest.TestCase):
             "source_rights_reviewed": True,
             "scientific_limitations_reviewed": True,
             "conditions_reviewed": conditions,
+            "signature_algorithm": "Ed25519",
+            "public_key_sha256": self.trusted_key_sha256,
         }
+        self.sign_review(review)
         self.review.write_text(json.dumps(review), encoding="utf-8")
         return review
 
     def produce(self, purpose="public_aggregates"):
-        return release_summary(self.rundir, self.source, self.registry,
-                               self.out, self.review, purpose=purpose)
+        return release_summary(
+            self.rundir, self.source, self.registry, self.out, self.review,
+            purpose=purpose, trusted_public_key=self.trusted_key,
+            expected_public_key_sha256=self.trusted_key_sha256,
+            expected_reviewer_id="sample-reviewer",
+        )
 
     def test_checked_in_pending_registry_blocks_publication(self):
         with self.assertRaisesRegex(ReleaseDenied, "rights decision"):
@@ -233,6 +260,7 @@ class PublicationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseDenied, "conditions"):
             self.produce()
         review["conditions_reviewed"] = True
+        self.sign_review(review)
         self.review.write_text(json.dumps(review))
         self.assertEqual(self.produce()["summary"]["rights_status"],
                          "reviewed_permitted_with_conditions")
@@ -350,9 +378,84 @@ class PublicationGateTests(unittest.TestCase):
         self.assertEqual(summary["dataset_version"], expected_version)
         self.assertEqual(summary["counts"]["observations_retained"], 144)
         self.approve(summary)
-        result = release_summary(archived_run, extracted, self.registry,
-                                 self.out, self.review)
+        result = release_summary(
+            archived_run, extracted, self.registry, self.out, self.review,
+            trusted_public_key=self.trusted_key,
+            expected_public_key_sha256=self.trusted_key_sha256,
+            expected_reviewer_id="sample-reviewer",
+        )
         self.assertEqual(result["summary"]["source_id"], "noaa_ocm_ais_daily")
+        self.assertTrue(self.out.exists())
+
+    def test_unsigned_or_modified_review_is_denied(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        unsigned = dict(review)
+        unsigned.pop("signature_b64")
+        self.review.write_text(json.dumps(unsigned), encoding="utf-8")
+        with self.assertRaisesRegex(ReleaseDenied, "approval"):
+            self.produce()
+        review["conditions_reviewed"] = not review["conditions_reviewed"]
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        with self.assertRaisesRegex(ReleaseDenied, "signature"):
+            self.produce()
+        self.assertFalse(self.out.exists())
+
+    def test_wrong_key_fingerprint_and_identity_are_denied(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.approve(summary)
+        with self.assertRaisesRegex(ReleaseDenied, "fingerprint"):
+            release_summary(
+                self.rundir, self.source, self.registry, self.out, self.review,
+                trusted_public_key=self.trusted_key,
+                expected_public_key_sha256="0" * 64,
+                expected_reviewer_id="sample-reviewer",
+            )
+        with self.assertRaisesRegex(ReleaseDenied, "identity"):
+            release_summary(
+                self.rundir, self.source, self.registry, self.out, self.review,
+                trusted_public_key=self.trusted_key,
+                expected_public_key_sha256=self.trusted_key_sha256,
+                expected_reviewer_id="someone-else",
+            )
+        alternate = Ed25519PrivateKey.generate()
+        other_key = self.folder / "other.pem"
+        other_key.write_bytes(alternate.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ))
+        with self.assertRaisesRegex(ReleaseDenied, "fingerprint"):
+            release_summary(
+                self.rundir, self.source, self.registry, self.out, self.review,
+                trusted_public_key=other_key,
+                expected_public_key_sha256=self.trusted_key_sha256,
+                expected_reviewer_id="sample-reviewer",
+            )
+        self.assertFalse(self.out.exists())
+
+    def test_cli_requires_pinned_key_for_actual_release(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.approve(summary)
+        cmd = [
+            "--run", str(self.rundir), "--source-file", str(self.source),
+            "--rights-register", str(self.registry), "--review", str(self.review),
+            "--out", str(self.out),
+        ]
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as denied:
+                release_main(cmd)
+        self.assertEqual(denied.exception.code, 2)
+        self.assertFalse(self.out.exists())
+        cmd.extend([
+            "--trusted-reviewer-key", str(self.trusted_key),
+            "--trusted-reviewer-key-sha256", self.trusted_key_sha256,
+            "--trusted-reviewer-id", "sample-reviewer",
+        ])
+        with contextlib.redirect_stdout(io.StringIO()):
+            release_main(cmd)
         self.assertTrue(self.out.exists())
 
 
