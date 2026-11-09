@@ -1,7 +1,5 @@
 name: Official December 2023 LSA Title 33 extraction (research only)
 on:
-  push:
-    branches: [integration/govinfo-lsa-2023-title33]
   workflow_dispatch:
 permissions:
   contents: read
