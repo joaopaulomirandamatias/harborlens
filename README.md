@@ -42,6 +42,8 @@ A separate local tool can reconstruct provisional low-speed candidate segments a
 
 An isolated GitHub Actions run successfully processed two authentic NOAA daily archives around UTC midnight. The tool reported 564 unvalidated cross-midnight candidate episodes among 286,696 cleaned points, with roughly 46 MiB process RSS and a 5.4-second multi-day stage. These are software results, not independently confirmed waiting vessels. See [the source-pinned engineering report](docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
 
+A 2026-11-09 re-run on the `stationary-v0.2` engine reproduced those counts, measured analysis-window censoring for the first time (76.5% of candidates in a six-hour window have lower-bound durations, 7.1% over seven days) and processed seven full Houston days: 3.95 million points, 15,937 unvalidated candidates, 741 MiB scratch and under 50 MiB RSS. See [the re-run report](docs/data/noaa-real-data-rerun-2026-11-09.md).
+
 ## Official USACE facility reference points (SPEC-004)
 
 The opt-in [USACE Navigation Facilities point catalog](docs/data/usace-geography.md) retrieves bounded public reference **points**, not dated berthing or anchorage polygons. A proximity or point overlay cannot establish berth, anchorage waiting or verified port calls.

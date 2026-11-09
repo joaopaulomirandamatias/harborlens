@@ -75,6 +75,10 @@
 
 ### Recorded integration evidence (2026-11-09; previously filed under 0.1.0)
 
+#### NOAA real-data re-run on `stationary-v0.2` (evidence)
+
+- Daily, consecutive-day, track-context and first seven-full-day runs on NOAA 2024-01-02…08 archives. Earlier 1-day, 2-day and track-context counts reproduced exactly; censoring measured for the first time (76.5% of candidates edge-touching in a 6-hour window, 55.1% in 12 hours, 7.1% over seven days). Seven days: 3.95 million points, 15,937 unvalidated candidates, 741 MiB scratch peak, 47 MiB RSS, all within the #35 ceilings. Run locally from the workflow steps because Actions dispatch was unavailable to the agent. See docs/data/noaa-real-data-rerun-2026-11-09.md.
+
 #### USACE facility point source integration (evidence)
 
 - Initial bounded USACE Navigation Facilities POINT catalog query for Houston: 723 features and 536 Dock records; output SHA-256 and schema checks passed; no dated berth polygon or confirmed port-event status. See docs/data/usace-points-smoke-2026-11-09.md.
