@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-004 official Federal Register text triage)
+- Fixed-list full-text source verification of four 2023 Federal Register Part 110 index documents; official metadata/bytes hashed, source links restricted and relevance flags non-certifying.
+
+
 ### Added (SPEC-004: official 2024 CFR anchorages)
 - Source-pinned July 1, 2024 federal 33 CFR 110.197 Galveston anchorage DMS registry and fail-closed topology/datum inspection. A/B/C lack explicit NAD83 status; A East literal corner order fails Polygon validity. No guessed WGS84 geometry or operational classification.
 

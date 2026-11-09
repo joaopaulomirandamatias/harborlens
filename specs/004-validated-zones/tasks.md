@@ -58,3 +58,6 @@
 
 - [x] Run live official FederalRegister.gov 33 CFR Part 110 publication-index query for 2023-07-01 to 2024-01-02, hash the source response and register four proposals (initial engineering screen).
 - [ ] Read exact official text/effective dates for identified documents and reconcile original GPO LSA/FR before certifying January 2 legal effect.
+
+- [x] Add fixed official full-text inspection for four 2023 Part 110 indexed documents with SHA-256, location/section search signals and source/redirect safeguards (pending PR CI).
+- [ ] Review GPO monthly LSA Title 33 and full FR effective-date/section amendments before concluding historical 2024-01-02 legal text.

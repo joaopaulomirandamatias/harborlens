@@ -51,3 +51,7 @@ A [GPO official-source engineering scan](../data/cfr-2023-2024-source-verificati
 ### Official Federal Register Part 110 index evidence
 
 The bounded [2023-07-01 to 2024-01-02 source query](../data/fr-part110-real-index-2023-2024.md) returned four proposed-rule index entries. Full official FR/LSA text/effective-date verification is still required; no legal or operational event status was upgraded.
+
+### Official Federal Register full-text document triage (SPEC-004)
+
+The source-pinned [2023 original document triage](../data/fr-2023-fulltext-triage.md) retrieves four official text records, records SHA-256 and location/target-section keyword signals, and always requires human legal-effect/LSA review. No historic geographic source or maritime activity is certified.
