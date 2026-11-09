@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/noaa-enc-documentary-evidence.schema.json",
+  "title": "User-provided NOAA ENC documentary metadata — NOT validated historical geography",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_kind",
+    "cell_id",
+    "edition_number",
+    "edition_date",
+    "last_issue_date",
+    "evidence_url",
+    "referenced_document_sha256",
+    "evidence_status"
+  ],
+  "properties": {
+    "source_kind": {
+      "const": "NOAA_ENC"
+    },
+    "cell_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{5,16}$"
+    },
+    "edition_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "edition_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "last_issue_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "evidence_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "referenced_document_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evidence_status": {
+      "const": "user_supplied_unverified"
+    }
+  }
+}
