@@ -26,3 +26,9 @@ No operational navigation, autonomous control, live vessel tracking, regulatory 
 ## Definition of Done
 
 Accepted and reviewed requirements, passing boundary/negative tests, documented source rights, updated JSON schema and traceability, explicit uncertainty and reproducible evidence attached to the linked issue/PR.
+
+## Incremental acceptance: human-reviewed, aggregate-only local release (FR-010 / BR-015..016)
+
+7. **Given** an acquisition receipt with source/version/source-file hash and a verified single-file run; **when** publication of a coarse aggregate is requested; **then** the exporter independently checks current per-purpose source rights and produces no release if rights are pending, prohibited or mismatched.
+8. **Given** reviewed rights and a privacy/science assessment of an exact proposed summary digest; **when** local release staging runs; **then** only the allowlisted numeric summary and audit evidence are written, with no raw AIS, MMSI identifiers, positions, timestamps or individual event details; an absent/stale/mismatched human decision fails closed.
+9. **Given** corrupt source/manifest/sidecar evidence, truncated output or too-small cohorts; **when** the release is requested; **then** no output is written. This is **not** general-purpose output-export enforcement or proof of anonymity.

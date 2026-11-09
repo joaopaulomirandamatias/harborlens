@@ -35,3 +35,10 @@
 
 - [x] Integrate optional, conservative source-rights receipts for NOAA/USACE acquisition adapters with exact source/version/purpose and synthetic tests (pending independent PR review/CI).
 - [ ] Obtain independent source-specific rights decisions and enforce them in export/publication workflows; registration alone is not permission.
+
+## Aggregate-publication stage gate
+
+- [x] Implement an opt-in, fail-closed summary-only staging command with live registry revalidation, source/run checksum chain, human release review and coarse suppression floors (pending PR CI and review).
+- [x] Add synthetic attack-path tests, reviewed-release and summary schemas, and a publication-safety design note.
+- [ ] Independent code/security review, real source-rights decisions and operational privacy governance before any public release.
+- [ ] Separately address multi-day source lineage, signed approvals, organizational publication controls and third-party source authentication.

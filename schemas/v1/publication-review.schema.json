@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manually reviewed HarborLens aggregate release approval",
+  "description": "Exact summary fingerprint and human attestations; not a cryptographic signature or external legal opinion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "summary_sha256",
+    "purpose",
+    "reviewer_id",
+    "reviewed_at_utc",
+    "privacy_reviewed",
+    "source_rights_reviewed",
+    "scientific_limitations_reviewed",
+    "conditions_reviewed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "decision": {
+      "const": "approved"
+    },
+    "summary_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "purpose": {
+      "enum": [
+        "public_aggregates",
+        "commercial"
+      ]
+    },
+    "reviewer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{3,64}$"
+    },
+    "reviewed_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "privacy_reviewed": {
+      "const": true
+    },
+    "source_rights_reviewed": {
+      "const": true
+    },
+    "scientific_limitations_reviewed": {
+      "const": true
+    },
+    "conditions_reviewed": {
+      "type": "boolean"
+    }
+  }
+}

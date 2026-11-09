@@ -19,3 +19,9 @@
 - **FR-010, NFR-013/NFR-019, BR-015/BR-016:** Four NOAA/USACE adapters now emit version/purpose-bound `rights_review` provenance using the local registry. Exact dataset IDs or output/input SHA-256 digests prevent broad year/catalog assertions from being automatically reused across mutable snapshots.
 - **Verification:** `tests/test_rights_adapters.py` covers synthetic matching, mismatching, invalid registry, prohibited purpose, hash evidence, and new versioned receipt schema. Existing acquisition tests remain applicable.
 - **Residual gates:** PR review and CI; independent actual reviewer/terms; explicit enforcement at export/publication boundaries; independently verified dated geometry. No confirmed events or authorized distribution.
+
+## Aggregate release gate (SPEC-003; stacked on #55 → #60)
+
+- **FR-010 / BR-015 / BR-016 / NFR-013 / NFR-019:** one opt-in release command recomputes rights against the **current** local registry; source and run SHA-256 linkage, no-truncation checks, summary-only allowlist and exact-digest human review are required.
+- **Evidence:** `src/harborlens/publication.py`, `tests/test_publication.py`, `schemas/v1/public-summary.schema.json`, `schemas/v1/publication-review.schema.json`.
+- **Not delivered:** true legal approval, independent human privacy review of production content, source authenticity, anti-bypass policy for all local outputs, enterprise DLP or historical event validation.
