@@ -65,3 +65,7 @@ Labeling sheets contain MMSIs and timestamps from NOAA AIS. Keep them outside th
 ## 8. What this does not do
 
 It does not select thresholds, does not upgrade any candidate to a verified berth, anchorage, wait or port call, and does not by itself produce precision or recall. Those require the evaluator (#9) and, for real-world claims, L3 evidence.
+
+## 9. Adjudicated file for evaluation
+
+After adjudication, one CSV per sample holds the final label per unit with the columns `sample_id`, `label`, `evidence_level`, `duration_judgement`, `true_start_utc`, `true_end_utc`, `adjudicator_id` (`schemas/v1/adjudicated-label.schema.json`). Give `true_start_utc`/`true_end_utc` (both or neither) only when the start and end of the labeled state are visible in the evidence; they feed the boundary-error metrics. `harborlens-evaluate --run … --sampling <sheet>.sampling.json --labels adjudicated.csv --out evaluation.json` produces the report.
