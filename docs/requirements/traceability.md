@@ -43,3 +43,7 @@ An isolated [official NOAA current-polygon vintage smoke](../data/noaa-geometry-
 ### 2024 federal anchorage source transcription (SPEC-004)
 
 The official annual July 1, 2024 [33 CFR §110.197](../data/cfr-2024-galveston-anchorage-audit.md) supplies DMS corner coordinates for four Galveston/Bolivar Roads regulatory anchorages. An offline, schema-tested audit checks datum/topology and **blocks** GIS/AIS use of unverified rings. Historical status on January 2 and qualified source/geometry review are separate gates. This does not meet FR-011/012 authoritative AIS classification.
+
+### Official 2023/2024 regulatory coordinate consistency
+
+A [GPO official-source engineering scan](../data/cfr-2023-2024-source-verification.md) independently retrieved both annual Title 33 source documents and matched 16/16 DMS coordinate pairs from 33 CFR 110.197. This does not resolve WGS84 datum conversions, A East topology or exact January 2024 legal effect; spatial joins remain blocked.
