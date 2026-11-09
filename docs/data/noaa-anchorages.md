@@ -42,3 +42,7 @@ The [2026-11-09 source-pinned engineering report](noaa-anchorage-real-smoke-2026
 ## Full observed-track context (additional CLI)
 
 The separate [full-track evidence command](full-track-zone-evidence.md) checks all cleaned AIS observations associated with each stationary candidate rather than only the centroid. Even an all-points overlap remains spatial context only, not a confirmed operational event or historically authoritative 2024 geofence.
+
+## Full observed-track comparison with current NOAA polygons
+
+The [real source-pinned comparison](noaa-full-track-context-smoke-2026-11-09.md) demonstrates the limitations of centroid-only spatial context. Historical validity and event truth remain explicitly NOT VERIFIED.

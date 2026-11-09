@@ -49,3 +49,7 @@ An isolated engineering smoke retrieved 6 current NOAA Anchorage Area polygons a
 ## Full observed-track geospatial evidence (SPEC-004)
 
 A new local [full-track polygon evidence tool](docs/data/full-track-zone-evidence.md) checks each historical candidate against all cleaned AIS points in its time window, rather than its centroid alone. The source must have an integrity-matched polygon receipt. Every result remains unvalidated and historically unverified.
+
+### First authentic full observed-track comparison
+
+A bounded official NOAA 2024 AIS vs current NOAA anchorage Polygon smoke processed 920 unvalidated candidate episodes. Of these, 74 had every **observed** AIS point within a single Polygon, 5 had partial point coverage and 841 had no recorded-point overlap. The previous centroid-only baseline had 77 overlaps. Neither method confirms anchorage, waiting or the polygon's 2024 historical authority. See [full-track source-pinned engineering report](docs/data/noaa-full-track-context-smoke-2026-11-09.md).

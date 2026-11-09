@@ -53,3 +53,7 @@ Current NOAA spatial snapshots are not automatically historically applicable to 
 2. Assess geometry source date/scale/revision and obtain historical 2024 evidence independent of the current NOAA layer.
 3. Independently evaluate against labeled operational records (issues #8 and #9), including precision, false positives, unknown proportion and timing errors.
 4. Build a reference UI only after source/date limitations and the event's 'unvalidated' state are prominent in output contracts.
+
+## First official-source engineering benchmark
+
+The [2026-11-09 NOAA full-track overlay report](noaa-full-track-context-smoke-2026-11-09.md) records 920 real historical unvalidated candidate episodes, a comparison of 77 centroid-only overlaps versus 74 all-observed-point overlaps, 5 partial coverage cases and 841 no-overlap cases. All inputs/outputs were source-pinned by SHA-256. This is a geometric calculation and not evidence of confirmed historical anchoring.
