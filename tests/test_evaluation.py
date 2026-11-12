@@ -250,6 +250,43 @@ class EvaluatorTests(unittest.TestCase):
                 validator.validate(row)
 
 
+EXACT_WARNING = (
+    "Metrics compare unvalidated stationary candidates with adjudicated labels from a stratified sample. "
+    "Agreement with labels at any evidence level, including L3, is not validated performance while "
+    "validation_status is unvalidated. Recall covers sampled movement intervals only, not stops the method "
+    "never segmented."
+)
+EXACT_CAVEAT_SYNTHETIC = (
+    "These labels are synthetic. They are not independent ground truth, "
+    "and this report makes no accuracy claim."
+)
+EXACT_CAVEAT_UNSPECIFIED = (
+    "Label provenance is unspecified. These labels are not independent ground truth, "
+    "and this report makes no accuracy claim."
+)
+EXACT_LABELING_WARNING = (
+    "Blinded labeling sample of unvalidated AIS intervals. Keep sheets with MMSIs out of the public "
+    "repository until data rights are reviewed. Labels are L2 expert review unless an independent "
+    "operational record is cited (L3)."
+)
+
+
+class WarningTextTests(unittest.TestCase):
+    """The evaluation warning makes no accuracy statement (SPEC-003, FR-014, NFR-020, issue #86)."""
+
+    def test_warning_text_and_unchanged_caveats(self):
+        self.assertEqual(WARNING, EXACT_WARNING)
+        self.assertNotIn("accuracy", WARNING)
+        self.assertEqual(CAVEAT_SYNTHETIC, EXACT_CAVEAT_SYNTHETIC)
+        self.assertEqual(CAVEAT_UNSPECIFIED, EXACT_CAVEAT_UNSPECIFIED)
+        for caveat in (CAVEAT_SYNTHETIC, CAVEAT_UNSPECIFIED):
+            self.assertIn("makes no accuracy claim", caveat)
+            self.assertNotIn("accuracy", caveat.replace("makes no accuracy claim", ""))
+        from harborlens import labeling
+        self.assertEqual(labeling.WARNING, EXACT_LABELING_WARNING)
+        self.assertNotIn("accuracy", labeling.WARNING)
+
+
 class ReportContractTests(unittest.TestCase):
     """evaluation-v0.2 status, provenance, caveat, and the v0.1 reader (SPEC-003, FR-014, NFR-020)."""
 

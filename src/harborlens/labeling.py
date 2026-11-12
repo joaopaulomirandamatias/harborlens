@@ -11,6 +11,37 @@ Agreement between annotators is NOT accuracy of the method, and an L2 label is
 expert review of AIS, not independent ground truth. Nothing here upgrades a
 candidate to a berth, anchorage, wait or port call. See
 docs/research/labeling-protocol.md.
+
+Spreadsheet formula neutralization (SPEC-003, FR-013, NFR-006). The label
+sheet is the only CSV this path writes. The sampling key is JSON
+(``<sheet>.sampling.json``), not a CSV. ``harborlens-label-agreement`` reads
+sheets and writes JSON. ``harborlens-evaluate`` reads an adjudicated CSV and
+writes JSON; it does not write a CSV.
+
+A text cell is prefixed with one ASCII apostrophe (``'``) when its first
+character is ``=``, ``+``, ``-``, ``@``, tab, or carriage return, or when the
+first character after leading Unicode whitespace is one of those triggers.
+A field that contains a comma, quote, carriage return, or line feed is quoted,
+including on Python 3.10, whose ``csv.writer`` would otherwise leave a
+carriage return bare when the row ends in ``\\n``.
+``vessel_type_mode``, ``annotator_id``, ``evidence_sources``, ``notes``, and
+``adjudicator_id`` are text. Contract columns are never prefixed:
+``sample_id`` (``S`` and four digits), ``mmsi`` and ``observed_points``
+(unsigned integers), ``centroid_lon`` and ``centroid_lat`` (finite decimals,
+so ``-95.1`` is written unchanged), ``start_utc`` and ``end_utc`` (ISO-8601
+with ``Z`` or ``±HH:MM``), censoring flags, the annotation enums, and
+``true_start_utc`` / ``true_end_utc``. A contract value that fails its check
+raises ``AISInputError`` before any sheet, ``.partial``, or sampling manifest
+is created. The CLI exits 2.
+
+On read, ``read_csv_cell`` removes that apostrophe only from a text column,
+and only when the remainder itself matches the trigger rule, so the logical
+value is recovered. A text value that already began with an apostrophe
+followed by a trigger is indistinguishable from a neutralized cell and is
+returned without that apostrophe. An apostrophe that is not a neutralization
+prefix is kept. A leading apostrophe on a contract column raises
+``AISInputError``. The characters are not removed and the cell is not
+converted to a number, timestamp, or enum.
 """
 from __future__ import annotations
 
@@ -21,15 +52,17 @@ import json
 import math
 import os
 import random
+import re
 from collections import Counter, defaultdict
 from datetime import timedelta
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, parse_time, sha256
-from harborlens.censoring import CENSORED, UNKNOWN, WindowCensoring
+from harborlens.censoring import CENSORED, NOT_CENSORED, UNKNOWN, WindowCensoring
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
+from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
@@ -54,6 +87,202 @@ MAX_SAMPLE = 1000
 WARNING = ("Blinded labeling sample of unvalidated AIS intervals. Keep sheets with MMSIs out of the public "
            "repository until data rights are reviewed. Labels are L2 expert review unless an independent "
            "operational record is cited (L3).")
+# ASCII apostrophe. Spreadsheet applications treat a cell that begins with this
+# character as text, so a formula trigger is not evaluated.
+NEUTRALIZATION_PREFIX = "'"
+# First character, or first character after leading whitespace, that forces the prefix.
+FORMULA_TRIGGERS = frozenset("=+-@\t\r")
+# Free text. Neutralized on write. The reader may remove one neutralization prefix.
+TEXT_COLUMNS = frozenset({
+    "vessel_type_mode", "annotator_id", "evidence_sources", "notes", "adjudicator_id",
+})
+# Identifier, number, timestamp, or enum. Never neutralized. Never unquoted on read.
+CONTRACT_COLUMNS = frozenset({
+    "sample_id", "mmsi", "observed_points", "centroid_lon", "centroid_lat",
+    "start_utc", "end_utc", "left_censoring", "right_censoring",
+    "label", "confidence", "evidence_level", "fragment_of_longer_stop", "duration_judgement",
+    "true_start_utc", "true_end_utc",
+})
+# Annotation enums are blank on the unlabeled sheet the sampler writes.
+BLANK_ON_EXPORT = frozenset({
+    "label", "confidence", "evidence_level", "fragment_of_longer_stop", "duration_judgement",
+})
+CENSORING_VALUES = frozenset({CENSORED, NOT_CENSORED, UNKNOWN})
+ENUM_VALUES = {
+    "left_censoring": CENSORING_VALUES,
+    "right_censoring": CENSORING_VALUES,
+    "label": frozenset(LABELS),
+    "confidence": frozenset(CONFIDENCE),
+    "evidence_level": frozenset(EVIDENCE),
+    "fragment_of_longer_stop": frozenset(FRAGMENT),
+    "duration_judgement": frozenset(DURATION),
+}
+_SAMPLE_ID = re.compile(r"^S[0-9]{4}$")
+_UNSIGNED_INTEGER = re.compile(r"^[0-9]+$")
+# Finite decimal as written. A leading minus or plus is part of the number.
+# Leading whitespace is rejected so a numeric column cannot hide a formula trigger.
+_FINITE_DECIMAL = re.compile(r"^[+-]?(?:[0-9]+\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?$")
+
+
+def _cell_text(value):
+    """Text csv.writer would emit for ``value``, without changing the value itself."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    return str(value)
+
+
+def starts_with_formula_trigger(text):
+    """True when ``text`` would be evaluated as a formula in a spreadsheet.
+
+    The first character is ``=``, ``+``, ``-``, ``@``, tab, or carriage return,
+    or the first character that remains after leading Unicode whitespace is one
+    of those triggers. ``str.lstrip`` defines that whitespace.
+    """
+    if not text:
+        return False
+    if text[0] in FORMULA_TRIGGERS:
+        return True
+    visible = text.lstrip()
+    return bool(visible) and visible[0] in FORMULA_TRIGGERS
+
+
+def neutralize_text_cell(value):
+    """Prefix one ASCII apostrophe when ``value`` is a formula trigger.
+
+    Contract columns must not be passed here. A negative coordinate such as
+    ``-95.1`` is a number, and this function is not applied to it. An empty
+    cell is unchanged. A cell that does not match the trigger rule is returned
+    unchanged, including a cell whose first character is already an apostrophe.
+    """
+    text = _cell_text(value)
+    if starts_with_formula_trigger(text):
+        return NEUTRALIZATION_PREFIX + text
+    return text
+
+
+def recover_text_cell(value):
+    """Recover the logical text after :func:`neutralize_text_cell`.
+
+    One leading apostrophe is removed only when the remainder matches
+    :func:`starts_with_formula_trigger`. That is the neutralization prefix.
+    An apostrophe followed by ordinary text is kept. A logical value that
+    already began with an apostrophe and a trigger is indistinguishable from
+    a neutralized cell and is returned without that apostrophe.
+    """
+    text = _cell_text(value)
+    if text.startswith(NEUTRALIZATION_PREFIX) and starts_with_formula_trigger(text[1:]):
+        return text[1:]
+    return text
+
+
+def read_csv_cell(field, raw):
+    """Logical value of one labeling or adjudicated CSV cell.
+
+    Text columns use :func:`recover_text_cell`. Contract columns are returned
+    unchanged. A leading apostrophe on a contract column raises
+    ``AISInputError`` and is not stripped, parsed, or converted.
+    """
+    text = _cell_text(raw)
+    if field in TEXT_COLUMNS:
+        return recover_text_cell(text)
+    if field not in CONTRACT_COLUMNS:
+        raise AISInputError(f"{field} is not a label-sheet column")
+    if text.startswith(NEUTRALIZATION_PREFIX):
+        raise AISInputError(
+            f"{field} {text!r} has a leading apostrophe. "
+            "Contract columns are not unquoted and are not converted."
+        )
+    return text
+
+
+def _require_contract(field, value, allow_blank):
+    """Raise ``AISInputError`` when ``value`` breaks the column contract.
+
+    The returned object is ``value`` itself. The writer then serializes it
+    the same way it did before neutralization existed.
+    """
+    text = _cell_text(value)
+    if field == "sample_id":
+        if _SAMPLE_ID.fullmatch(text) is None:
+            raise AISInputError(f"sample_id {text!r} is not an S0000 identifier")
+        return value
+    if field in ("mmsi", "observed_points"):
+        if _UNSIGNED_INTEGER.fullmatch(text) is None:
+            raise AISInputError(f"{field} {text!r} is not an unsigned integer")
+        return value
+    if field in ("centroid_lon", "centroid_lat"):
+        if _FINITE_DECIMAL.fullmatch(text) is None:
+            raise AISInputError(f"{field} {text!r} is not a finite decimal number")
+        number = float(text)
+        if not math.isfinite(number):
+            raise AISInputError(f"{field} {text!r} is not a finite decimal number")
+        return value
+    if field in ("start_utc", "end_utc", "true_start_utc", "true_end_utc"):
+        if text == "" and field in ("true_start_utc", "true_end_utc"):
+            return value
+        try:
+            parse_explicit_utc(text)
+        except (TypeError, ValueError, ExplicitOffsetRequired) as exc:
+            raise AISInputError(f"{field} {text!r} is not an ISO-8601 UTC timestamp") from exc
+        return value
+    if field in ENUM_VALUES:
+        if text == "" and allow_blank and field in BLANK_ON_EXPORT:
+            return value
+        if text not in ENUM_VALUES[field]:
+            raise AISInputError(f"{field} {text!r} is not an allowed value")
+        return value
+    raise AISInputError(f"{field} is not a contract column")
+
+
+def prepare_sheet_row(row):
+    """Validate one label-sheet row and neutralize its text cells.
+
+    Contract columns are returned as the original objects so ``csv.writer``
+    emits the same bytes it emitted before this check. Text columns are
+    strings, with a leading apostrophe only when the trigger rule matches.
+    """
+    if not isinstance(row, dict):
+        raise AISInputError("Label sheet row must be a mapping")
+    prepared = {}
+    for field in SHEET_FIELDS:
+        value = row.get(field, "")
+        if field in TEXT_COLUMNS:
+            prepared[field] = neutralize_text_cell(value)
+        else:
+            prepared[field] = _require_contract(field, value, allow_blank=True)
+    return prepared
+
+
+def _quote_csv_field(value):
+    """One CSV field, quoted when it contains a comma, quote, CR, or LF.
+
+    ``csv.writer`` on Python 3.10 does not quote a carriage return when the
+    line ending is ``\\n``. Python 3.12 does. A carriage return is also a
+    formula trigger, so the sheet has to quote that field on both interpreters
+    or the row splits. Cells with none of those characters stay unquoted, which
+    is what the current synthetic sheet already does.
+    """
+    text = value if isinstance(value, str) else str(value)
+    if any(character in text for character in ",\"\r\n"):
+        return '"' + text.replace('"', '""') + '"'
+    return text
+
+
+def render_label_sheet(rows):
+    """Return the label-sheet CSV. Raises ``AISInputError`` before any byte is useful.
+
+    Callers write the returned text only after this function returns. A
+    contract failure therefore creates no sheet, no ``.partial``, and no
+    sampling manifest. Rows end in ``\\n``. A field that contains a comma,
+    quote, carriage return, or line feed is quoted on Python 3.10 and 3.12.
+    """
+    prepared = [prepare_sheet_row(row) for row in rows]
+    lines = [",".join(SHEET_FIELDS)]
+    for row in prepared:
+        lines.append(",".join(_quote_csv_field(row[field]) for field in SHEET_FIELDS))
+    return "\n".join(lines) + "\n"
 
 
 def _iso(value):
@@ -320,7 +549,11 @@ def _stratification(strata, negative_strata, allocation):
 
 
 def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_minutes=30):
-    """Write a blinded labeling sheet and a sampling manifest holding the key."""
+    """Write a blinded labeling sheet and a sampling manifest holding the key.
+
+    Text cells are neutralized and contract cells are validated before the
+    sheet, its ``.partial`` file, or the sampling manifest is created.
+    """
     sheet = Path(sheet)
     sampling = sheet.with_name(sheet.name + ".sampling.json")
     if sheet.suffix.lower() != ".csv" or sheet.exists() or sampling.exists():
@@ -373,22 +606,24 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
         raise AISInputError("The run has no candidates or negative intervals to sample")
     rng.shuffle(units)
 
+    raw_rows = []
+    key_rows = []
+    for index, unit in enumerate(units, 1):
+        sample_id = f"S{index:04d}"
+        raw_rows.append({"sample_id": sample_id, "mmsi": unit["mmsi"], "start_utc": _iso(unit["start"]),
+                         "end_utc": _iso(unit["end"]), "observed_points": unit["points"],
+                         "centroid_lon": unit["lon"], "centroid_lat": unit["lat"],
+                         "vessel_type_mode": unit["type"], "left_censoring": unit["left"],
+                         "right_censoring": unit["right"]})
+        key_rows.append({"sample_id": sample_id, "kind": unit["kind"], "event_id": unit["event_id"],
+                         "stratum": unit["stratum"], "transceiver_class": unit["transceiver_class"]})
+    # Validate and neutralize before creating the sheet, its .partial, or the manifest.
+    rendered = render_label_sheet(raw_rows)
     sheet.parent.mkdir(parents=True, exist_ok=True)
     partial = sheet.with_name(sheet.name + ".partial")
-    key_rows = []
     try:
         with partial.open("x", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=SHEET_FIELDS, lineterminator="\n")
-            writer.writeheader()
-            for index, unit in enumerate(units, 1):
-                sample_id = f"S{index:04d}"
-                writer.writerow({"sample_id": sample_id, "mmsi": unit["mmsi"], "start_utc": _iso(unit["start"]),
-                                 "end_utc": _iso(unit["end"]), "observed_points": unit["points"],
-                                 "centroid_lon": unit["lon"], "centroid_lat": unit["lat"],
-                                 "vessel_type_mode": unit["type"], "left_censoring": unit["left"],
-                                 "right_censoring": unit["right"]})
-                key_rows.append({"sample_id": sample_id, "kind": unit["kind"], "event_id": unit["event_id"],
-                                 "stratum": unit["stratum"], "transceiver_class": unit["transceiver_class"]})
+            handle.write(rendered)
         record = {
             "schema_version": SAMPLE_SCHEMA,
             "run_manifest_sha256": sha256(manifest_path),
@@ -423,7 +658,11 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
 
 
 def _read_sheet(path):
-    """Read one annotator's completed sheet and validate every annotation field."""
+    """Read one annotator's completed sheet and validate every annotation field.
+
+    Text columns are recovered with ``read_csv_cell``. A leading apostrophe
+    on a contract column is an error and is not converted.
+    """
     path = Path(path)
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -435,7 +674,19 @@ def _read_sheet(path):
     allowed = {"label": LABELS, "confidence": CONFIDENCE, "evidence_level": EVIDENCE,
                "fragment_of_longer_stop": FRAGMENT, "duration_judgement": DURATION}
     for row in rows:
-        sid = row["sample_id"]
+        try:
+            sid = read_csv_cell("sample_id", row.get("sample_id"))
+        except AISInputError as exc:
+            problems.append(str(exc))
+            continue
+        row["sample_id"] = sid
+        for field in SHEET_FIELDS:
+            if field == "sample_id" or field not in row:
+                continue
+            try:
+                row[field] = read_csv_cell(field, row[field])
+            except AISInputError as exc:
+                problems.append(f"{sid}: {exc}")
         if sid in labels:
             problems.append(f"{sid}: duplicated")
         for field, values in allowed.items():
@@ -542,8 +793,11 @@ def sample_main():
     parser.add_argument("--negatives", type=int, default=30)
     parser.add_argument("--min-negative-minutes", type=float, default=30)
     args = parser.parse_args()
-    record = draw_sample(args.run, args.sheet, args.seed, args.candidates, args.negatives,
-                         args.min_negative_minutes)
+    try:
+        record = draw_sample(args.run, args.sheet, args.seed, args.candidates, args.negatives,
+                             args.min_negative_minutes)
+    except AISInputError as exc:
+        parser.error(str(exc))
     print(json.dumps({k: record[k] for k in ("parameter_set", "seed", "drawn", "allocation", "sheet_sha256")},
                      indent=2))
 
@@ -554,6 +808,9 @@ def agreement_main():
     parser.add_argument("--sampling", type=Path, default=None, help="Optional .sampling.json for by-kind results")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    report = agreement(args.sheets[0], args.sheets[1], args.out, args.sampling)
+    try:
+        report = agreement(args.sheets[0], args.sheets[1], args.out, args.sampling)
+    except AISInputError as exc:
+        parser.error(str(exc))
     print(json.dumps({k: report[k] for k in ("units", "raw_agreement", "kappa_labels", "kappa_collapsed")},
                      indent=2))

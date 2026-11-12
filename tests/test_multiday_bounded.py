@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import hashlib
 import inspect
 import io
 import json
@@ -581,34 +582,48 @@ class MultidayCliErrorTests(unittest.TestCase):
         self.assertFalse(observations.exists())
 
 
+# Bytes of the single-day pipeline on tests/fixtures/synthetic_ais.csv.
+# The release recount reads houston_clean.csv. These three files stay
+# byte-identical to package 0.2.0.dev15.
+ARTIFACT_SHA256 = {
+    "houston_clean.csv": "4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75",
+    "stationary_candidates.csv": "69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05",
+    "stationary_candidates.geojson": "0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3",
+}
+
+
 class SingleDayByteIdentityTests(unittest.TestCase):
     """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev15.
 
-    The manifest matches that package except ``input_file``, ``output`` and
-    ``git_commit``. ``git_commit`` is environment metadata. ``run_id`` hashes
-    ``harborlens_version`` and the fixture digest, so it is pinned to the
-    committed golden.
+    Package 0.2.0.dev16 changes ``run_id`` because that digest includes
+    ``harborlens_version``. The three pipeline artifacts stay byte-identical,
+    including the cleaned CSV the release recount reads. A run pinned to
+    ``0.2.0.dev15`` still reproduces the golden ``run_id``. ``git_commit`` is
+    environment metadata.
     """
 
     def test_single_day_outputs_match_dev15_except_path_fields(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             manifest = run(FIXTURE, root / "out")
-            for name in ("houston_clean.csv", "stationary_candidates.csv",
-                         "stationary_candidates.geojson"):
-                self.assertEqual((root / "out" / name).read_bytes(), (GOLDEN / name).read_bytes(), name)
+            for name, digest in ARTIFACT_SHA256.items():
+                blob = (root / "out" / name).read_bytes()
+                self.assertEqual(blob, (GOLDEN / name).read_bytes(), name)
+                self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
             golden = json.loads((GOLDEN / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev15")
             self.assertEqual(_scrub(manifest), _scrub(golden))
             self.assertEqual(manifest["code_version"]["package_version"], harborlens.__version__)
-            self.assertEqual(manifest["run_id"], golden["run_id"])
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev16")
+            self.assertNotEqual(manifest["run_id"], golden["run_id"])
             with mock.patch.object(provenance, "__version__", "0.2.0.dev15"):
                 pinned = run(FIXTURE, root / "pinned")
             self.assertEqual(pinned["run_id"], golden["run_id"])
             self.assertEqual(pinned["code_version"]["package_version"], "0.2.0.dev15")
-            for name in ("houston_clean.csv", "stationary_candidates.csv",
-                         "stationary_candidates.geojson"):
-                self.assertEqual((root / "pinned" / name).read_bytes(), (GOLDEN / name).read_bytes(), name)
+            for name, digest in ARTIFACT_SHA256.items():
+                blob = (root / "pinned" / name).read_bytes()
+                self.assertEqual(blob, (GOLDEN / name).read_bytes(), name)
+                self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
 
 
 def _candidate_identity(folder):

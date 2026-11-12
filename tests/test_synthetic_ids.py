@@ -430,11 +430,13 @@ def category_counts(cleaned):
     return counts
 
 
-def project_manifest(data, artifacts):
+def project_manifest(data, artifacts, version=None):
     """Map ids, then recompute the ID-derived manifest fields.
 
     ``input_sha256`` is the fixture digest (``ais.sha256``).
-    ``code_version.package_version`` is ``__version__``.
+    ``code_version.package_version`` is ``__version__`` unless ``version``
+    is passed. A pin of ``0.2.0.dev15`` reproduces that golden manifest.
+    The live version changes ``package_version`` and ``run_id`` only.
     ``mmsi_categories`` is the cleaned-row histogram after the ship-to-other
     flip on mapped rows. ``run_id`` is ``run_id_digest``. Artifact ``sha256``
     and ``size_bytes`` are SHA-256 and length of the projected artifact bytes,
@@ -443,7 +445,8 @@ def project_manifest(data, artifacts):
     indent 2 plus a trailing newline, matching the committed golden.
     """
     manifest = json.loads(substitute_legacy_ids(data).decode("utf-8"))
-    version = package_version_text()
+    if version is None:
+        version = package_version_text()
     manifest["input_sha256"] = input_sha256_digest(ROOT / "tests" / "fixtures" / "synthetic_ais.csv")
     manifest["code_version"]["package_version"] = version
     manifest["mmsi_categories"] = category_counts(artifacts["houston_clean.csv"])
@@ -457,12 +460,14 @@ def project_manifest(data, artifacts):
     return (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
 
 
-def project_dev9(mapping=None, source=DEV9):
+def project_dev9(mapping=None, source=DEV9, version=None):
     """dev9 goldens after the mapping and the ID-derived recomputation.
 
     ``mapping`` defaults to ``SYNTHETIC_ID_MAP``. ``source`` defaults to the
     committed golden directory. Callers that pass another directory must not
     point it at the committed files when they intend to mutate bytes.
+    ``version`` defaults to ``__version__``. Pass ``0.2.0.dev15`` to reproduce
+    the committed golden manifest.
     """
     source = Path(source)
     artifacts = {
@@ -477,7 +482,7 @@ def project_dev9(mapping=None, source=DEV9):
         ),
     }
     artifacts["manifest.json"] = project_manifest(
-        (source / "manifest.json").read_bytes(), artifacts
+        (source / "manifest.json").read_bytes(), artifacts, version=version
     )
     return artifacts
 
@@ -743,15 +748,17 @@ class GuardCoverageTests(unittest.TestCase):
 
 
 class GoldenSubstitutionProofTests(unittest.TestCase):
-    """Projected dev9 goldens must be byte-identical to dev15.
+    """Projected dev9 artifacts must be byte-identical to dev15.
 
     The projection applies ``SYNTHETIC_ID_MAP``, flips ``ship`` to ``other``
     only on mapped rows, and recomputes ``event_id``, ``input_sha256``,
     ``run_id``, and ``package_version`` with ``hashlib``. It does not import
     or call the pipeline. Any other difference fails.
 
+    Pinning the version to ``0.2.0.dev15`` reproduces the golden manifest.
+    The live package version changes ``package_version`` and ``run_id`` only.
     ``harborlens-verify`` checks the three artifact hashes. The release
-    recount reads ``houston_clean.csv``. Those bytes use the same projection.
+    recount reads ``houston_clean.csv``. Those bytes stay the dev15 bytes.
     """
 
     def test_dev15_manifest_verifies_its_own_artifacts(self):
@@ -761,15 +768,26 @@ class GoldenSubstitutionProofTests(unittest.TestCase):
         self.assertEqual(set(result["artifacts"]), set(VERIFY_ARTIFACTS))
 
     def test_dev9_projection_is_byte_identical_to_dev15(self):
-        projected = project_dev9()
+        pinned = project_dev9(version="0.2.0.dev15")
         mismatches = [
-            name for name, body in projected.items()
+            name for name, body in pinned.items()
             if body != (DEV15 / name).read_bytes()
         ]
-        self.assertEqual(mismatches, [], "\n".join(golden_projection_report(projected)))
+        self.assertEqual(mismatches, [], "\n".join(golden_projection_report(pinned)))
+        live = project_dev9()
+        for name in VERIFY_ARTIFACTS:
+            self.assertEqual(live[name], (DEV15 / name).read_bytes(), name)
+        live_manifest = json.loads(live["manifest.json"])
+        golden_manifest = json.loads((DEV15 / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(live_manifest["code_version"]["package_version"], package_version_text())
+        self.assertEqual(live_manifest["code_version"]["package_version"], "0.2.0.dev16")
+        self.assertNotEqual(live_manifest["run_id"], golden_manifest["run_id"])
+        golden_manifest["code_version"]["package_version"] = "0.2.0.dev16"
+        golden_manifest["run_id"] = live_manifest["run_id"]
+        self.assertEqual(live_manifest, golden_manifest)
 
     def test_release_verify_path_projection_is_byte_identical(self):
-        """Same projection for the verify artifacts and the release recount input."""
+        """Verify artifacts and the release recount input stay the dev15 bytes."""
         projected = project_dev9()
         dev15 = {
             name: (DEV15 / name).read_bytes()
@@ -779,7 +797,8 @@ class GoldenSubstitutionProofTests(unittest.TestCase):
         cleaned_differs = projected["houston_clean.csv"] != dev15["houston_clean.csv"]
         projected_verify = independent_verify(projected)
         current_verify = independent_verify(dev15)
-        report = "\n".join(golden_projection_report(projected))
+        pinned = project_dev9(version="0.2.0.dev15")
+        report = "\n".join(golden_projection_report(pinned))
         report += (
             f"\nindependent verify(projected)={projected_verify}"
             f"\nindependent verify(dev15)={current_verify}"
@@ -787,9 +806,10 @@ class GoldenSubstitutionProofTests(unittest.TestCase):
         )
         self.assertEqual(mismatches, [], report)
         self.assertFalse(cleaned_differs, report)
-        self.assertEqual(projected["manifest.json"], dev15["manifest.json"], report)
-        self.assertEqual(projected_verify, current_verify, report)
+        self.assertEqual(pinned["manifest.json"], dev15["manifest.json"], report)
+        self.assertNotEqual(projected["manifest.json"], dev15["manifest.json"])
         self.assertTrue(projected_verify["ok"], report)
+        self.assertTrue(current_verify["ok"], report)
 
 
 class ProofMutationTests(unittest.TestCase):
@@ -801,7 +821,7 @@ class ProofMutationTests(unittest.TestCase):
 
     def test_one_changed_golden_byte_fails(self):
         committed = (DEV15 / "houston_clean.csv").read_bytes()
-        projected = project_dev9()
+        projected = project_dev9(version="0.2.0.dev15")
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)
             for name in projected:
