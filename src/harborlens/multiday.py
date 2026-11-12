@@ -1,10 +1,12 @@
 """Bounded-memory multi-file AIS stationary-candidate reconstruction (SPEC-002).
 
 Use a temporary SQLite database to sort observations across multiple local
-historical AIS subsets. The page cache and soft heap limit are fixed, so the
-working set does not grow with the number of days or rows. Scratch disk may
-grow up to its cap. No network activity, live tracking, navigation guidance,
-validated port-call labels, or real-world accuracy claims are provided.
+historical AIS subsets. The enforced working set is the page cache, memory
+mapping disabled, and temporary b-trees in a file. A soft heap limit is
+requested and bounds memory only when this SQLite build reports
+``ENABLE_MEMORY_MANAGEMENT``. Scratch disk may grow up to its cap. No network
+activity, live tracking, navigation guidance, validated port-call labels, or
+real-world accuracy claims are provided.
 
 Data remain in a private temporary directory and are deleted on exit.
 """
@@ -46,33 +48,112 @@ MULTIDAY_FIELDS = EVENT_FIELDS + ["source_files_json", "source_count", "crosses_
 # by MAX_POINTS (about seven days at ~560,000 rows), not by this file count.
 MAX_FILES = 16
 # Fixed working set (SPEC-002). Not a CLI flag: a caller must not raise it.
-# cache_size is kibibytes when negative. The soft heap limit is bytes.
-# mmap is off so scratch pages are not mapped into the process.
-# The seven-day NOAA run peaked near 47 MiB RSS with this 8 MiB page cache.
+# cache_size is kibibytes when negative. mmap is off so scratch pages are not
+# mapped into the process. temp_store=FILE spills sorts to the scratch file.
+# Those three are the enforced bound.
+# soft_heap_limit is requested. It bounds the heap only when SQLite was built
+# with ENABLE_MEMORY_MANAGEMENT (SQLITE_ENABLE_MEMORY_MANAGEMENT). Without that
+# compile option the read-back can still echo the requested number and do nothing.
 SQLITE_CACHE_KIB = 8192
 SQLITE_SOFT_HEAP_BYTES = 8 * 1024 * 1024
 MEMORY_BOUND_POLICY = "fixed-sqlite-heap-v1"
+MULTIDAY_SCHEMA_VERSION = "multi-day-1.1"
+SOFT_HEAP_ENFORCED = ("true", "false", "unknown")
 # Ceilings sized from a synthetic benchmark (~161 bytes of SQLite scratch per row,
 # ~47 MiB RSS independent of size, ~20 s per million rows) for seven full Houston
 # days (~3.9 million rows) with headroom. Limits still fail closed.
-# Scratch disk MAY grow with accepted rows, up to MAX_SCRATCH_MIB. Process
-# memory must not: the cache and soft heap above stay fixed.
+# Scratch disk MAY grow with accepted rows, up to MAX_SCRATCH_MIB.
 MAX_POINTS = 6_000_000
 MAX_SCRATCH_MIB = 2048
 MAX_EXPORT_MIB = 2048
 DEFAULT_EXPORT_MIB = 1024
 
 
-def memory_bound_record():
-    """Manifest record of the fixed working set. Values match the pragmas."""
+def _temp_store_name(value):
+    return {0: "DEFAULT", 1: "FILE", 2: "MEMORY"}.get(value, "UNKNOWN")
+
+
+def soft_heap_limit_enforced(db):
+    """Whether ``PRAGMA soft_heap_limit`` can release memory on this build.
+
+    ``ENABLE_MEMORY_MANAGEMENT`` in ``PRAGMA compile_options`` is SQLite's
+    ``SQLITE_ENABLE_MEMORY_MANAGEMENT`` flag. An empty option list means the
+    diagnostics were omitted, so enforcement is unknown. A listed build without
+    that flag does not enforce the soft heap limit even when the pragma echoes
+    the requested number.
+    """
+    try:
+        rows = db.execute("PRAGMA compile_options").fetchall()
+    except sqlite3.DatabaseError:
+        return "unknown"
+    if not rows:
+        return "unknown"
+    names = {row[0] for row in rows if row and isinstance(row[0], str)}
+    if "ENABLE_MEMORY_MANAGEMENT" in names:
+        return "true"
+    return "false"
+
+
+def read_memory_bound(db):
+    """Read the live SQLite working set. Does not copy the intended constants."""
+    cache = db.execute("PRAGMA cache_size").fetchone()[0]
+    heap = db.execute("PRAGMA soft_heap_limit").fetchone()[0]
+    mmap = db.execute("PRAGMA mmap_size").fetchone()[0]
+    temp_store = db.execute("PRAGMA temp_store").fetchone()[0]
+    enforced = soft_heap_limit_enforced(db)
+    if not isinstance(cache, int) or cache >= 0:
+        cache_kib = None
+    else:
+        cache_kib = -cache
     return {
         "policy": MEMORY_BOUND_POLICY,
-        "sqlite_cache_kib": SQLITE_CACHE_KIB,
-        "sqlite_soft_heap_bytes": SQLITE_SOFT_HEAP_BYTES,
-        "mmap_bytes": 0,
-        "temp_store": "FILE",
+        "sqlite_cache_kib": cache_kib,
+        "sqlite_soft_heap_bytes": heap,
+        "soft_heap_limit_enforced": enforced,
+        "mmap_bytes": mmap,
+        "temp_store": _temp_store_name(temp_store),
         "grows_with_input_rows": False,
     }
+
+
+def require_pinned_working_set(record):
+    """Fail closed unless the enforced controls match the fixed pin.
+
+    The soft heap limit is required only when this build enforces it.
+    """
+    problems = []
+    if record.get("sqlite_cache_kib") != SQLITE_CACHE_KIB:
+        problems.append(f"cache_kib={record.get('sqlite_cache_kib')}")
+    if record.get("mmap_bytes") != 0:
+        problems.append(f"mmap_bytes={record.get('mmap_bytes')}")
+    if record.get("temp_store") != "FILE":
+        problems.append(f"temp_store={record.get('temp_store')}")
+    enforced = record.get("soft_heap_limit_enforced")
+    if enforced not in SOFT_HEAP_ENFORCED:
+        problems.append(f"soft_heap_limit_enforced={enforced}")
+    if enforced == "true" and record.get("sqlite_soft_heap_bytes") != SQLITE_SOFT_HEAP_BYTES:
+        problems.append(f"soft_heap_bytes={record.get('sqlite_soft_heap_bytes')}")
+    if problems:
+        raise AISInputError(
+            "SQLite working set is not the fixed multi-day pin: " + "; ".join(problems)
+        )
+    return record
+
+
+def require_multiday_schema(document):
+    """Accept only a ``multi-day-1.1`` manifest. Do not rewrite 1.0 into 1.1."""
+    if not isinstance(document, dict):
+        raise AISInputError("Multi-day manifest must be a JSON object")
+    version = document.get("schema_version")
+    if version != MULTIDAY_SCHEMA_VERSION:
+        raise AISInputError(
+            f"Multi-day manifest schema_version {version!r} is not {MULTIDAY_SCHEMA_VERSION}; "
+            "a multi-day-1.0 manifest is not treated as 1.1"
+        )
+    resources = document.get("resources")
+    if not isinstance(resources, dict) or "memory_bound" not in resources:
+        raise AISInputError("Multi-day manifest is missing resources.memory_bound")
+    return document
 
 
 def _csv_bytes(fields):
@@ -102,23 +183,17 @@ class ScratchMeter:
 
 
 def _apply_memory_bound(db):
-    """Pin SQLite's working set. Fail closed if the engine does not report it."""
+    """Request the fixed pin, then keep it only when the enforced controls match.
+
+    ``soft_heap_limit`` is always requested. ``require_pinned_working_set``
+    treats that number as a bound only when ``soft_heap_limit_enforced`` is
+    ``true``.
+    """
     db.execute("PRAGMA temp_store=FILE")
     db.execute(f"PRAGMA cache_size=-{SQLITE_CACHE_KIB}")
     db.execute(f"PRAGMA soft_heap_limit={SQLITE_SOFT_HEAP_BYTES}")
     db.execute("PRAGMA mmap_size=0")
-    cache, heap, mmap, temp_store = (
-        db.execute("PRAGMA cache_size").fetchone()[0],
-        db.execute("PRAGMA soft_heap_limit").fetchone()[0],
-        db.execute("PRAGMA mmap_size").fetchone()[0],
-        db.execute("PRAGMA temp_store").fetchone()[0],
-    )
-    if (cache != -SQLITE_CACHE_KIB or heap != SQLITE_SOFT_HEAP_BYTES
-            or mmap != 0 or temp_store != 1):
-        raise AISInputError(
-            "SQLite refused the fixed multi-day memory bound "
-            f"(cache={cache}, soft_heap={heap}, mmap={mmap}, temp_store={temp_store})"
-        )
+    require_pinned_working_set(read_memory_bound(db))
     db.execute("PRAGMA shrink_memory")
 
 
@@ -320,9 +395,10 @@ def run_multiday(
 
     Rows are streamed into temporary SQLite and ordered by (mmsi, epoch_us, id)
     on disk. Out-of-order rows and late points are not held in a Python buffer.
-    The page cache and soft heap limit are fixed constants, so the SQLite
-    working set does not grow with the number of days or rows. Scratch disk may
-    grow until ``max_scratch_mib``. Python keeps counters and one open candidate.
+    The enforced working set is an 8192 KiB page cache, no memory map, and
+    ``temp_store=FILE``. A soft heap limit is requested and is enforced only
+    when SQLite reports ``ENABLE_MEMORY_MANAGEMENT``. Scratch disk may grow
+    until ``max_scratch_mib``. Python keeps counters and one open candidate.
     ``Segmenter.feed`` still rejects a descending (mmsi, timestamp) key.
     """
     paths = tuple(sorted((Path(p).resolve() for p in inputs), key=str))
@@ -351,6 +427,9 @@ def run_multiday(
         db = _make_db(db_path, max_scratch_mib)
         meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
         try:
+            # Read the live connection again. Replacing _apply_memory_bound
+            # cannot leave a 256 MiB cache or an in-memory temp store in place.
+            require_pinned_working_set(read_memory_bound(db))
             counts, source_items, (first, last) = _load_files(
                 db, paths, tuple(bbox), max_points, meter
             )
@@ -371,7 +450,7 @@ def run_multiday(
             if censoring.known:
                 identity["analysis_window"] = censoring.run_id_component()
             result = {
-                "mode": "multi_day_historical", "schema_version": "multi-day-1.0",
+                "mode": "multi_day_historical", "schema_version": MULTIDAY_SCHEMA_VERSION,
                 "input_files": source_items, "bbox_lon_lat": list(bbox),
                 "counts": counts, "events": diagnostics,
                 "method_parameters": params.manifest(), "source_rights_status": "review_required",
@@ -382,7 +461,7 @@ def run_multiday(
                            "max_export_mib": max_export_mib},
                 "resources": {"scratch_peak_bytes": meter.peak_bytes,
                               "scratch_measurement": "sampled at commits; includes rollback journal",
-                              "memory_bound": memory_bound_record()},
+                              "memory_bound": read_memory_bound(db)},
                 "run_id": hashlib.sha256(
                     json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
@@ -497,7 +576,7 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
     return stats
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Historical multi-day AIS stationary-candidate reconstruction")
     parser.add_argument("--input", nargs="+", required=True, type=Path,
                         help=f"Two to {MAX_FILES} local AIS subsets")
@@ -511,14 +590,17 @@ def main():
                              "only when inputs have no acquisition sidecars")
     parser.add_argument("--window-end", default=None)
     add_threshold_arguments(parser)
-    args = parser.parse_args()
-    result = run_multiday(
-        args.input, args.out, bbox=tuple(args.bbox),
-        max_points=args.max_points, max_scratch_mib=args.max_scratch_mib,
-        max_export_mib=args.max_export_mib,
-        window_start=args.window_start, window_end=args.window_end,
-        params=params_from_args(args),
-    )
+    args = parser.parse_args(argv)
+    try:
+        result = run_multiday(
+            args.input, args.out, bbox=tuple(args.bbox),
+            max_points=args.max_points, max_scratch_mib=args.max_scratch_mib,
+            max_export_mib=args.max_export_mib,
+            window_start=args.window_start, window_end=args.window_end,
+            params=params_from_args(args),
+        )
+    except (AISInputError, FileExistsError) as exc:
+        parser.exit(2, str(exc) + "\n")
     print(json.dumps(result, indent=2))
 
 

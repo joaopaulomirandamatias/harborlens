@@ -2,9 +2,15 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-002: multi-day manifest 1.1 and an enforced pin)
+- Package version stays `0.2.0.dev10`. The multi-day manifest `schema_version` moves from `multi-day-1.0` to `multi-day-1.1` because `resources.memory_bound` is now required and includes `soft_heap_limit_enforced`. A `multi-day-1.0` document is not rewritten or accepted as 1.1. `run_id` does not hash `schema_version`. Single-file artifact bytes are unchanged.
+- The enforced SQLite pin is the 8192 KiB page cache, `mmap_size=0`, and `temp_store=FILE`. Those are read back from the connection and the run fails closed if they differ. `soft_heap_limit` is still requested at 8 MiB. It is a memory bound only when `PRAGMA compile_options` lists `ENABLE_MEMORY_MANAGEMENT`. The manifest records `soft_heap_limit_enforced` as `true`, `false`, or `unknown`. An 8 MiB heap bound is not claimed when that field is not `true`.
+- `harborlens-multiday` prints a short error to stderr and exits 2, with no traceback, for a wrong file count and for an output that already exists.
+- Refs #5 (stays open). Refs #70 (stays open).
+
 ### Changed (SPEC-002: fixed multi-day working set)
 - Package version `0.2.0.dev10` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `harborlens-multiday` accepts 2 to 16 local files. Seventeen files fail closed and write nothing. `MAX_POINTS` stays 6,000,000, so about seven full Houston days still fit.
-- SQLite page cache is 8192 KiB, the soft heap limit is 8 MiB, memory mapping is off, and temporary store is `FILE`. Those values are constants, not CLI flags. The run fails closed if SQLite does not report them. `PRAGMA shrink_memory` runs after each file and before the ordered scan. The scan uses an index on `(mmsi, epoch_us, id)`.
+- SQLite page cache is 8192 KiB, a soft heap limit of 8 MiB is requested, memory mapping is off, and temporary store is `FILE`. Those values are constants, not CLI flags. The cache, mmap, and temp store are the enforced pin. The soft heap limit is enforced only when SQLite was built with `ENABLE_MEMORY_MANAGEMENT`, as the entry above records. `PRAGMA shrink_memory` runs after each file and before the ordered scan. The scan uses an index on `(mmsi, epoch_us, id)`.
 - Multi-day manifests gain `resources.memory_bound` (`policy=fixed-sqlite-heap-v1`, `grows_with_input_rows=false`). `schemas/v1/multi-day-run.schema.json` requires that object and allows 16 input files. Scratch disk may still grow up to `max_scratch_mib`.
 - Shuffled rows and late points are ordered on disk. There is no in-memory reorder buffer. An exact duplicate is stored once and keeps every source. The same timestamp with a different position splits the candidate. `Segmenter` rejects a descending timestamp.
 - Single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev9`. The single-file manifest changes in `code_version.package_version` and in `run_id`, because `run_id` hashes `harborlens_version`. The GovInfo LSA report's `harborlens_version` moves with the package. The comparison behavior is unchanged. Runs from `0.2.0.dev9` and `0.2.0.dev10` are not directly comparable. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #5 (stays open).

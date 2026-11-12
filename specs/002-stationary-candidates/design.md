@@ -41,16 +41,16 @@ Compared with v0.1, the single-file command now also splits on vessel-type confl
 
 The working set is **fixed**, not a CLI flag. A flag would let a caller raise the bound and hide growth.
 
-| Control | Value | Why it is fixed |
+| Control | Value | Enforced? |
 | --- | --- | --- |
-| `PRAGMA cache_size` | `-8192` (8192 KiB) | Page cache. Same order as the ~47 MiB RSS peak of the seven-day NOAA run, which already used an 8 MiB cache. |
-| `PRAGMA soft_heap_limit` | 8388608 bytes (8 MiB) | Sorter and heap. SQLite spills to the scratch file instead of growing RAM with rows. |
-| `PRAGMA mmap_size` | 0 | Scratch pages are not mapped into the process, so RSS does not track file size. |
-| `PRAGMA temp_store` | `FILE` | Sorts and temporary b-trees use the scratch file. That file may grow until `max_scratch_mib` (2048). |
+| `PRAGMA cache_size` | `-8192` (8192 KiB) | Yes. This is the page cache. The run fails closed if the read-back is not 8192 KiB. |
+| `PRAGMA mmap_size` | 0 | Yes. Scratch pages are not mapped into the process, so RSS does not track the file. The run fails closed if the read-back is not 0. |
+| `PRAGMA temp_store` | `FILE` | Yes. Sorts and temporary b-trees use the scratch file, which may grow until `max_scratch_mib` (2048). The run fails closed if the read-back is not `FILE`. |
+| `PRAGMA soft_heap_limit` | 8388608 bytes requested | Only when `PRAGMA compile_options` lists `ENABLE_MEMORY_MANAGEMENT` (`SQLITE_ENABLE_MEMORY_MANAGEMENT`). Otherwise the pragma can echo 8388608 and still be a no-op. The manifest field `soft_heap_limit_enforced` is `true`, `false`, or `unknown`. An 8 MiB heap bound is claimed only when that field is `true`. |
 
-`_apply_memory_bound` reads the pragmas back and raises `AISInputError` if SQLite does not report those values. `PRAGMA shrink_memory` runs after each file and before the ordered scan. The scan uses `observations_by_vessel_time` on `(mmsi, epoch_us, id)`, so the read is an index scan rather than an in-memory sort of every row. Python keeps counters, the open candidate, and at most 16 source records. Group membership stays in SQLite and is streamed when the centroid radius is checked.
+`read_memory_bound` reads those values from the connection. `require_pinned_working_set` checks the three enforced controls, and checks the soft heap number only when enforcement is `true`. `run_multiday` reads the connection again after setup, so replacing the pragma helper cannot leave a 256 MiB cache or an in-memory temp store in place. `PRAGMA shrink_memory` runs after each file and before the ordered scan. The scan uses `observations_by_vessel_time` on `(mmsi, epoch_us, id)`. Python keeps counters, the open candidate, and at most 16 source records. Group membership stays in SQLite and is streamed when the centroid radius is checked.
 
-The manifest records this under `resources.memory_bound` (`policy=fixed-sqlite-heap-v1`, `grows_with_input_rows=false`). `schemas/v1/multi-day-run.schema.json` requires that object. `input_files.maxItems` is 16.
+The manifest is `schema_version=multi-day-1.1` and records `resources.memory_bound` (`policy=fixed-sqlite-heap-v1`, `grows_with_input_rows=false`, plus `soft_heap_limit_enforced`). `schemas/v1/multi-day-run.schema.json` requires that object. A `multi-day-1.0` manifest has no `memory_bound` and is not rewritten or accepted as 1.1. `input_files.maxItems` is 16. A wrong file count or an existing output is a short stderr line and CLI exit 2, with no traceback.
 
 **Out-of-order input.** Late points and shuffled rows are accepted. They are ordered on disk by `(mmsi, epoch microseconds, insertion id)`. There is no Python reorder buffer whose size follows lateness. Insertion id follows the inputs after their paths are sorted, then file order, so ties are deterministic (NFR-004). An exact duplicate (MMSI, timestamp, coordinates rounded to 6 decimal digits; BR-005) is stored once and keeps every source file. The same timestamp with a different position is not a duplicate: `Segmenter` treats a non-positive gap as `timestamp_conflicts` and splits (BR-007). A gap of exactly `max_gap_minutes` stays one candidate; a longer gap splits. `Segmenter.feed` still rejects a descending `(mmsi, timestamp)` with `Segmenter input is not sorted by MMSI and time` if a caller bypasses the sort. Point, scratch, export, and file-count caps fail closed and leave no output files.
 
@@ -61,6 +61,7 @@ The manifest records this under `resources.memory_bound` (`policy=fixed-sqlite-h
 - `resource.getrusage` peak RSS ≤ 192 MiB on every size
 - RSS at 14 days minus RSS at 1 day ≤ 16 MiB
 - accepted rows scale 1:3:7:14, scratch bytes do not decrease as days increase, and each size emits 4 `stationary_candidate` rows with `confidence_label=unvalidated`
+- the manifest's live read-back has cache 8192 KiB, `mmap_bytes` 0, and `temp_store` `FILE`. The 14-day scratch file is only about 4 MiB, so that read-back is what fails a removed pin. A separate 400,000-row synthetic load (generated at test time, not committed) shows a mutated pin (256 MiB cache, soft heap 0, mmap on, `temp_store=MEMORY`) uses more RSS than the enforced pin. The pipeline rejects that pin before it writes a manifest.
 
 A run that kept every row in a Python list would move the traced peak by more than 1 MiB. Scratch disk is allowed to grow. The traced ceiling is a margin over a Python 3.12 measurement (peak about 8.2 MiB, growth about 66 KiB). Absolute RSS on that machine varied from about 22 MiB to about 90 MiB across process starts, while 14-day RSS minus 1-day RSS stayed under 5 MiB, so the RSS ceiling is 192 MiB and the scaling check is the 16 MiB growth cap. These figures are not a capacity claim for a national daily archive. Real-data RSS remains the manual NOAA workflow.
 
