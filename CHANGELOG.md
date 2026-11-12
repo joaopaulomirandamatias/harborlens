@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: independent signed-release verification)
+- New offline, read-only `harborlens-verify-release` checks a staged aggregate without AIS input. It reuses `summary_sha256` (`allow_nan=False` canonical bytes) and `verify_review_signature`. The Ed25519 message is the domain separator `harborlens.publication-review.v1`, a newline, then the canonical review JSON. Signatures from `0.2.0.dev4`, which omit that separator, are rejected. Pinned SPKI fingerprints use `hmac.compare_digest`.
+- Aggregate floors are the recounted publication floors: 100 retained observations and 10 MMSI groups. A large `observations_scanned` value copied from a manifest does not pass when the retained recount or the MMSI-group recount is below those floors. A date-only `reviewed_at_utc` is denied. A missing `cryptography` import exits 2 and writes nothing. Tests that need Ed25519 skip with `unittest.skipUnless` and a lazy import.
+- Package version `0.2.0.dev6`. Ordinary manifests change because `run_id` hashes `harborlens_version`, and `code_version.package_version` records it. Runs from `0.2.0.dev5` and `0.2.0.dev6` are not directly comparable. No source rights are granted. A verified signature is not a berth, anchorage, wait, port call, or accuracy claim. Refs #42 (stays open). Refs #70 (stays open). Refs #71 (stays open).
+
 ### Security (SPEC-003: release-summary recount and signed-review format)
 - **BREAKING:** The Ed25519 signed-review message is now the domain separator `harborlens.publication-review.v1`, a newline, then the canonical JSON of every field except `signature_b64` (sorted keys, compact separators, ASCII escaping, `allow_nan=False`, trailing newline). Signatures made for `0.2.0.dev4`, which signed that JSON only, are rejected. Re-sign with `review_message()`.
 - Canonical release bytes also use `allow_nan=False`. NaN and Infinity fail closed (exit 2, nothing written) and cannot be hashed or staged.

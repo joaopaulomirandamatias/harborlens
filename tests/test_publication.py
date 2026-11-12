@@ -627,6 +627,43 @@ class PublicationGateTests(unittest.TestCase):
         self.review.write_text(json.dumps(review), encoding="utf-8")
         self.assert_cli_denied("signature")
 
+    def test_independent_verifier_accepts_recounted_producer_output(self):
+        """The verifier accepts a staged release whose counts match the cleaned recount."""
+        from harborlens.publication import _recount_cleaned
+        from harborlens.release_verify import verify_release
+
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        retained, groups = _recount_cleaned(self.rundir / "houston_clean.csv")
+        manifest = json.loads((self.rundir / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["counts"]["observations_retained"], retained)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], groups)
+        self.assertEqual(manifest["counts"]["written"], retained)
+        self.assertEqual(manifest["events"]["vessels"], groups)
+        self.assertGreaterEqual(retained, 100)
+        self.assertGreaterEqual(groups, 10)
+        self.approve(summary)
+        produced = self.produce()
+        self.assertEqual(produced["summary_sha256"], summary_sha256(summary))
+        pinned_registry = hashlib.sha256(self.registry.read_bytes()).hexdigest()
+        result = verify_release(
+            self.out,
+            rights_register=self.registry,
+            expected_rights_register_sha256=pinned_registry,
+            trusted_public_key=self.trusted_key,
+            expected_public_key_sha256=self.trusted_key_sha256,
+            expected_reviewer_id="sample-reviewer",
+            expected_purpose="public_aggregates",
+            expected_source_id="noaa_pmel_erddap",
+            expected_dataset_version="AIS2024_AIS",
+            expected_run_id=summary["run_id"],
+            expected_summary_sha256=summary_sha256(summary),
+        )
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["summary_sha256"], summary_sha256(summary))
+        self.assertEqual(result["verification_scope"], "signed_release_and_pinned_rights_only")
+        self.assertIn("unverified", result["caveat"])
+
 
 def _approve_registry(path):
     data = json.loads(path.read_text(encoding="utf-8"))
