@@ -8,7 +8,7 @@ Exclusions, each with the reason the path is not a current vessel id:
 * ``tests/fixtures/single_day_0.2.0.dev9/`` is the package 0.2.0.dev9 golden.
   It is kept as the input of the mapping proof: the proof substitutes legacy
   ids in those bytes and compares them with ``single_day_0.2.0.dev15``.
-  Deleting it would remove that input. The directory still contains MID 367.
+  Each of those files is excluded by its exact path. A new file in that directory is scanned. The directory still contains MID 367.
 * ``docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md`` records
   SHA-256 digests of Federal Register documents. A nine-digit run inside a
   digest is not a vessel id, and the quoted evidence note is not rewritten.
@@ -31,6 +31,7 @@ import hashlib
 import io
 import json
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,16 +53,34 @@ FSTRING_PREFIX = re.compile(r"""f(?P<quote>['"])(?P<prefix>\d{3,8})\{""")
 HEX_BLOB = re.compile(r"[0-9a-fA-F]{32,}")
 FORBIDDEN_PREFIXES = ("111", "970", "972", "974", "98", "99", "0")
 
-# Path prefix, reason. The reason is part of the test, not only a comment.
+# Exact relative path, reason. A directory prefix is not an exclusion.
+# The dev9 names are the files ``git ls-files`` lists in that directory.
 EXCLUSIONS = (
     (
-        "tests/fixtures/single_day_0.2.0.dev9",
-        "Historical golden for package 0.2.0.dev9. Retained as the mapping-proof "
+        "tests/fixtures/single_day_0.2.0.dev9/houston_clean.csv",
+        "Historical cleaned CSV for package 0.2.0.dev9. Retained as a mapping-proof "
         "input so legacy MID 367 identifiers can be substituted and compared with "
         "tests/fixtures/single_day_0.2.0.dev15. It is not a current vessel-id source.",
     ),
     (
-        "docs/data/fr-2023-original-fulltext-evidence-",
+        "tests/fixtures/single_day_0.2.0.dev9/stationary_candidates.csv",
+        "Historical candidate CSV for package 0.2.0.dev9. Retained as a mapping-proof "
+        "input. Its MMSI column still contains legacy MID 367 identifiers. It is not "
+        "a current vessel-id source.",
+    ),
+    (
+        "tests/fixtures/single_day_0.2.0.dev9/stationary_candidates.geojson",
+        "Historical candidate GeoJSON for package 0.2.0.dev9. Retained as a mapping-proof "
+        "input. Its mmsi properties still contain legacy MID 367 identifiers. It is not "
+        "a current vessel-id source.",
+    ),
+    (
+        "tests/fixtures/single_day_0.2.0.dev9/manifest.json",
+        "Historical run manifest for package 0.2.0.dev9. Retained as a mapping-proof "
+        "input beside the other three golden files. It is not a current vessel-id source.",
+    ),
+    (
+        "docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md",
         "Federal Register evidence note. Digit runs sit inside SHA-256 digests of "
         "official documents. They are not MMSI columns or vessel ids, and the "
         "quoted source note is not rewritten.",
@@ -73,6 +92,7 @@ EXCLUSIONS = (
         "The same legacy identifier outside this file still fails the guard.",
     ),
 )
+EXCLUSION_PATHS = {path for path, _reason in EXCLUSIONS}
 
 # Files harborlens-verify hashes, and the cleaned CSV the release recount reads.
 VERIFY_ARTIFACTS = (
@@ -195,48 +215,61 @@ def source_hits(text, kind):
     raise ValueError(kind)
 
 
-def path_is_excluded(path):
-    relative = path.resolve().relative_to(ROOT).as_posix()
-    for prefix, _reason in EXCLUSIONS:
-        if relative == prefix or relative.startswith(prefix):
-            return True
-    return False
+def path_is_excluded(path, root=ROOT):
+    """True only when the relative path is one exact exclusion entry."""
+    relative = Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    return relative in EXCLUSION_PATHS
 
 
-def iter_repository_hits(root=ROOT):
-    """Assigned-MID vessel ids in fixtures and in test/tool sources."""
+def scan_repository(root=ROOT):
+    """Scan fixture tables and Python sources under ``tests/`` and ``tools/``.
+
+    Returns ``(hits, visited_python)``. ``hits`` are ``(relative path, token)``.
+    ``visited_python`` is every ``.py`` file the walk read under ``tests/`` or
+    ``tools/`` after the exact exclusions. Classification uses
+    ``path.relative_to(root).parts[0]``, because ``path.parts[0]`` is ``/``
+    when ``root`` is absolute.
+    """
+    root = Path(root)
+    hits = []
+    visited = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path_is_excluded(path):
+        relative_path = path.resolve().relative_to(root.resolve())
+        relative = relative_path.as_posix()
+        if relative in EXCLUSION_PATHS:
             continue
         suffix = path.suffix.lower()
+        top = relative_path.parts[0]
         if suffix == ".csv":
             kind = "csv"
         elif suffix in {".json", ".geojson"}:
             kind = "json"
-        elif suffix == ".py" and (path.parts[0] in {"tests", "tools"} or "tests" in path.parts or "tools" in path.parts):
-            # rglob from ROOT: parts[0] is the top directory.
+        elif suffix == ".py" and top in {"tests", "tools"}:
             kind = "python"
         else:
             continue
-        if kind == "python" and path.parts[0] not in {"tests", "tools"}:
-            continue
         text = path.read_text(encoding="utf-8")
+        if kind == "python":
+            visited.append(relative)
         for hit in source_hits(text, kind):
-            yield path.relative_to(root).as_posix(), hit
+            hits.append((relative, hit))
+    return hits, visited
 
 
-def substitute_legacy_ids(data):
+def substitute_legacy_ids(data, mapping=None):
     """Replace legacy synthetic ids as whole tokens. No other bytes change."""
+    mapping = SYNTHETIC_ID_MAP if mapping is None else mapping
     text = data.decode("utf-8")
-    for legacy, modern in sorted(SYNTHETIC_ID_MAP.items(), key=lambda item: len(item[0]), reverse=True):
+    for legacy, modern in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
         text = re.sub(rf"(?<!\d){legacy}(?!\d)", modern, text)
     return text.encode("utf-8")
 
 
-def mapped_mmsi_images():
-    return set(SYNTHETIC_ID_MAP.values())
+def mapped_mmsi_images(mapping=None):
+    mapping = SYNTHETIC_ID_MAP if mapping is None else mapping
+    return set(mapping.values())
 
 
 def package_version_text():
@@ -304,21 +337,22 @@ def _line_ending(line):
     return ""
 
 
-def _flip_mapped_category(body, mmsi, category):
+def _flip_mapped_category(body, mmsi, category, images):
     """Change a trailing ``ship`` category to ``other`` only for a mapped id."""
-    if mmsi in mapped_mmsi_images() and category == "ship" and body.endswith("ship"):
+    if mmsi in images and category == "ship" and body.endswith("ship"):
         return body[:-len("ship")] + "other"
     return body
 
 
-def project_cleaned_csv(data):
+def project_cleaned_csv(data, mapping=None):
     """Map ids, then set ``mmsi_category`` from ``ship`` to ``other`` on those rows.
 
     ``ingest`` writes ``mmsi_category(mmsi)`` on each cleaned row
     (``harborlens.ais``). MID 199 is ``other`` because the first digit is not
     in ``2``–``7`` (``harborlens.vessel.mmsi_category``).
     """
-    text = substitute_legacy_ids(data).decode("utf-8")
+    images = mapped_mmsi_images(mapping)
+    text = substitute_legacy_ids(data, mapping).decode("utf-8")
     lines = text.splitlines(keepends=True)
     projected = [lines[0]]
     for line in lines[1:]:
@@ -328,14 +362,15 @@ def project_cleaned_csv(data):
         ending = _line_ending(line)
         body = line[:-len(ending)] if ending else line
         row = next(csv.reader([body]))
-        body = _flip_mapped_category(body, row[0], row[-1])
+        body = _flip_mapped_category(body, row[0], row[-1], images)
         projected.append(body + ending)
     return "".join(projected).encode("utf-8")
 
 
-def project_candidates_csv(data):
+def project_candidates_csv(data, mapping=None):
     """Map ids, recompute ``event_id``, and flip ``ship`` to ``other`` on those rows."""
-    text = substitute_legacy_ids(data).decode("utf-8")
+    images = mapped_mmsi_images(mapping)
+    text = substitute_legacy_ids(data, mapping).decode("utf-8")
     lines = text.splitlines(keepends=True)
     header = next(csv.reader([lines[0].strip("\r\n")]))
     index = {name: position for position, name in enumerate(header)}
@@ -348,7 +383,7 @@ def project_candidates_csv(data):
         body = line[:-len(ending)] if ending else line
         row = next(csv.reader([body]))
         mmsi = row[index["mmsi"]]
-        if mmsi in mapped_mmsi_images():
+        if mmsi in images:
             old_id = row[index["event_id"]]
             new_id = event_id_digest(
                 mmsi, row[index["start_utc"]], row[index["end_utc"]],
@@ -356,21 +391,22 @@ def project_candidates_csv(data):
             )
             if body.startswith(old_id):
                 body = new_id + body[len(old_id):]
-            body = _flip_mapped_category(body, mmsi, row[index["mmsi_category"]])
+            body = _flip_mapped_category(body, mmsi, row[index["mmsi_category"]], images)
         projected.append(body + ending)
     return "".join(projected).encode("utf-8")
 
 
-def project_candidates_geojson(data):
+def project_candidates_geojson(data, mapping=None):
     """Map ids, recompute ``event_id``, and flip ``ship`` to ``other`` on those features.
 
     Serialization is ``json.dumps(..., indent=2)``, the writer in
     ``harborlens.ais.write_events``.
     """
-    document = json.loads(substitute_legacy_ids(data).decode("utf-8"))
+    images = mapped_mmsi_images(mapping)
+    document = json.loads(substitute_legacy_ids(data, mapping).decode("utf-8"))
     for feature in document["features"]:
         props = feature["properties"]
-        if props.get("mmsi") not in mapped_mmsi_images():
+        if props.get("mmsi") not in images:
             continue
         props["event_id"] = event_id_digest(
             props["mmsi"], props["start_utc"], props["end_utc"],
@@ -421,19 +457,27 @@ def project_manifest(data, artifacts):
     return (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
 
 
-def project_dev9():
-    """dev9 goldens after the mapping and the ID-derived recomputation."""
+def project_dev9(mapping=None, source=DEV9):
+    """dev9 goldens after the mapping and the ID-derived recomputation.
+
+    ``mapping`` defaults to ``SYNTHETIC_ID_MAP``. ``source`` defaults to the
+    committed golden directory. Callers that pass another directory must not
+    point it at the committed files when they intend to mutate bytes.
+    """
+    source = Path(source)
     artifacts = {
-        "houston_clean.csv": project_cleaned_csv((DEV9 / "houston_clean.csv").read_bytes()),
+        "houston_clean.csv": project_cleaned_csv(
+            (source / "houston_clean.csv").read_bytes(), mapping
+        ),
         "stationary_candidates.csv": project_candidates_csv(
-            (DEV9 / "stationary_candidates.csv").read_bytes()
+            (source / "stationary_candidates.csv").read_bytes(), mapping
         ),
         "stationary_candidates.geojson": project_candidates_geojson(
-            (DEV9 / "stationary_candidates.geojson").read_bytes()
+            (source / "stationary_candidates.geojson").read_bytes(), mapping
         ),
     }
     artifacts["manifest.json"] = project_manifest(
-        (DEV9 / "manifest.json").read_bytes(), artifacts
+        (source / "manifest.json").read_bytes(), artifacts
     )
     return artifacts
 
@@ -539,8 +583,8 @@ class MidBoundaryTests(unittest.TestCase):
 
         self.assertEqual(csv_mmsi_hits(column(199)), [])
         self.assertEqual(csv_mmsi_hits(column(200)), [])
-        self.assertEqual(csv_mmsi_hits(column(201)), ["201000001"])
-        self.assertEqual(csv_mmsi_hits(column(775)), ["775000001"])
+        self.assertEqual(csv_mmsi_hits(column(201)), ["201" + "000001"])
+        self.assertEqual(csv_mmsi_hits(column(775)), ["775" + "000001"])
         self.assertEqual(csv_mmsi_hits(column(776)), [])
 
     def test_unassigned_1990_prefix_passes_and_planted_assigned_mid_fails(self):
@@ -587,7 +631,7 @@ class MappingTableTests(unittest.TestCase):
 
 class GuardScanTests(unittest.TestCase):
     def test_repository_has_no_assigned_mid_outside_the_exclusions(self):
-        hits = list(iter_repository_hits())
+        hits, _visited = scan_repository()
         self.assertEqual(hits, [])
 
     def test_dev9_golden_would_fail_without_its_exclusion(self):
@@ -634,7 +678,68 @@ class GuardScanTests(unittest.TestCase):
         self.assertTrue(raw_hits)
         self.assertEqual(python_source_hits(text), [])
         self.assertTrue(path_is_excluded(FR_EVIDENCE))
-        self.assertIn("SHA-256", dict(EXCLUSIONS)["docs/data/fr-2023-original-fulltext-evidence-"])
+        fr_key = "docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md"
+        self.assertIn("SHA-256", dict(EXCLUSIONS)[fr_key])
+
+
+def tracked_python_under_tests_and_tools():
+    """Tracked ``.py`` files under ``tests/`` and ``tools/``, minus exclusions.
+
+    Independent of the scanner walk: ``git ls-files`` lists the index.
+    """
+    listed = subprocess.check_output(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+    )
+    paths = [item.decode("utf-8") for item in listed.split(b"\0") if item]
+    return sorted(
+        path for path in paths
+        if path.endswith(".py")
+        and (path.startswith("tests/") or path.startswith("tools/"))
+        and path not in EXCLUSION_PATHS
+    )
+
+
+class GuardCoverageTests(unittest.TestCase):
+    """The repository scan must walk the real ``tests/`` and ``tools/`` trees."""
+
+    def test_visited_python_files_match_git_ls_files(self):
+        _hits, visited = scan_repository()
+        expected = tracked_python_under_tests_and_tools()
+        self.assertGreater(len(visited), 0)
+        self.assertEqual(sorted(visited), expected)
+
+    def test_planted_assigned_mid_inside_tests_is_reported(self):
+        planted = "367" + "123456"
+        extra = ROOT / "tests" / "_qa_planted_assigned_mid.py"
+        relative = extra.relative_to(ROOT).as_posix()
+        extra.write_text(f'mmsi = "{planted}"\n', encoding="utf-8")
+        try:
+            hits, visited = scan_repository()
+            self.assertIn(relative, visited)
+            self.assertIn((relative, planted), hits)
+        finally:
+            extra.unlink(missing_ok=True)
+
+    def test_unexpected_file_in_dev9_is_not_excluded(self):
+        planted = "367" + "123456"
+        extra = DEV9 / "_qa_not_a_golden.py"
+        relative = extra.relative_to(ROOT).as_posix()
+        self.assertNotIn(relative, EXCLUSION_PATHS)
+        self.assertFalse(path_is_excluded(extra))
+        for name in (
+            "houston_clean.csv",
+            "stationary_candidates.csv",
+            "stationary_candidates.geojson",
+            "manifest.json",
+        ):
+            self.assertTrue(path_is_excluded(DEV9 / name), name)
+        extra.write_text(f'mmsi = "{planted}"\n', encoding="utf-8")
+        try:
+            hits, visited = scan_repository()
+            self.assertIn(relative, visited)
+            self.assertIn((relative, planted), hits)
+        finally:
+            extra.unlink(missing_ok=True)
 
 
 class GoldenSubstitutionProofTests(unittest.TestCase):
@@ -685,6 +790,69 @@ class GoldenSubstitutionProofTests(unittest.TestCase):
         self.assertEqual(projected["manifest.json"], dev15["manifest.json"], report)
         self.assertEqual(projected_verify, current_verify, report)
         self.assertTrue(projected_verify["ok"], report)
+
+
+class ProofMutationTests(unittest.TestCase):
+    """The proof fails when a golden, an unmapped category, or the map changes.
+
+    Copies stay in memory or in a temporary directory. Committed fixtures
+    are only read.
+    """
+
+    def test_one_changed_golden_byte_fails(self):
+        committed = (DEV15 / "houston_clean.csv").read_bytes()
+        projected = project_dev9()
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            for name in projected:
+                data = bytearray((DEV15 / name).read_bytes())
+                if name == "houston_clean.csv":
+                    data[20] ^= 0x01
+                (dest / name).write_bytes(bytes(data))
+            mismatches = [
+                name for name in projected
+                if projected[name] != (dest / name).read_bytes()
+            ]
+        self.assertEqual(mismatches, ["houston_clean.csv"])
+        self.assertEqual((DEV15 / "houston_clean.csv").read_bytes(), committed)
+
+    def test_flipping_an_unmapped_row_category_fails(self):
+        unmapped = "790" + "000001"
+        self.assertNotIn(unmapped, SYNTHETIC_ID_MAP.values())
+        source = (DEV9 / "houston_clean.csv").read_bytes()
+        extra = (
+            unmapped + ",2024-01-02T00:00:00Z,29.73,-95.16,0.1,70,5,,,,,,,ship\r\n"
+        ).encode("utf-8")
+        projected = project_cleaned_csv(source + extra)
+        unmapped_lines = [
+            line for line in projected.decode("utf-8").splitlines()
+            if line.startswith(unmapped + ",")
+        ]
+        self.assertEqual(len(unmapped_lines), 1)
+        self.assertTrue(unmapped_lines[0].endswith("ship"))
+        lines = []
+        for line in projected.decode("utf-8").splitlines(keepends=True):
+            if line.startswith(unmapped + ",") and line.rstrip("\r\n").endswith("ship"):
+                ending = "\r\n" if line.endswith("\r\n") else "\n"
+                line = line[: -len("ship") - len(ending)] + "other" + ending
+            lines.append(line)
+        flipped = "".join(lines).encode("utf-8")
+        self.assertNotEqual(projected, flipped)
+        self.assertTrue(flipped.decode("utf-8").splitlines()[-1].endswith("other"))
+
+    def test_altered_map_entry_fails(self):
+        legacy = next(
+            key for key, value in SYNTHETIC_ID_MAP.items() if value == "199080001"
+        )
+        altered = dict(SYNTHETIC_ID_MAP)
+        altered[legacy] = "199080099"
+        self.assertEqual(SYNTHETIC_ID_MAP[legacy], "199080001")
+        projected = project_dev9(mapping=altered)
+        self.assertNotEqual(
+            projected["houston_clean.csv"],
+            (DEV15 / "houston_clean.csv").read_bytes(),
+        )
+        self.assertEqual(SYNTHETIC_ID_MAP[legacy], "199080001")
 
 
 if __name__ == "__main__":
