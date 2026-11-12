@@ -6,6 +6,7 @@
 - Package version stays `0.2.0.dev10`. The multi-day manifest `schema_version` moves from `multi-day-1.0` to `multi-day-1.1` because `resources.memory_bound` is now required and includes `soft_heap_limit_enforced`. A `multi-day-1.0` document is not rewritten or accepted as 1.1. `run_id` does not hash `schema_version`. Single-file artifact bytes are unchanged.
 - The enforced SQLite pin is the 8192 KiB page cache, `mmap_size=0`, and `temp_store=FILE`. Those are read back from the connection and the run fails closed if they differ. `soft_heap_limit` is still requested at 8 MiB. It is a memory bound only when `PRAGMA compile_options` lists `ENABLE_MEMORY_MANAGEMENT`. The manifest records `soft_heap_limit_enforced` as `true`, `false`, or `unknown`. An 8 MiB heap bound is not claimed when that field is not `true`.
 - `harborlens-multiday` prints a short error to stderr and exits 2, with no traceback, for a wrong file count and for an output that already exists.
+- A removed pin fails the live cache, mmap, and temp-store read-back. RSS is not used for that check. On GitHub-hosted runners a 400,000-row comparison of the mutated pin differed by only about 6 MiB.
 - Refs #5 (stays open). Refs #70 (stays open).
 
 ### Changed (SPEC-002: fixed multi-day working set)

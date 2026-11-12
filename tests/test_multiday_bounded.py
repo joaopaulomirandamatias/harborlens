@@ -92,21 +92,6 @@ def memory_day(day_index, minutes):
     return rows
 
 
-def write_bulk_rows(path, count):
-    """Synthetic rows for the mutated-pin RSS comparison. Not committed."""
-    with path.open("w", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["mmsi", "ts", "lat", "lon"])
-        for index in range(count):
-            writer.writerow([
-                367110001 + (index % 20),
-                f"2024-01-{(index // 86400) % 14 + 2:02d} "
-                f"{(index // 3600) % 24:02d}:{(index // 60) % 60:02d}:{index % 60:02d}",
-                29.5,
-                -95.2,
-            ])
-
-
 def sqlite3_mutated(path):
     db = sqlite3.connect(path)
     db.execute("PRAGMA temp_store=MEMORY")
@@ -114,53 +99,6 @@ def sqlite3_mutated(path):
     db.execute("PRAGMA soft_heap_limit=0")
     db.execute("PRAGMA mmap_size=268435456")
     return db
-
-
-def sqlite_load_rss(mode, db_path, csv_path):
-    """Load ``csv_path`` under the pinned or mutated SQLite settings. Return peak RSS bytes."""
-    script = r"""
-import csv, json, resource, sqlite3, sys
-mode, dbp, src = sys.argv[1:]
-db = sqlite3.connect(dbp)
-if mode == "pinned":
-    db.execute("PRAGMA temp_store=FILE")
-    db.execute("PRAGMA cache_size=-8192")
-    db.execute("PRAGMA mmap_size=0")
-    db.execute("PRAGMA soft_heap_limit=8388608")
-else:
-    db.execute("PRAGMA temp_store=MEMORY")
-    db.execute("PRAGMA cache_size=-262144")
-    db.execute("PRAGMA soft_heap_limit=0")
-    db.execute("PRAGMA mmap_size=268435456")
-db.execute("create table o(id integer primary key, mmsi text, ts text, lat real, lon real)")
-db.execute("create index ix on o(mmsi, ts, id)")
-buf = []
-with open(src, newline="") as handle:
-    for row in csv.reader(handle):
-        if not row or row[0] == "mmsi":
-            continue
-        buf.append(row)
-        if len(buf) == 8000:
-            db.executemany("insert into o(mmsi,ts,lat,lon) values (?,?,?,?)", buf)
-            buf.clear()
-if buf:
-    db.executemany("insert into o(mmsi,ts,lat,lon) values (?,?,?,?)", buf)
-db.commit()
-count = 0
-for _ in db.execute("select id from o order by mmsi, ts, id"):
-    count += 1
-rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-if sys.platform != "darwin":
-    rss *= 1024
-print(json.dumps({"rows": count, "rss_bytes": rss}))
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", script, mode, str(db_path), str(csv_path)],
-        check=False, capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        raise AssertionError(proc.stderr)
-    return json.loads(proc.stdout)["rss_bytes"]
 
 
 def assert_enforced_pin(test, bound):
@@ -211,42 +149,28 @@ class SqliteMemoryBoundTests(unittest.TestCase):
         with self.assertRaisesRegex(AISInputError, "fixed multi-day pin"):
             _apply_memory_bound(Fake())
 
-    def test_mutated_pin_is_rejected_and_a_large_fixture_uses_more_rss(self):
+    def test_mutated_pin_is_rejected(self):
         """A 256 MiB cache, soft heap 0, mmap on, and temp_store=MEMORY is not the pin.
 
-        The 14-day scaling fixture is about 4 MiB of scratch, so RSS alone does
-        not notice that mutation. This generates 400,000 synthetic rows at
-        runtime (nothing large is committed) and compares process RSS.
+        The 14-day scaling fixture is about 4 MiB of scratch, and on a GitHub
+        runner the RSS gap for a 400,000-row load was only about 6 MiB
+        (pinned already near 100 MiB). RSS does not fail that mutation.
+        The live read-back does: cache, mmap, and temp store must match the pin.
         """
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            db = sqlite3_mutated(root / "probe.sqlite3")
+            db = sqlite3_mutated(Path(folder) / "probe.sqlite3")
             try:
                 mutated = read_memory_bound(db)
             finally:
                 db.close()
-            with self.assertRaisesRegex(AISInputError, "fixed multi-day pin"):
+            self.assertEqual(mutated["sqlite_cache_kib"], 262144)
+            self.assertEqual(mutated["sqlite_soft_heap_bytes"], 0)
+            self.assertEqual(mutated["mmap_bytes"], 268435456)
+            self.assertEqual(mutated["temp_store"], "MEMORY")
+            with self.assertRaisesRegex(AISInputError, "cache_kib=262144") as caught:
                 require_pinned_working_set(mutated)
-            self.assertNotEqual(mutated["sqlite_cache_kib"], SQLITE_CACHE_KIB)
-            self.assertNotEqual(mutated["temp_store"], "FILE")
-            self.assertNotEqual(mutated["mmap_bytes"], 0)
-            csv_path = root / "rows.csv"
-            write_bulk_rows(csv_path, 400_000)
-            pinned_rss = sqlite_load_rss("pinned", root / "pinned.sqlite3", csv_path)
-            mutated_rss = sqlite_load_rss("mutated", root / "mutated.sqlite3", csv_path)
-            print(
-                "\nMUTATED_PIN_RSS "
-                + json.dumps({"rows": 400_000, "pinned_rss_bytes": pinned_rss,
-                              "mutated_rss_bytes": mutated_rss,
-                              "mutated_bound": mutated})
-            )
-            # The gap shrinks when the process baseline is already high, and it
-            # stays above 8 MiB on a 400,000-row load. The pin rejection above is
-            # what fails a removed cache/mmap/temp_store pin even for a 4 MiB scratch.
-            self.assertGreater(
-                mutated_rss, pinned_rss + 8 * 1024 * 1024,
-                f"pinned={pinned_rss} mutated={mutated_rss}",
-            )
+            self.assertIn("temp_store=MEMORY", str(caught.exception))
+            self.assertIn("mmap_bytes=268435456", str(caught.exception))
 
     def test_pipeline_rejects_a_monkeypatched_pin(self):
         def bad(db):
