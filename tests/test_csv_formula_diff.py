@@ -168,7 +168,7 @@ class FormulaFixtureTests(unittest.TestCase):
             for name, digest in MAIN_SHA256.items():
                 blob = (out / name).read_bytes()
                 self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev17")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev18")
 
     def test_formula_fixture_matches_dev17_goldens(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -181,7 +181,18 @@ class FormulaFixtureTests(unittest.TestCase):
                 self.assertEqual(manifest["artifacts"][name]["sha256"], digest, name)
                 self.assertEqual(manifest["artifacts"][name]["size_bytes"], len(blob), name)
             golden = json.loads((GOLDEN / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(scrub_manifest(manifest), scrub_manifest(golden))
+            self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev17")
+            live = scrub_manifest(manifest)
+            pinned = scrub_manifest(golden)
+            # The dev17 golden files stay byte-identical. The live manifest
+            # differs in the version string and the run_id that hashes it.
+            self.assertEqual(
+                set(differing_paths(live, pinned)),
+                {"run_id", "code_version.package_version"},
+            )
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev18")
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev18"))
+            self.assertNotEqual(manifest["run_id"], golden["run_id"])
             self.assertEqual(manifest["counts"]["written"], 180)
             self.assertEqual(manifest["events"]["stationary_candidates"], 18)
             self.assertEqual(manifest["events"]["vessels"], 18)
@@ -191,7 +202,7 @@ class FormulaFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
             manifest = run(FIXTURE, out)
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev17"))
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev18"))
             self.assertEqual(run_id_for(manifest, "0.2.0.dev16") != manifest["run_id"], True)
 
             _header, source_rows = read_csv(FIXTURE)
