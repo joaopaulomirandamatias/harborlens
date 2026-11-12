@@ -5,8 +5,12 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 
+from importlib.resources import files
+from unittest.mock import patch
+
 from harborlens.rights import (
-    PENDING, RESTRICTED, load_registry, rights_status_for,
+    PENDING, RESTRICTED, _MISSING_JSONSCHEMA, _is_https_url, load_registry,
+    rights_status_for,
 )
 
 
@@ -21,10 +25,12 @@ class RightsGateTests(unittest.TestCase):
             "decision": "reviewed",
             "reviewed_by": "Independent reviewer",
             "reviewed_at_utc": "2026-11-09T12:00:00Z",
+            "source_url": "https://example.org/source",
             "terms_url": "https://example.org/terms",
             "evidence_url": "https://example.org/review",
             "terms_sha256": "a" * 64,
             "attribution": "Source agency and dataset.",
+            "review_note": "Synthetic review record; not a real source approval.",
             "permitted_uses": {
                 "research": "allowed",
                 "public_aggregates": "allowed",
@@ -103,6 +109,100 @@ class RightsGateTests(unittest.TestCase):
         self.assertEqual(self.status(), PENDING)
         self.write({"schema_version": 99, "sources": [self.record]})
         self.assertEqual(self.status(), PENDING)
+
+    def test_https_url_requires_scheme_and_host(self):
+        self.write()
+        load_registry(self.path)
+        self.assertTrue(_is_https_url("https://example.org/terms"))
+        self.assertEqual(self.status(), "reviewed_public_domain_attribution_required")
+        bad_urls = (
+            "https://",
+            "https:///path",
+            "http://host",
+            "https://user@",
+            "https://.",
+            "https:// ",
+            "https://@",
+        )
+        for bad in bad_urls:
+            self.assertFalse(_is_https_url(bad), bad)
+            for key in ("terms_url", "evidence_url"):
+                copy = deepcopy(self.data)
+                copy["sources"][0][key] = bad
+                self.write(copy)
+                with self.assertRaisesRegex(ValueError, "schema"):
+                    load_registry(self.path)
+                self.assertEqual(self.status(), PENDING, (key, bad))
+
+    def test_schema_invalid_register_with_complete_evidence_is_not_granted(self):
+        copy = deepcopy(self.data)
+        copy["sources"][0]["unexpected_field"] = "complete evidence, unknown property"
+        self.write(copy)
+        with self.assertRaisesRegex(ValueError, "schema"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+
+    def test_checked_in_register_loads_and_grants_nothing(self):
+        path = Path(__file__).resolve().parents[1] / "docs/data/rights-register.json"
+        registry = load_registry(path)
+        self.assertTrue(registry["sources"])
+        for source in registry["sources"]:
+            for purpose in ("research", "public_aggregates", "commercial"):
+                status = rights_status_for(
+                    source["source_id"], dataset_version=source["dataset_version"],
+                    purpose=purpose, register_path=path,
+                )
+                self.assertEqual(status, PENDING, (source["source_id"], purpose))
+
+    def test_packaged_schema_matches_published_file(self):
+        packaged = files("harborlens").joinpath(
+            "schemas", "v1", "source-rights-register.schema.json"
+        ).read_bytes()
+        published = (
+            Path(__file__).resolve().parents[1]
+            / "schemas" / "v1" / "source-rights-register.schema.json"
+        )
+        self.assertEqual(packaged, published.read_bytes())
+
+    def test_parent_directory_schema_is_never_consulted(self):
+        import harborlens.rights as rights_mod
+        foreign_dir = Path(rights_mod.__file__).resolve().parents[1] / "schemas" / "v1"
+        target = foreign_dir / "source-rights-register.schema.json"
+        created = []
+        cursor = foreign_dir
+        while not cursor.exists():
+            created.append(cursor)
+            cursor = cursor.parent
+        for directory in reversed(created):
+            directory.mkdir()
+        target.write_text('{"type": "object"}\n', encoding="utf-8")
+        try:
+            copy = deepcopy(self.data)
+            copy["sources"][0]["unexpected_field"] = "permissive parent schema must not grant this"
+            self.write(copy)
+            with self.assertRaisesRegex(ValueError, "schema"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING)
+            packaged = files("harborlens").joinpath(
+                "schemas", "v1", "source-rights-register.schema.json"
+            ).read_bytes()
+            self.assertNotEqual(packaged, target.read_bytes())
+        finally:
+            if target.exists():
+                target.unlink()
+            for directory in created:
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+
+    def test_missing_jsonschema_names_rights_extra(self):
+        self.write()
+        with patch("harborlens.rights._load_jsonschema", side_effect=ImportError("blocked")):
+            with self.assertRaisesRegex(ValueError, r"pip install 'harborlens\[rights\]'"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING)
+        self.assertIn("pip install 'harborlens[rights]'", _MISSING_JSONSCHEMA)
 
 
 if __name__ == "__main__":

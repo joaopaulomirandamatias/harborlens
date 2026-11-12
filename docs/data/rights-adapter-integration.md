@@ -15,7 +15,9 @@ Each new sidecar contains an additional `rights_review` receipt, validated by [`
 - `evaluation`: `not_supplied`, `invalid_registry`, `pending_or_unmatched`, or `reviewed_record`
 - `rights_status`: `review_required`, `reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions`, or `use_restricted`
 
-`reviewed_record` identifies a syntactically complete reviewer assertion. It is **not** external authentication or a grant of data rights; verification of the terms snapshot and named reviewer remains a separate human gate.
+`reviewed_record` identifies a syntactically complete reviewer assertion that already passed `load_registry`. It is **not** external authentication or a grant of data rights; verification of the terms snapshot and named reviewer remains a separate human gate.
+
+`rights_receipt` hashes the same bounded file bytes that `load_registry` validates. That loader reads `src/harborlens/schemas/v1/source-rights-register.schema.json` with `importlib.resources` only and does not search parent directories. A missing, unreadable, oversized, or schema-invalid file yields `evaluation=invalid_registry` and `rights_status=review_required`. `jsonschema` is the `rights` extra; if it is missing, the receipt fails closed the same way.
 
 | Adapter | Fixed source ID | Version identity |
 | --- | --- | --- |
@@ -52,7 +54,7 @@ These examples are **opt-in acquisitions**; they do not confirm access availabil
 
 ## Reproduction, regressions and remaining gates
 
-1. Run `python -m unittest discover -s tests -v` using `pip install -e '.[noaa,dev,geo]'`. The synthetic adapter suite verifies exact-source-version matches, restrictions, invalid or absent registers, sidecar JSON Schema compatibility, and unchanged historical-geometry disclaimers. It never contacts external sources.
+1. Run `python -m unittest discover -s tests -v` using `pip install -e '.[noaa,dev,geo,rights]'`. The synthetic adapter suite verifies exact-source-version matches, restrictions, invalid or absent registers, sidecar JSON Schema compatibility, and unchanged historical-geometry disclaimers. It never contacts external sources.
 2. Before interpreting anything beyond `review_required`, independently verify the source's identity, applicable version, official terms, redistribution scope, reviewer, attribution and legal conditions. A synthetic "reviewed" fixture proves only a branch in code.
 3. Future release/publication workflows must separately enforce the approved purpose. **This adapter receipt is metadata, not a security boundary on exporting, publishing, or commercially using records.**
 4. No assertion is made about historical 2024 berth geometry, vessel waiting, event ground truth, navigational safety or government endorsement.
