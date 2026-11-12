@@ -130,7 +130,10 @@
         "privacy_reviewed",
         "source_rights_reviewed",
         "scientific_limitations_reviewed",
-        "conditions_reviewed"
+        "conditions_reviewed",
+        "signature_algorithm",
+        "public_key_sha256",
+        "signature_b64"
       ],
       "properties": {
         "schema_version": {
@@ -168,6 +171,17 @@
         },
         "conditions_reviewed": {
           "type": "boolean"
+        },
+        "signature_algorithm": {
+          "const": "Ed25519"
+        },
+        "public_key_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "signature_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
         }
       }
     }

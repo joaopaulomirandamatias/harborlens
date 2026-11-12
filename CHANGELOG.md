@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: cryptographically signed reviewer approval)
+- Require Ed25519 signature verification for aggregate release staging, including independently pinned reviewer public-key fingerprint and identity. Unsigned, altered or mismatched review JSON fails closed; offline synthetic key/signature attack tests and updated schemas/docs. No real data rights are granted.
+- Package version `0.2.0.dev4`. Actual staging requires `--trusted-reviewer-key`, `--trusted-reviewer-key-sha256` and `--trusted-reviewer-id`. The staged review object adds `signature_algorithm`, `public_key_sha256` and `signature_b64`. Ordinary manifests change because `run_id` hashes `harborlens_version` and `code_version.package_version` records it. Runs from `0.2.0.dev3` and `0.2.0.dev4` are not directly comparable.
+
 ### Added (SPEC-003: controlled aggregate publication)
 - A new offline `harborlens-release-summary` command stages allowlisted, coarse research counts only after source/run hash checks, current purpose-specific source-rights verification and a recent human approval of the exact proposed summary digest. Pending sources and mismatched evidence fail without release output; no raw data, geofences or event-level exports are copied. Synthetic-only positive/negative/attack tests and JSON Schemas added; no source is approved in the checked-in register.
 - Package version `0.2.0.dev3`. The command prints a JSON decision and exits 2 when release is denied. A successful non-dry run writes a new `public-summary-v0.1` file (`summary`, `summary_sha256`, `release_review`). Ordinary manifests also change: `run_id` hashes `harborlens_version`, and `code_version.package_version` records it. Runs from `0.2.0.dev2` and `0.2.0.dev3` are not directly comparable.
