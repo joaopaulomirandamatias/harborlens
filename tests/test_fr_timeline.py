@@ -1,12 +1,15 @@
 """Offline Federal Register part 110 index-contract tests."""
+import contextlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from harborlens.fr_timeline import (
-    FederalRegisterAuditError, initial_url, scan_part110, save_scan,
+    FederalRegisterAuditError, _date, initial_url, main, scan_part110, save_scan,
 )
 
 class Response(io.BytesIO):
@@ -112,6 +115,145 @@ class FederalRegisterTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text())["count"],1)
             with self.assertRaisesRegex(FederalRegisterAuditError,"new"):
                 save_scan(path,opener=lambda req,timeout: Response({"count":0,"results":[]}))
+
+
+# Calendar text that _date rejects. Each flag is tested on its own.
+_INVALID_DATES = (
+    "2026-W10-1",
+    "20260301",
+    "٢٠٢٦-٠٣-٠١",
+    "2026-02-30",
+)
+
+
+def _forbid_network(*_args, **_kwargs):
+    raise AssertionError("network client was called")
+
+
+class FederalRegisterCliDateTests(unittest.TestCase):
+    """Invalid --start/--end exit 2 before urlopen. Valid dates scan as before."""
+
+    def _run(self, argv, urlopen):
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch("harborlens.fr_timeline.urlopen", urlopen), \
+                contextlib.redirect_stderr(stderr), \
+                contextlib.redirect_stdout(stdout):
+            main()
+        return stdout.getvalue(), stderr.getvalue()
+
+    def test_invalid_start_and_end_exit_2_with_no_network(self):
+        for flag in ("--start", "--end"):
+            other = "--end" if flag == "--start" else "--start"
+            valid = "2024-01-02" if flag == "--start" else "2023-07-01"
+            for text in _INVALID_DATES:
+                with self.subTest(flag=flag, text=text):
+                    with self.assertRaises(FederalRegisterAuditError) as raised:
+                        _date(text)
+                    message = str(raised.exception)
+                    self.assertTrue(message)
+                    with tempfile.TemporaryDirectory() as folder:
+                        out = Path(folder) / "fr.json"
+                        client = mock.Mock(side_effect=_forbid_network)
+                        stderr = io.StringIO()
+                        with mock.patch.object(sys, "argv", [
+                            "harborlens-fr-timeline", flag, text, other, valid, "--out", str(out),
+                        ]), mock.patch("harborlens.fr_timeline.urlopen", client), \
+                                contextlib.redirect_stderr(stderr):
+                            with self.assertRaises(SystemExit) as caught:
+                                main()
+                        self.assertEqual(caught.exception.code, 2)
+                        text_err = stderr.getvalue()
+                        self.assertIn(message, text_err)
+                        self.assertIn(f"error: {message}", text_err)
+                        self.assertNotIn("Traceback", text_err)
+                        self.assertEqual(client.call_count, 0)
+                        self.assertFalse(out.exists())
+                        self.assertFalse(out.with_name(out.name + ".partial").exists())
+
+    def test_start_after_end_stays_a_window_error(self):
+        """A real calendar start after end is not a date-parse failure.
+
+        ``initial_url`` raises FederalRegisterAuditError
+        ("Use a historical publication window of at most 370 days") because
+        ``a <= b`` is false. ``main`` does not catch that error, so it still
+        propagates. An uncaught exception is still the interpreter's exit 1
+        with a traceback. ``urlopen`` is not called. This slice does not
+        change that path.
+        """
+        start, end = "2024-01-02", "2023-07-01"
+        with self.assertRaises(FederalRegisterAuditError) as direct:
+            initial_url(start, end)
+        self.assertEqual(str(direct.exception), "Use a historical publication window of at most 370 days")
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "fr.json"
+            client = mock.Mock(side_effect=_forbid_network)
+            with mock.patch.object(sys, "argv", [
+                "harborlens-fr-timeline", "--start", start, "--end", end, "--out", str(out),
+            ]), mock.patch("harborlens.fr_timeline.urlopen", client):
+                with self.assertRaises(FederalRegisterAuditError) as via_main:
+                    main()
+            self.assertEqual(str(via_main.exception), str(direct.exception))
+            self.assertEqual(client.call_count, 0)
+            self.assertFalse(out.exists())
+
+    def test_keyboard_interrupt_and_bare_value_error_propagate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "fr.json"
+            argv = [
+                "harborlens-fr-timeline", "--start", "2023-07-01",
+                "--end", "2024-01-02", "--out", str(out),
+            ]
+            client = mock.Mock(side_effect=_forbid_network)
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch("harborlens.fr_timeline.urlopen", client), \
+                    mock.patch("harborlens.fr_timeline._date", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    main()
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch("harborlens.fr_timeline.urlopen", client), \
+                    mock.patch("harborlens.fr_timeline._date", side_effect=ValueError("bare")):
+                with self.assertRaises(ValueError) as caught:
+                    main()
+            self.assertEqual(str(caught.exception), "bare")
+            self.assertEqual(client.call_count, 0)
+            self.assertFalse(out.exists())
+
+    def test_valid_dates_follow_the_existing_scan_path(self):
+        payload = {"count": 1, "results": [doc("SYN-1")], "next_page_url": None}
+
+        def fake(request, timeout):
+            self.assertEqual(timeout, 45)
+            self.assertIn("www.federalregister.gov", request.full_url)
+            return Response(payload)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            direct = save_scan(root / "direct.json", "2023-07-01", "2024-01-02", opener=fake)
+            out = root / "cli.json"
+            client = mock.Mock(side_effect=fake)
+            stdout, stderr = self._run(
+                [
+                    "harborlens-fr-timeline", "--start", "2023-07-01",
+                    "--end", "2024-01-02", "--out", str(out),
+                ],
+                client,
+            )
+            self.assertEqual(client.call_count, 1)
+            self.assertNotIn("Traceback", stderr)
+            report = json.loads(out.read_text(encoding="utf-8"))
+            report.pop("retrieved_at_utc")
+            direct.pop("retrieved_at_utc")
+            self.assertEqual(report, direct)
+            summary = json.loads(stdout)
+            self.assertEqual(summary, {
+                "documents_for_review": 1,
+                "query_pages": 1,
+                "section_110_197_legal_state": "NOT_DETERMINED",
+                "ais_spatial_join_permitted": False,
+            })
+
 
 if __name__ == "__main__":
     unittest.main()
