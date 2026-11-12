@@ -23,8 +23,10 @@ neutralizer.
 A text cell is prefixed with one ASCII apostrophe (``'``) when it matches
 ``^'*<ignorable>*<trigger>``. Triggers are ``=``, ``+``, ``-``, ``@``, tab,
 carriage return, and the fullwidth forms U+FF1D, U+FF0B, U+FF0D, and U+FF20.
-Ignorable characters before the trigger are Unicode whitespace, U+FEFF, and
-U+200B. A field that contains a comma, quote, carriage return, or line feed
+Ignorable characters before the trigger are the fixed code points in
+``harborlens.csv_safe.IGNORABLE`` (whitespace written out explicitly, U+FEFF,
+U+200B, and the other invisible format characters named there). A field that
+contains a comma, quote, carriage return, or line feed
 is quoted, including on Python 3.10, whose ``csv.writer`` would otherwise
 leave a carriage return bare when the row ends in ``\\n``.
 ``vessel_type_mode``, ``annotator_id``, ``evidence_sources``, ``notes``, and
