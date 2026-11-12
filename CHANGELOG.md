@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: fail-closed rights-register parsing)
+- A register that starts with a UTF-8 BOM is a named load error, `Rights register has a UTF-8 BOM`. The CLI exits 2, `rights_status` stays `review_required`, and the BOM is not stripped. `rights_status_for` returns `review_required`. `rights_receipt` reports `invalid_registry`. YAML is `Rights register is unreadable` and is not an approval.
+- `reviewed_at_utc` must be a UTC timestamp `YYYY-MM-DDTHH:MM:SSZ` with an optional fraction of one to six digits, the same pattern as the schema. A string that only ends in `Z`, a date-only value, a space separator, and a lowercase `t` fail the schema. A shape that is not a real calendar time fails the parser and stays `review_required`.
+- https URLs use an ASCII hostname. Punycode is accepted. IPv6 literals, raw IDN hostnames, userinfo, an uppercase scheme, and any whitespace, including a trailing path space or tab, fail in the schema and in the parser.
+- A different case or surrounding whitespace on a status or purpose does not grant. Whitespace-only reviewer, attribution, URL, hash, or timestamp evidence does not grant. The five checked-in sources stay `review_required` for `research`, `public_aggregates`, and `commercial`.
+- Package version `0.2.0.dev10`. The packaged `source-rights-register` schema bytes changed. Ordinary `harborlens` manifests differ from `0.2.0.dev9` in `code_version.package_version` and `run_id`. The LSA report's `harborlens_version` is that same version string. Comparison behavior is unchanged. No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #67 (stays open). Refs #42 (stays open).
+
+### Added (SPEC-003: ERDDAP and archive-extract sidecar schemas)
+- `schemas/v1/erddap-ais-source.schema.json` and `schemas/v1/noaa-archive-extract-source.schema.json` describe the sidecars from `harborlens-fetch-erddap` and `harborlens-extract-noaa-archive`, including `rights_status` and the optional `rights_review` receipt. Adapters do not load them at runtime, so they are not packaged. Synthetic tests validate writer output and keep the checked-in register at `review_required`. Refs #69 (stays open). Refs #42 (stays open).
+
 ### Security (SPEC-003: release summary rights_status is an allowlist)
 - `harborlens-release-summary` denies a staged summary whose `rights_status` is missing, `None`, not a string, or outside `APPROVED_STATUSES` (`reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions`). The denial is `ReleaseDenied` and the CLI exits 2 with no traceback and no file. A missing status no longer skips the `conditions_reviewed` requirement. Package version stays `0.2.0.dev9`. Successful release documents are unchanged. Refs #70 (stays open).
 

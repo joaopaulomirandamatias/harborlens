@@ -82,3 +82,13 @@
 - [x] Package those three schemas in the wheel and sdist. Load them with `importlib.resources` only. Refuse any other name. A schema next to the package is not consulted. The GovInfo LSA schema stays unpackaged.
 - [x] Deny a release summary whose `rights_status` is missing, `None`, not a string, or outside the approved-status allowlist (`ReleaseDenied`, CLI exit 2, nothing written). Absolute paths, backslashes, percent-encoding, uppercase names, NUL bytes, `..` segments, and trailing whitespace are refused by the schema loader before any filesystem read. CLI review-window edges use a frozen clock: exactly 30 days old and exactly 5 minutes ahead are accepted; one second outside either edge is rejected.
 - [ ] Institution-controlled reviewer key custody, a real source-rights approval, and a streaming recount for a cleaned CSV above the fixed 256 MiB ceiling remain external. This list does not add a streaming reader. Refs #70 (stays open). Refs #42 (stays open).
+
+## Rights-register parsing and sidecar schemas
+
+- [x] Name a UTF-8 BOM as a load error and do not treat that file as an approved status (SPEC-003, FR-010, NFR-013, BR-015, BR-016). YAML, case and whitespace variants, and whitespace-only evidence fail closed.
+- [x] Align `reviewed_at_utc` in `source-rights-register.schema.json` with `_valid_utc_time`: a UTC timestamp shape, not a string that only ends in `Z`. A non-calendar shape stays `review_required`.
+- [x] Reject trailing whitespace, IPv6 literals, and raw IDN hostnames in the schema pattern and the parser. Punycode stays accepted. Document that restriction.
+- [x] Record the rights register as its own FR-010 row in `docs/requirements/traceability.md` and document `source-rights-register` in `schemas/README.md`.
+- [x] Publish `erddap-ais-source` and `noaa-archive-extract-source` schemas, including optional `rights_review`, and keep the checked-in register at `review_required` for every adapter (NFR-010). Those schemas stay unpackaged.
+- [x] CI already runs the rights wheel step with `actions/checkout@v7` and `actions/setup-python@v7`, the same pins as the rest of `.github/workflows/ci.yml`. No workflow edit was required.
+- [ ] Independent source-rights approval remains external. Refs #42 (stays open). Refs #67 (stays open). Refs #69 (stays open). Issue #68 stays open because one sample digest cannot pass on both Python 3.10 and 3.12 while `random.sample` differs.

@@ -23,6 +23,26 @@ APPROVED_STATUSES = (
 PENDING = "review_required"
 RESTRICTED = "use_restricted"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# Same strings as schemas/v1/source-rights-register.schema.json. ASCII
+# hostnames only: punycode is accepted, IPv6 literals and raw IDN are not.
+# Whitespace anywhere in the URL, including a trailing path space, fails.
+# ``(?![\s\S])`` is the end of the string. ``$`` would still match before a
+# trailing newline, and a newline is not part of an https URL or a timestamp.
+_HTTPS_URL_PATTERN = (
+    r"^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]"
+    r"(?::[0-9]{1,5})?(?:[/?#]\S*)?(?![\s\S])"
+)
+# A real UTC timestamp, not a string that merely ends in Z. Fractional
+# seconds stop at six digits. Date-only values, a space separator, and a
+# lowercase "t" do not match.
+_UTC_TIMESTAMP_PATTERN = (
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,6})?Z(?![\s\S])"
+)
+_HTTPS_URL = re.compile(_HTTPS_URL_PATTERN)
+_UTC_TIMESTAMP = re.compile(_UTC_TIMESTAMP_PATTERN)
+_UTF8_BOM = b"\xef\xbb\xbf"
+_UTF8_BOM_ERROR = "Rights register has a UTF-8 BOM"
 _NOTICE = "A recorded decision is not legal advice or a data redistribution grant."
 _MISSING_JSONSCHEMA = (
     "Rights register schema validator is unavailable; "
@@ -31,24 +51,27 @@ _MISSING_JSONSCHEMA = (
 
 
 def _is_https_url(value):
-    """True only for https URLs whose hostname is a real host.
+    """True only for an https URL the rights schema also accepts.
 
-    ``netloc`` alone accepts ``https://user@``, ``https://.``, ``https:// ``
-    and ``https://@``. The hostname must be non-empty, contain no whitespace,
-    and must not be only dots.
+    The hostname is ASCII (letters, digits, dots, hyphens), at least two
+    characters, and not only dots. Punycode (``xn--``) is accepted. IPv6
+    literals, raw IDN hostnames, userinfo, an uppercase scheme, and any
+    whitespace — including a trailing space or tab on the path — are rejected.
+    ``netloc`` alone would accept ``https://user@example.org`` and
+    ``https://example.org/terms ``.
     """
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or _HTTPS_URL.fullmatch(value) is None:
         return False
     try:
         parts = urlsplit(value)
         host = parts.hostname
     except ValueError:
         return False
-    if parts.scheme != "https" or not isinstance(host, str) or not host:
+    if parts.scheme != "https" or parts.username is not None or parts.password is not None:
         return False
-    if any(ch.isspace() for ch in host):
+    if not isinstance(host, str) or not host or not host.strip("."):
         return False
-    if not host.strip("."):
+    if any(ch.isspace() for ch in host) or ":" in host:
         return False
     return True
 
@@ -93,27 +116,43 @@ def _validate_registry_schema(data):
 
 
 def _valid_utc_time(value):
-    if not isinstance(value, str) or not value.endswith("Z"):
+    """True for a schema-shaped UTC timestamp that is a real calendar time.
+
+    The shape matches ``_UTC_TIMESTAMP_PATTERN``. A string that only ends in
+    ``Z``, a date-only value, a space separator, and a lowercase ``t`` are
+    rejected on every supported Python. A shape that is not a real date
+    (for example month day 31 in February, or hour 25) matches the schema
+    pattern and still returns False here, so it cannot grant a status.
+    """
+    if not isinstance(value, str) or _UTC_TIMESTAMP.fullmatch(value) is None:
         return False
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed.tzinfo is not None and parsed.utcoffset().total_seconds() == 0
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError):
         return False
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return False
+    return parsed.utcoffset().total_seconds() == 0
 
 
 def _load_registry_bytes(raw):
     """Validate one register buffer with the packaged schema.
 
     ``raw`` is parsed as UTF-8 JSON and checked with the schema shipped inside
-    this package (``importlib.resources`` only). The same structural errors as
-    ``load_registry`` are raised. Hostname rules are enforced by that schema
-    and again by ``_is_https_url`` when a decision is made.
+    this package (``importlib.resources`` only). A leading UTF-8 BOM is a
+    named load error and is not stripped. The same structural errors as
+    ``load_registry`` are raised. URL and timestamp rules are enforced by
+    that schema and again by ``_is_https_url`` and ``_valid_utc_time`` when
+    a decision is made. Unknown, malformed, or whitespace-only evidence does
+    not grant an approved status.
     """
     if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_REGISTRY_BYTES:
         raise ValueError("Missing or excessive rights register")
+    blob = bytes(raw)
+    if blob.startswith(_UTF8_BOM):
+        raise ValueError(_UTF8_BOM_ERROR)
     try:
-        data = json.loads(bytes(raw).decode("utf-8"))
+        data = json.loads(blob.decode("utf-8"))
     except (UnicodeError, ValueError) as exc:
         raise ValueError("Rights register is unreadable") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
@@ -212,9 +251,9 @@ def rights_receipt(source_id, *, dataset_version, purpose="research", register_p
     The path is read once. That buffer is parsed and schema-validated, and
     both the SHA-256 and the decision come from it. The path is not opened
     again. The schema is the packaged file via ``importlib.resources`` only.
-    A missing, unreadable, oversized, or schema-invalid register is
-    ``invalid_registry`` and ``review_required``. A recorded status is an
-    audit assertion, not legal advice or a redistribution grant.
+    A missing, unreadable, oversized, BOM-prefixed, or schema-invalid
+    register is ``invalid_registry`` and ``review_required``. A recorded
+    status is an audit assertion, not legal advice or a redistribution grant.
     """
     import hashlib
 

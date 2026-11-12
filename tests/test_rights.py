@@ -10,7 +10,8 @@ from importlib.resources import files
 from unittest.mock import patch
 
 from harborlens.rights import (
-    PENDING, RESTRICTED, _MISSING_JSONSCHEMA, _is_https_url, load_registry,
+    APPROVED_STATUSES, PENDING, RESTRICTED, _MISSING_JSONSCHEMA,
+    _UTF8_BOM_ERROR, _is_https_url, _valid_utc_time, load_registry,
     rights_receipt, rights_status_for,
 )
 
@@ -146,14 +147,25 @@ class RightsGateTests(unittest.TestCase):
     def test_checked_in_register_loads_and_grants_nothing(self):
         path = Path(__file__).resolve().parents[1] / "docs/data/rights-register.json"
         registry = load_registry(path)
-        self.assertTrue(registry["sources"])
+        self.assertEqual(len(registry["sources"]), 5)
+        purposes = ("research", "public_aggregates", "commercial")
         for source in registry["sources"]:
-            for purpose in ("research", "public_aggregates", "commercial"):
+            self.assertEqual(source["decision"], "pending", source["source_id"])
+            self.assertEqual(source["rights_status"], PENDING, source["source_id"])
+            self.assertEqual(
+                set(source["permitted_uses"]), set(purposes), source["source_id"]
+            )
+            for purpose in purposes:
+                self.assertEqual(
+                    source["permitted_uses"][purpose], "unreviewed",
+                    (source["source_id"], purpose),
+                )
                 status = rights_status_for(
                     source["source_id"], dataset_version=source["dataset_version"],
                     purpose=purpose, register_path=path,
                 )
                 self.assertEqual(status, PENDING, (source["source_id"], purpose))
+                self.assertNotIn(status, APPROVED_STATUSES)
 
     def test_packaged_schema_matches_published_file(self):
         packaged = files("harborlens").joinpath(
@@ -241,6 +253,166 @@ class RightsGateTests(unittest.TestCase):
                 load_registry(self.path)
             self.assertEqual(self.status(), PENDING)
         self.assertIn("pip install 'harborlens[rights]'", _MISSING_JSONSCHEMA)
+
+    def test_utf8_bom_is_a_named_load_error_and_not_approved(self):
+        self.write()
+        payload = json.dumps(self.data).encode("utf-8")
+        self.path.write_bytes(b"\xef\xbb\xbf" + payload)
+        with self.assertRaisesRegex(ValueError, "UTF-8 BOM"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+        self.assertNotIn(self.status(), APPROVED_STATUSES)
+        receipt = rights_receipt(
+            "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+            purpose="research", register_path=self.path,
+        )
+        self.assertEqual(receipt["evaluation"], "invalid_registry")
+        self.assertEqual(receipt["rights_status"], PENDING)
+        self.assertIsNone(receipt["registry_sha256"])
+        self.assertEqual(_UTF8_BOM_ERROR, "Rights register has a UTF-8 BOM")
+
+    def test_yaml_register_fails_closed(self):
+        self.path.write_text("schema_version: 1\nsources: []\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "unreadable"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+        self.assertNotIn(self.status(), APPROVED_STATUSES)
+        receipt = rights_receipt(
+            "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+            purpose="research", register_path=self.path,
+        )
+        self.assertEqual(receipt["evaluation"], "invalid_registry")
+        self.assertEqual(receipt["rights_status"], PENDING)
+
+    def test_case_and_whitespace_variants_do_not_grant(self):
+        self.write()
+        approved = "reviewed_public_domain_attribution_required"
+        self.assertEqual(self.status(), approved)
+        for value in (
+            "Reviewed_Public_Domain_Attribution_Required",
+            "REVIEWED_PUBLIC_DOMAIN_ATTRIBUTION_REQUIRED",
+            " reviewed_public_domain_attribution_required",
+            "reviewed_public_domain_attribution_required ",
+            "reviewed_permitted_with_conditions ",
+            "review_required",
+            "use_restricted",
+            "APPROVED",
+        ):
+            copy = deepcopy(self.data)
+            copy["sources"][0]["rights_status"] = value
+            self.write(copy)
+            with self.assertRaisesRegex(ValueError, "schema"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING, value)
+            self.assertNotIn(self.status(), APPROVED_STATUSES)
+        for purpose in (
+            "Research", "RESEARCH", " research", "research ",
+            "public_aggregates ", "Commercial", "research\n",
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported use"):
+                self.status(purpose)
+
+    def test_whitespace_only_evidence_does_not_grant(self):
+        for key in (
+            "reviewed_by", "attribution", "evidence_url", "terms_url",
+            "terms_sha256", "reviewed_at_utc",
+        ):
+            copy = deepcopy(self.data)
+            copy["sources"][0][key] = "   "
+            self.write(copy)
+            with self.assertRaisesRegex(ValueError, "schema"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING, key)
+            self.assertNotIn(self.status(), APPROVED_STATUSES)
+        copy = deepcopy(self.data)
+        copy["sources"][0]["reviewed_by"] = "\t\n"
+        copy["sources"][0]["attribution"] = " \t "
+        self.write(copy)
+        with self.assertRaisesRegex(ValueError, "schema"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+
+    def test_trailing_whitespace_and_non_ascii_urls_do_not_grant(self):
+        self.write()
+        self.assertEqual(
+            self.status(), "reviewed_public_domain_attribution_required"
+        )
+        rejected = (
+            "https://example.org/terms ",
+            "https://example.org/terms\t",
+            "https://example.org/terms\n",
+            " HTTPS://example.org/terms",
+            "HTTPS://example.org/terms",
+            "https://[2001:db8::1]/terms",
+            "https://exämple.org/terms",
+            "https://user@example.org/terms",
+            "https://example.org.",
+        )
+        for url in rejected:
+            self.assertFalse(_is_https_url(url), url)
+            for key in ("terms_url", "evidence_url", "source_url"):
+                copy = deepcopy(self.data)
+                copy["sources"][0][key] = url
+                self.write(copy)
+                with self.assertRaisesRegex(ValueError, "schema"):
+                    load_registry(self.path)
+                self.assertEqual(self.status(), PENDING, (key, url))
+                self.assertNotIn(self.status(), APPROVED_STATUSES)
+        punycode = "https://xn--exmple-cua.org/terms"
+        self.assertTrue(_is_https_url(punycode))
+        copy = deepcopy(self.data)
+        copy["sources"][0]["terms_url"] = punycode
+        copy["sources"][0]["evidence_url"] = "https://xn--exmple-cua.org/review"
+        self.write(copy)
+        load_registry(self.path)
+        self.assertEqual(
+            self.status(), "reviewed_public_domain_attribution_required"
+        )
+
+    def test_reviewed_at_must_be_a_real_utc_timestamp(self):
+        self.write()
+        shape_rejected = (
+            "not-a-dateZ",
+            "Z",
+            "2026-11-09Z",
+            "2026-11-09T12:00:00Z ",
+            "2026-11-09t12:00:00Z",
+            "2026-11-09 12:00:00Z",
+            "2026-11-09T12:00:00.1234567Z",
+            "2026-11-09T12:00:00+00:00",
+        )
+        for value in shape_rejected:
+            self.assertFalse(_valid_utc_time(value), value)
+            copy = deepcopy(self.data)
+            copy["sources"][0]["reviewed_at_utc"] = value
+            self.write(copy)
+            with self.assertRaisesRegex(ValueError, "schema"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING, value)
+            self.assertNotIn(self.status(), APPROVED_STATUSES)
+        # The schema pattern is a shape. These match it and are still denied
+        # because they are not real UTC timestamps.
+        for value in ("2026-02-31T12:00:00Z", "2026-11-09T25:00:00Z", "2026-11-09T12:00:60Z"):
+            self.assertFalse(_valid_utc_time(value), value)
+            copy = deepcopy(self.data)
+            copy["sources"][0]["reviewed_at_utc"] = value
+            self.write(copy)
+            load_registry(self.path)
+            self.assertEqual(self.status(), PENDING, value)
+            self.assertNotIn(self.status(), APPROVED_STATUSES)
+        for value in (
+            "2026-11-09T12:00:00Z",
+            "2026-11-09T12:00:00.1Z",
+            "2026-11-09T12:00:00.123456Z",
+        ):
+            self.assertTrue(_valid_utc_time(value), value)
+            copy = deepcopy(self.data)
+            copy["sources"][0]["reviewed_at_utc"] = value
+            self.write(copy)
+            load_registry(self.path)
+            self.assertEqual(
+                self.status(), "reviewed_public_domain_attribution_required", value
+            )
 
 
 if __name__ == "__main__":

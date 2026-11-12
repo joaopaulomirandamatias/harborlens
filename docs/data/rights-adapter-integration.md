@@ -6,7 +6,7 @@
 
 Four existing acquisition functions now accept optional `rights_register` and `rights_purpose` arguments; their CLIs expose `--rights-register <local-file>` and `--rights-purpose research|public_aggregates|commercial`. Default behavior is backward compatible: no register is loaded, downloads remain explicitly opt-in, existing source sidecar keys stay intact, and the rights status remains `review_required`.
 
-Each new sidecar contains an additional `rights_review` receipt, validated by [`schemas/v1/source-rights-receipt.schema.json`](../../schemas/v1/source-rights-receipt.schema.json):
+Each new sidecar contains an additional `rights_review` receipt, validated by [`schemas/v1/source-rights-receipt.schema.json`](../../schemas/v1/source-rights-receipt.schema.json). The ERDDAP sidecar also validates against [`schemas/v1/erddap-ais-source.schema.json`](../../schemas/v1/erddap-ais-source.schema.json), and the archive-extract sidecar against [`schemas/v1/noaa-archive-extract-source.schema.json`](../../schemas/v1/noaa-archive-extract-source.schema.json). Those two documents are research contracts. They are not packaged and the adapters do not load them at runtime. `rights_review` is optional in each schema. The receipt fields are:
 
 - `schema_version` and fixed source ID
 - `dataset_version` used for **exact** rights-record matching
@@ -17,7 +17,7 @@ Each new sidecar contains an additional `rights_review` receipt, validated by [`
 
 `reviewed_record` identifies a syntactically complete reviewer assertion that already passed `load_registry`. It is **not** external authentication or a grant of data rights; verification of the terms snapshot and named reviewer remains a separate human gate.
 
-`rights_receipt` reads the register file once. That buffer is parsed and checked with the same validation as `load_registry`, and the SHA-256 and the decision both come from it. The path is not opened again. The schema is `src/harborlens/schemas/v1/source-rights-register.schema.json`, loaded with `importlib.resources` only; parent directories are not searched. A missing, unreadable, oversized, or schema-invalid buffer yields `evaluation=invalid_registry` and `rights_status=review_required`. `jsonschema` is the `rights` extra; if it is missing, the receipt fails closed the same way.
+`rights_receipt` reads the register file once. That buffer is parsed and checked with the same validation as `load_registry`, and the SHA-256 and the decision both come from it. The path is not opened again. The schema is `src/harborlens/schemas/v1/source-rights-register.schema.json`, loaded with `importlib.resources` only; parent directories are not searched. A missing, unreadable, oversized, BOM-prefixed, or schema-invalid buffer yields `evaluation=invalid_registry` and `rights_status=review_required`. `jsonschema` is the `rights` extra; if it is missing, the receipt fails closed the same way.
 
 | Adapter | Fixed source ID | Version identity |
 | --- | --- | --- |
