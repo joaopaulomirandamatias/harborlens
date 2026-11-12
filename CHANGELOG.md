@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: release summary rights_status is an allowlist)
+- `harborlens-release-summary` denies a staged summary whose `rights_status` is missing, `None`, not a string, or outside `APPROVED_STATUSES` (`reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions`). The denial is `ReleaseDenied` and the CLI exits 2 with no traceback and no file. A missing status no longer skips the `conditions_reviewed` requirement. Package version stays `0.2.0.dev9`. Successful release documents are unchanged. Refs #70 (stays open).
+
 ### Changed (SPEC-003: release-review tolerance, one summary evaluation, packaged schemas)
 - Package version `0.2.0.dev9` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. The installed wheel and sdist now contain `public-summary.schema.json`, `publication-review.schema.json`, and `release-verification-result.schema.json` under `harborlens/schemas/v1/`. `read_packaged_release_schema` loads those names with `importlib.resources` only. Any other name is refused. The GovInfo LSA schema stays unpackaged.
 - Ordinary `harborlens` manifests stay byte-identical to `0.2.0.dev8` except `code_version.package_version` and `run_id`. `run_id` is the SHA-256 of settings that include `harborlens_version`, so that digest changes with the version string and no other main-gate field changes. The LSA report's `harborlens_version` is the same version string. A successful release document gains no fields; its `run_id` changes only when the manifest was produced by this version. Runs from `0.2.0.dev8` and `0.2.0.dev9` are not directly comparable. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #70 (stays open). Refs #42 (stays open).

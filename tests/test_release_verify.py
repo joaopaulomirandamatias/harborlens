@@ -401,6 +401,47 @@ class IndependentReleaseVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseVerificationError, "stale"):
             self.verify()
 
+    def test_cli_review_window_edges_use_a_frozen_clock(self):
+        fixed = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)
+        args = [
+            "--release", str(self.out),
+            "--rights-register", str(self.registry),
+            "--expected-rights-register-sha256", self.registry_sha,
+            "--trusted-reviewer-key", str(self.public),
+            "--trusted-reviewer-key-sha256", self.key_sha,
+            "--trusted-reviewer-id", "synthetic-reviewer",
+            "--purpose", self.purpose,
+            "--source-id", self.source_id,
+            "--dataset-version", self.version,
+            "--run-id", "a" * 64,
+            "--expected-summary-sha256", canonical_digest(self.summary),
+        ]
+        with mock.patch("harborlens.release_verify._utcnow", return_value=fixed):
+            for moment in (
+                fixed - timedelta(days=30),
+                fixed + timedelta(minutes=5),
+            ):
+                self.review["reviewed_at_utc"] = moment.isoformat().replace("+00:00", "Z")
+                self._write_signed()
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    main(args)
+                self.assertTrue(json.loads(stdout.getvalue())["verified"], moment.isoformat())
+            for moment, pattern in (
+                (fixed - timedelta(days=30, seconds=1), "stale"),
+                (fixed + timedelta(minutes=5, seconds=1), "future"),
+            ):
+                self.review["reviewed_at_utc"] = moment.isoformat().replace("+00:00", "Z")
+                self._write_signed()
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as caught:
+                        main(args)
+                self.assertEqual(caught.exception.code, 2)
+                message = stderr.getvalue()
+                self.assertIn(pattern, message)
+                self.assertNotIn("Traceback", message)
+
     def test_malformed_file_and_untrusted_summary_rejected(self):
         self.out.write_bytes(b"x" * (128 * 1024 + 1))
         with self.assertRaisesRegex(ReleaseVerificationError, "bounded size"):

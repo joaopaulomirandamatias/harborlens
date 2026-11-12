@@ -29,6 +29,7 @@ from harborlens.publication import (
     REVIEW_FUTURE_TOLERANCE,
     REVIEW_MAX_AGE,
     ReleaseDenied,
+    _stage_release,
     prepare_summary,
     release_summary,
     review_timestamp_is_current,
@@ -323,6 +324,118 @@ class PublicationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseDenied, "stale"):
             self.produce()
         self.assertFalse(self.out.exists())
+
+    def _summary_without_approved_status(self, mutate):
+        """Sign a summary whose rights_status is not an approved string.
+
+        The review digest matches that summary, and conditions_reviewed is
+        false, so a lenient ``.get`` would skip the conditions requirement
+        and stage the file.
+        """
+        self.decide()
+        summary = dict(prepare_summary(self.rundir, self.source, self.registry))
+        mutate(summary)
+        self.approve(summary, conditions=False)
+        return summary
+
+    def _deny_unapproved_status(self, mutate):
+        summary = self._summary_without_approved_status(mutate)
+        with self.assertRaisesRegex(ReleaseDenied, "rights_status"):
+            _stage_release(
+                summary, self.out, self.review,
+                trusted_public_key=self.trusted_key,
+                expected_public_key_sha256=self.trusted_key_sha256,
+                expected_reviewer_id="sample-reviewer",
+            )
+        self.assertFalse(self.out.exists())
+
+    def test_missing_rights_status_is_denied(self):
+        self._deny_unapproved_status(lambda summary: summary.pop("rights_status"))
+
+    def test_none_rights_status_is_denied(self):
+        self._deny_unapproved_status(lambda summary: summary.__setitem__("rights_status", None))
+
+    def test_non_string_rights_status_is_denied(self):
+        self._deny_unapproved_status(lambda summary: summary.__setitem__("rights_status", 1))
+        self.out.unlink(missing_ok=True)
+        self._deny_unapproved_status(lambda summary: summary.__setitem__("rights_status", True))
+
+    def test_unknown_rights_status_is_denied(self):
+        self._deny_unapproved_status(
+            lambda summary: summary.__setitem__("rights_status", "review_required")
+        )
+        self.out.unlink(missing_ok=True)
+        self._deny_unapproved_status(
+            lambda summary: summary.__setitem__("rights_status", "use_restricted")
+        )
+
+    def test_cli_denies_unapproved_rights_status(self):
+        cases = (
+            lambda summary: summary.pop("rights_status"),
+            lambda summary: summary.__setitem__("rights_status", None),
+            lambda summary: summary.__setitem__("rights_status", ["reviewed"]),
+            lambda summary: summary.__setitem__("rights_status", "not-a-status"),
+        )
+        for mutate in cases:
+            if self.out.exists():
+                self.out.unlink()
+            summary = self._summary_without_approved_status(mutate)
+            with mock.patch(
+                "harborlens.publication.prepare_summary", return_value=summary
+            ):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as caught:
+                        release_main(self.release_command())
+            self.assertEqual(caught.exception.code, 2)
+            message = stderr.getvalue()
+            self.assertIn("Release denied", message)
+            self.assertIn("rights_status", message)
+            self.assertNotIn("Traceback", message)
+            self.assertFalse(self.out.exists())
+
+    def test_cli_review_window_edges_use_a_frozen_clock(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        fixed = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)
+        accepted = (
+            fixed - timedelta(days=30),
+            fixed + timedelta(minutes=5),
+        )
+        rejected = (
+            (fixed - timedelta(days=30, seconds=1), "stale"),
+            (fixed + timedelta(minutes=5, seconds=1), "future"),
+        )
+        with mock.patch("harborlens.publication._utcnow", return_value=fixed):
+            for moment in accepted:
+                if self.out.exists():
+                    self.out.unlink()
+                review = self.approve(summary)
+                review["reviewed_at_utc"] = moment.isoformat().replace("+00:00", "Z")
+                self.sign_review(review)
+                self.review.write_text(json.dumps(review), encoding="utf-8")
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    release_main(self.release_command())
+                self.assertTrue(self.out.is_file(), moment.isoformat())
+                self.assertNotIn("Traceback", stdout.getvalue())
+            for moment, pattern in rejected:
+                if self.out.exists():
+                    self.out.unlink()
+                review = self.approve(summary)
+                review["reviewed_at_utc"] = moment.isoformat().replace("+00:00", "Z")
+                self.sign_review(review)
+                self.review.write_text(json.dumps(review), encoding="utf-8")
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as caught:
+                        release_main(self.release_command())
+                self.assertEqual(caught.exception.code, 2)
+                message = stderr.getvalue()
+                self.assertIn("Release denied", message)
+                self.assertIn(pattern, message)
+                self.assertNotIn("Traceback", message)
+                self.assertFalse(self.out.exists())
 
     def test_cli_evaluates_prepare_summary_once_and_reuses_it(self):
         self.decide()

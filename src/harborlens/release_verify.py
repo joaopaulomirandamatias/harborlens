@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 
 from harborlens.provenance import digests_equal
@@ -23,6 +22,7 @@ from harborlens.publication import (
     MIN_VESSELS,
     ReleaseDenied,
     _review_moment,
+    _utcnow,
     review_timestamp_is_current,
     summary_sha256,
 )
@@ -191,7 +191,7 @@ def _validate_review(review, summary, digest, expected_reviewer_id, *,
         raise ReleaseVerificationError(
             "Review timestamp must be an RFC3339 UTC date-time"
         ) from exc
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     try:
         fresh = review_timestamp_is_current(reviewed, now)
     except TypeError as exc:

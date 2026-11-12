@@ -192,6 +192,30 @@ def _review_moment(reviewed_at):
     return moment
 
 
+def _utcnow():
+    """Checker clock. Tests replace this; callers cannot configure it."""
+    return datetime.now(timezone.utc)
+
+
+def _release_rights_status(summary):
+    """Return the summary status only when it is an approved string.
+
+    A missing key, ``None``, a non-string, or any value outside
+    ``APPROVED_STATUSES`` is denied. Absence must not skip the
+    conditions-review requirement.
+    """
+    if not isinstance(summary, dict) or "rights_status" not in summary:
+        raise ReleaseDenied(
+            "Release summary rights_status is missing or not an approved status"
+        )
+    status = summary["rights_status"]
+    if type(status) is not str or status not in APPROVED_STATUSES:
+        raise ReleaseDenied(
+            "Release summary rights_status is missing or not an approved status"
+        )
+    return status
+
+
 def review_timestamp_is_current(moment, now):
     """Return whether ``moment`` sits in the fixed review freshness window.
 
@@ -339,7 +363,7 @@ def _validate_review(path, expected_sha, purpose, needs_conditions, *,
     if type(conditions) is not bool or (needs_conditions and not conditions):
         raise ReleaseDenied("License-specific conditions lack recorded human review")
     moment = _review_moment(review.get("reviewed_at_utc"))
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     try:
         fresh = review_timestamp_is_current(moment, now)
     except TypeError as exc:
@@ -367,10 +391,13 @@ def _stage_release(summary, out, review, *, trusted_public_key,
     if (not isinstance(summary, dict)
             or summary.get("purpose") not in RELEASE_PURPOSES):
         raise ReleaseDenied("Only public_aggregates or commercial release is supported")
+    # Strict subscript after the allowlist. A missing or other status denies
+    # before the conditions flag can be skipped.
+    status = _release_rights_status(summary)
     digest = summary_sha256(summary)
     approval = _validate_review(
         review, digest, summary["purpose"],
-        summary.get("rights_status") == "reviewed_permitted_with_conditions",
+        status == "reviewed_permitted_with_conditions",
         trusted_public_key=trusted_public_key,
         expected_public_key_sha256=expected_public_key_sha256,
         expected_reviewer_id=expected_reviewer_id,

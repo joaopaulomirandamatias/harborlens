@@ -10,6 +10,7 @@ import json
 import unittest
 from importlib.resources import files
 from pathlib import Path
+from unittest import mock
 
 from harborlens.publication import (
     PACKAGED_RELEASE_SCHEMAS,
@@ -53,6 +54,35 @@ class PackagedReleaseSchemaTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "Unknown packaged schema"):
                 read_packaged_release_schema(name)
+
+    def test_disguised_names_raise_without_touching_the_filesystem(self):
+        names = (
+            "/etc/passwd",
+            "/tmp/public-summary.schema.json",
+            "C:\\schemas\\public-summary.schema.json",
+            "public-summary.schema.json\\..\\secrets",
+            "%2e%2e/%2e%2e/public-summary.schema.json",
+            "public-summary%2eschema%2ejson",
+            "PUBLIC-SUMMARY.SCHEMA.JSON",
+            "Public-Summary.schema.json",
+            "public-summary.schema.json\x00",
+            "public-summary.schema.json\x00.json",
+            "..",
+            "../public-summary.schema.json",
+            "v1/../public-summary.schema.json",
+            "schemas/../../public-summary.schema.json",
+            "public-summary.schema.json ",
+            " public-summary.schema.json",
+            "public-summary.schema.json\n",
+            "public-summary.schema.json\t",
+        )
+        with mock.patch("harborlens.publication.files") as packaged, \
+                mock.patch("builtins.open") as opened:
+            for name in names:
+                with self.assertRaisesRegex(ValueError, "Unknown packaged schema"):
+                    read_packaged_release_schema(name)
+            packaged.assert_not_called()
+            opened.assert_not_called()
 
     def test_parent_directory_schema_is_never_consulted(self):
         import harborlens.publication as publication
