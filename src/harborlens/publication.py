@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -16,11 +17,16 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from harborlens.provenance import checksum, verify_manifest
+from harborlens.provenance import checksum, digests_equal, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
 
 MAX_DOCUMENT_BYTES = 1024 * 1024
+# Same 256 MiB output ceiling as archive extraction (MAX_OUTPUT_MIB) and
+# track-context output (MAX_OUTPUT_BYTES). The scale benchmark's synthetic
+# seven-day cleaned CSV is 226.6 MiB, so that density still fits. The release
+# path reads houston_clean.csv once into this bound.
+MAX_CLEANED_RECOUNT_BYTES = 256 * 1024 * 1024
 MIN_OBSERVATIONS = 100
 MIN_VESSELS = 10
 RELEASE_PURPOSES = ("public_aggregates", "commercial")
@@ -109,29 +115,53 @@ def _canonical(value):
     return (encoded + "\n").encode("ascii")
 
 
-def _recount_cleaned(path):
-    """Count retained rows and distinct MMSI groups in verified cleaned AIS.
+def _read_cleaned_once(path):
+    """Read the cleaned CSV once, stopping at the size ceiling plus one byte.
 
-    Suppression floors use these figures. Manifest copies that disagree are denied.
+    The extra byte detects an oversize file without reading the remainder.
+    Callers hash and recount this buffer and must not open the path again.
     """
+    ceiling = MAX_CLEANED_RECOUNT_BYTES
+    try:
+        with Path(path).open("rb") as handle:
+            raw = handle.read(ceiling + 1)
+    except OSError as exc:
+        raise ReleaseDenied("Verified cleaned AIS cannot be recounted") from exc
+    if len(raw) > ceiling:
+        raise ReleaseDenied("Verified cleaned AIS exceeds the recount size ceiling")
+    return raw
+
+
+def _recount_cleaned_bytes(raw):
+    """Count retained rows and distinct MMSI groups in an already-read CSV buffer."""
     observations = 0
     groups = set()
     try:
-        with Path(path).open(newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            if not reader.fieldnames or "mmsi" not in reader.fieldnames:
-                raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
-            for row in reader:
-                mmsi = row.get("mmsi")
-                if not isinstance(mmsi, str) or mmsi == "":
+        with io.BytesIO(raw) as buffer:
+            with io.TextIOWrapper(buffer, encoding="utf-8", newline="") as text:
+                reader = csv.DictReader(text)
+                if not reader.fieldnames or "mmsi" not in reader.fieldnames:
                     raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
-                observations += 1
-                groups.add(mmsi)
+                for row in reader:
+                    mmsi = row.get("mmsi")
+                    if not isinstance(mmsi, str) or mmsi == "":
+                        raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
+                    observations += 1
+                    groups.add(mmsi)
     except ReleaseDenied:
         raise
     except (OSError, UnicodeError, csv.Error) as exc:
         raise ReleaseDenied("Verified cleaned AIS cannot be recounted") from exc
     return observations, len(groups)
+
+
+def _recount_cleaned(path):
+    """Count retained rows and distinct MMSI groups in verified cleaned AIS.
+
+    Suppression floors use these figures. Manifest copies that disagree are denied.
+    The file is read once, under ``MAX_CLEANED_RECOUNT_BYTES``.
+    """
+    return _recount_cleaned_bytes(_read_cleaned_once(path))
 
 
 def _review_moment(reviewed_at):
@@ -157,8 +187,12 @@ def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates")
     manifest_path = run_dir / "manifest.json"
     sidecar_path = source_file.with_name(source_file.name + ".source.json")
     manifest, sidecar = _json_file(manifest_path), _json_file(sidecar_path)
+    # One bounded read. The manifest hash and the recount both use these bytes.
+    cleaned_bytes = _read_cleaned_once(run_dir / "houston_clean.csv")
     try:
-        verified = verify_manifest(manifest_path)
+        verified = verify_manifest(
+            manifest_path, preloaded={"houston_clean.csv": cleaned_bytes}
+        )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ReleaseDenied("Run manifest cannot be verified") from exc
     if not verified.get("ok"):
@@ -168,8 +202,8 @@ def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates")
         file_digest = checksum(source_file)
     except OSError as exc:
         raise ReleaseDenied("Source file cannot be verified") from exc
-    if (file_digest != expected_digest
-            or manifest.get("input_sha256") != file_digest
+    if (not digests_equal(file_digest, expected_digest)
+            or not digests_equal(manifest.get("input_sha256"), file_digest)
             or not HEX64.fullmatch(str(manifest.get("run_id", "")))):
         raise ReleaseDenied("Source, acquisition receipt and analysis input do not match")
     if manifest.get("input_truncated") is not False:
@@ -181,8 +215,8 @@ def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates")
     written = _int_nonnegative(counts.get("written"), "written")
     vessels = _int_nonnegative(events.get("vessels"), "vessels")
     candidates = _int_nonnegative(events.get("stationary_candidates"), "stationary_candidates")
-    # verify_manifest has already checked this file's SHA-256 against the manifest.
-    retained, mmsi_groups = _recount_cleaned(run_dir / "houston_clean.csv")
+    # Same buffer verify_manifest hashed. Do not open houston_clean.csv again.
+    retained, mmsi_groups = _recount_cleaned_bytes(cleaned_bytes)
     if written != retained or vessels != mmsi_groups:
         raise ReleaseDenied(
             "Manifest counts do not match the verified cleaned AIS recount "
@@ -250,7 +284,7 @@ def _validate_review(path, expected_sha, purpose, needs_conditions, *,
             "public_key_sha256", "signature_b64"
         } or review.get("schema_version") != 1
             or review.get("decision") != "approved"
-            or review.get("summary_sha256") != expected_sha
+            or not digests_equal(review.get("summary_sha256"), expected_sha)
             or review.get("purpose") != purpose
             or not isinstance(review.get("reviewer_id"), str)
             or not REVIEWER_ID.fullmatch(review["reviewer_id"])

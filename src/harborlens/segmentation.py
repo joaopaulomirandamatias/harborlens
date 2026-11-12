@@ -16,6 +16,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 
 from harborlens.io_safe import AISInputError
+from harborlens.provenance import digests_equal
 from harborlens.vessel import AttributeSummary, mmsi_category
 
 METHOD_VERSION = "stationary-v0.2"
@@ -85,7 +86,7 @@ class SegmentationParams:
             params = cls(**{item.name: record[item.name] for item in fields(cls)})
         except KeyError as exc:
             raise AISInputError(f"Candidate method parameters missing {exc}") from exc
-        if record.get("parameter_set") != params.parameter_set:
+        if not digests_equal(record.get("parameter_set"), params.parameter_set):
             raise AISInputError("Candidate parameter_set does not match its parameters")
         return params
 

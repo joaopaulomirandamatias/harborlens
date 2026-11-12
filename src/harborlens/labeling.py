@@ -28,7 +28,7 @@ from pathlib import Path
 from harborlens.ais import load_cleaned, parse_time, sha256
 from harborlens.censoring import CENSORED, UNKNOWN, WindowCensoring
 from harborlens.io_safe import AISInputError
-from harborlens.provenance import verify_manifest
+from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
@@ -187,7 +187,7 @@ def _load_run(run_dir):
     candidates = []
     for feature in geo.get("features", []):
         props = feature["properties"]
-        if props.get("parameter_set") != params.parameter_set:
+        if not digests_equal(props.get("parameter_set"), params.parameter_set):
             raise AISInputError("Candidate parameter_set differs from the run manifest")
         candidates.append({**props, "lon": feature["geometry"]["coordinates"][0],
                            "lat": feature["geometry"]["coordinates"][1],

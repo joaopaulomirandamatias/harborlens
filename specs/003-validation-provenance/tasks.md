@@ -42,7 +42,8 @@
 - [x] Implement an opt-in, fail-closed summary-only staging command with live registry revalidation, source/run checksum chain, human release review and coarse suppression floors (pending PR CI and review).
 - [x] Add synthetic attack-path tests, reviewed-release and summary schemas, and a publication-safety design note.
 - [ ] Independent code/security review, real source-rights decisions and operational privacy governance before any public release.
-- [ ] Separately address multi-day source lineage, signed approvals, organizational publication controls and third-party source authentication.
+- [x] Signed reviewer approvals for aggregate release (Ed25519, pinned SPKI fingerprint, `hmac.compare_digest` on pinned digests). Evidence: `src/harborlens/review_signatures.py`, `src/harborlens/publication.py`, `src/harborlens/release_verify.py`, `tests/test_review_signatures.py`. Institutional key custody remains open.
+- [ ] Separately address multi-day source lineage, organizational publication controls and third-party source authentication.
 
 ## Signed reviewer-attestation hardening
 
@@ -64,3 +65,11 @@
 - [x] Verify the `0.2.0.dev5` signed-review format: domain separator `harborlens.publication-review.v1`, `allow_nan=False` canonical bytes shared with `summary_sha256` / `review_message`, and `hmac.compare_digest` fingerprints. Reject `0.2.0.dev4` signatures. Apply the recounted 100-observation and 10-group floors so a manifest scanned count cannot pass alone. Deny a date-only review timestamp and a missing `cryptography` import (exit 2, nothing written). Ed25519 tests use runtime keys, a lazy import, and `unittest.skipUnless`.
 - [x] Exercise legitimate synthetic signed releases, producer interoperability after a cleaned-file recount, source/reviewer/report tampering, invalid/expired/date-only decisions, revoked rights, duplicate keys, weak aggregates, and dev4 signatures.
 - [ ] Confirm CI and independent security/rights review; organize institutional trust distribution and revocation before any real publication. Refs #42 (stays open). Refs #70 (stays open). Refs #71 (stays open).
+
+## Single-buffer recount, size ceiling and constant-time pins
+
+- [x] Read `houston_clean.csv` once into a bounded buffer, hash those bytes, compare them to the manifest, and recount from the same bytes. No second open (SPEC-003, FR-010, NFR-012).
+- [x] Deny a cleaned file above `MAX_CLEANED_RECOUNT_BYTES` (256 MiB, the archive-extraction and track-context output ceiling). The read asks for ceiling + 1 bytes. Exit 2, nothing written.
+- [x] Boundary tests for a stale manifest hash, stale counts at the 100-observation and 10-group boundaries, one open, and the size ceiling at exact size and one byte over. Recount tests that do not need a signature are not gated on `cryptography`.
+- [x] Compare pinned digests, hashes, fingerprints and parameter-set pins with `hmac.compare_digest` on normalized lowercase hex or equal-typed bytes. A mismatched digest exits 2.
+- [x] Document that `harborlens-verify-release` does not recount the cleaned CSV. Refs #70 (stays open). Refs #71 (stays open). Refs #42 (stays open).

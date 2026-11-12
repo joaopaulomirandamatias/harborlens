@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harborlens.io_safe import AISInputError
+from harborlens.provenance import digests_equal
 
 RULE_VERSION = "window-edge-v1"
 CENSORED = "censored"
@@ -91,7 +92,7 @@ def sidecar_window(path, input_sha256):
         keys, source = ("time_start_utc", "time_end_utc", "csv_sha256"), "erddap_sidecar"
     else:
         return None
-    if record.get(keys[2]) != input_sha256:
+    if not digests_equal(record.get(keys[2]), input_sha256):
         raise AnalysisWindowError(
             f"Acquisition sidecar {side.name} does not match the input bytes; "
             "remove it or pass --window-start/--window-end explicitly"

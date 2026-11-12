@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from harborlens.provenance import digests_equal
 from harborlens.publication import (
     CAUTION,
     MIN_OBSERVATIONS,
@@ -139,7 +140,7 @@ def _validate_summary(summary, purpose, source_id, dataset_version, expected_run
             "rights_registry_sha256"):
         if not _hex(summary.get(field)):
             raise ReleaseVerificationError("Summary evidence digest is invalid")
-    if expected_run_id is not None and summary["run_id"] != expected_run_id:
+    if expected_run_id is not None and not digests_equal(summary["run_id"], expected_run_id):
         raise ReleaseVerificationError("Run ID does not match expected study")
     counts = summary.get("counts")
     if not isinstance(counts, dict) or set(counts) != COUNT_FIELDS:
@@ -167,7 +168,7 @@ def _validate_review(review, summary, digest, expected_reviewer_id, *,
         raise ReleaseVerificationError("Signed review has unexpected or missing fields")
     if (review.get("schema_version") != 1
             or review.get("decision") != "approved"
-            or review.get("summary_sha256") != digest
+            or not digests_equal(review.get("summary_sha256"), digest)
             or review.get("purpose") != summary["purpose"]
             or review.get("reviewer_id") != expected_reviewer_id
             or not isinstance(expected_reviewer_id, str)
@@ -235,9 +236,9 @@ def verify_release(
     _validate_summary(summary, expected_purpose, expected_source_id,
                       expected_dataset_version, expected_run_id)
     digest = _canonical_summary_digest(summary)
-    if (doc.get("summary_sha256") != digest or
+    if (not digests_equal(doc.get("summary_sha256"), digest) or
             expected_summary_sha256 is not None
-            and digest != expected_summary_sha256):
+            and not digests_equal(digest, expected_summary_sha256)):
         raise ReleaseVerificationError("Summary was modified or replaced")
     _validate_review(
         signed, summary, digest, expected_reviewer_id,
@@ -251,8 +252,10 @@ def verify_release(
     if (checked.get("evaluation") != "reviewed_record"
             or checked.get("rights_status") != summary["rights_status"]
             or checked.get("rights_status") not in APPROVED_STATUSES
-            or checked.get("registry_sha256") != expected_rights_register_sha256
-            or summary["rights_registry_sha256"] != expected_rights_register_sha256):
+            or not digests_equal(
+                checked.get("registry_sha256"), expected_rights_register_sha256)
+            or not digests_equal(
+                summary["rights_registry_sha256"], expected_rights_register_sha256)):
         raise ReleaseVerificationError("Pinned source-rights snapshot does not authorize scope")
     return {
         "verified": True,

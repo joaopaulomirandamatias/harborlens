@@ -9,10 +9,11 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import hmac
 import json
 import re
 from pathlib import Path
+
+from harborlens.provenance import digests_equal
 
 MAX_PUBLIC_KEY_BYTES = 8192
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -61,9 +62,7 @@ def public_key_fingerprint(public_key_path):
 
 def _fingerprints_equal(left, right):
     """Compare public fingerprints without an early content mismatch return."""
-    if not isinstance(left, str) or not isinstance(right, str) or len(left) != len(right):
-        return False
-    return hmac.compare_digest(left, right)
+    return digests_equal(left, right)
 
 
 def review_message(review):

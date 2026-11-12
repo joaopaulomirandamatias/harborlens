@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: single-buffer recount and constant-time digest pins)
+- `harborlens-release-summary` reads `houston_clean.csv` once into a bounded buffer (`MAX_CLEANED_RECOUNT_BYTES`, 256 MiB, the same output ceiling as archive extraction and track-context). SHA-256 of those exact bytes is compared with the manifest, and the retained-observation and MMSI-group recount uses the same buffer. There is no second open between the hash and the recount. A file larger than the ceiling is detected by reading ceiling + 1 bytes, then the command exits 2 and writes nothing.
+- A manifest hash or `counts.written` / `events.vessels` value that does not match that buffer exits 2 and writes nothing. Recount tests that do not need a signature run without the optional `cryptography` extra.
+- Pinned digest, hash, fingerprint and parameter-set comparisons use `hmac.compare_digest` on normalized lowercase hex or equal-typed bytes. A mismatched digest exits 2 and writes nothing.
+- Package version `0.2.0.dev7`. Ordinary manifests change because `run_id` hashes `harborlens_version`, and `code_version.package_version` records it. The new oversize denial is an additional exit path. Runs from `0.2.0.dev6` and `0.2.0.dev7` are not directly comparable. No source rights are granted. A recounted cohort is not a berth, anchorage, wait, port call, or accuracy claim. Refs #70 (stays open). Refs #71 (stays open). Refs #42 (stays open).
+
+### Added (SPEC-003: independent verifier known limitation)
+- `docs/data/independent-release-verification.md` records that `harborlens-verify-release` does not recount the cleaned AIS CSV. The Ed25519 review attests the counts. Successful results keep `verification_scope=signed_release_and_pinned_rights_only`. A signed retained count inflated above the 100-observation and 10-group floors is not detectable without the CSV. Anyone holding `houston_clean.csv` must recount through the release path.
+
 ### Added (SPEC-003: independent signed-release verification)
 - New offline, read-only `harborlens-verify-release` checks a staged aggregate without AIS input. It reuses `summary_sha256` (`allow_nan=False` canonical bytes) and `verify_review_signature`. The Ed25519 message is the domain separator `harborlens.publication-review.v1`, a newline, then the canonical review JSON. Signatures from `0.2.0.dev4`, which omit that separator, are rejected. Pinned SPKI fingerprints use `hmac.compare_digest`.
 - Aggregate floors are the recounted publication floors: 100 retained observations and 10 MMSI groups. A large `observations_scanned` value copied from a manifest does not pass when the retained recount or the MMSI-group recount is below those floors. A date-only `reviewed_at_utc` is denied. A missing `cryptography` import exits 2 and writes nothing. Tests that need Ed25519 skip with `unittest.skipUnless` and a lazy import.
