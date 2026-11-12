@@ -8,10 +8,12 @@ that are not gitignored, so a planted negative uses the same path. Paths are
 classified relative to the repository root. A binary file (a NUL byte, or
 bytes that are not UTF-8) is skipped and counted.
 
-A candidate is nine ASCII-or-Unicode digits bounded by a non-digit and not
-preceded by ``.``. A longer digit run does not match. The MID is the first
-three digits. The previous guard did not read digits 2-4 of a leading-0 or
-leading-9 form, and this guard does not either.
+A candidate is nine digits bounded by a non-digit. A longer digit run does
+not match. Nine digits are a decimal fraction only when a digit precedes the
+dot (``29.123456789``). A dot that is not part of a decimal (``id.`` before
+nine digits) still matches. The MID is the first three digits. The previous
+guard did not read digits 2-4 of a leading-0 or leading-9 form, and this
+guard does not either.
 
 The repository scan applies that rule to the raw text. It is not limited to
 an ``mmsi`` column, a ``vessel_id`` column, or a JSON key named ``mmsi``.
@@ -29,10 +31,10 @@ Exclusions are file-exact or context-based. Each one has a written reason.
 * A nine-digit run inside a hexadecimal run of 64 or more characters is a
   SHA-256 digest or a longer hex blob, not a vessel id. A standalone token
   in the same file still fails.
-* A nine-digit token is ignored only on a line that sets ``mmap_size``
-  (``PRAGMA mmap_size=`` or ``mmap_size =``). In
-  ``tests/multiday_memory_probe.py`` that line is a 256 MiB byte count.
-  The same digits in any other line fail.
+* The value assigned by a whole-word ``mmap_size`` is ignored. In
+  ``tests/multiday_memory_probe.py`` that value is a 256 MiB byte count
+  (``PRAGMA mmap_size=`` or ``mmap_size =``). Only the token that starts
+  immediately after the ``=`` is ignored. The same digits anywhere else fail.
 
 The byte-identity proof starts from the dev9 goldens, applies
 ``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
@@ -64,11 +66,15 @@ MAP_SOURCE = ROOT / "tests" / "synthetic_id_map.py"
 
 ASSIGNED_MID_LOW = 201
 ASSIGNED_MID_HIGH = 775
-# Nine digits, not part of a longer digit run, and not a decimal fraction.
-# A '.' immediately before the digits is a fractional part and is not a token.
-TOKEN_9 = re.compile(r"(?<![\d.])(\d{9})(?!\d)")
-# An f-string whose literal digit prefix selects an assigned MID has no nine-digit token.
-FSTRING_PREFIX = re.compile(r"""f(?P<quote>['"])(?P<prefix>\d{3,8})\{""")
+# Nine digits, not part of a longer digit run. A decimal fraction is nine
+# digits after a digit and a dot (``(?<!\d\.)``). Any other dot still matches.
+TOKEN_9 = re.compile(r"(?<!\d\.)(?<!\d)(\d{9})(?!\d)")
+# An f-string whose literal digit prefix selects an assigned MID has no
+# nine-digit token until runtime. Covers f/F, fr/rf in either case, and
+# single or triple quotes. A raw string with no f is not a match.
+FSTRING_PREFIX = re.compile(
+    r"""(?<![A-Za-z0-9_])(?:[fF][rR]?|[rR][fF])(?P<quote>'''|\"\"\"|['\"])(?P<prefix>\d{3,8})\{"""
+)
 # SHA-256 is 64 hex characters. Longer hex blobs are ignored the same way.
 HEX_BLOB = re.compile(r"[0-9a-fA-F]{64,}")
 FORBIDDEN_PREFIXES = ("111", "970", "972", "974", "98", "99", "0")
@@ -121,9 +127,11 @@ CONTEXT_EXCLUSIONS = (
     ),
     (
         "mmap-size-assignment",
-        "A nine-digit token on a line that assigns mmap_size is a byte count. "
-        "In tests/multiday_memory_probe.py that value is 256 MiB. The same "
-        "digits on any other line, in an MMSI column, or in a JSON value fail.",
+        "The nine-digit value assigned by a whole-word mmap_size is a byte "
+        "count. Only the token that starts immediately after mmap_size = is "
+        "ignored. In tests/multiday_memory_probe.py that value is 256 MiB. "
+        "The same digits in not_mmap_size, earlier on the line, or in any "
+        "other assignment still fail.",
     ),
 )
 
@@ -133,7 +141,7 @@ VERIFY_ARTIFACTS = (
     "stationary_candidates.csv",
     "stationary_candidates.geojson",
 )
-MMAP_SIZE_ASSIGNMENT = re.compile(r"mmap_size\s*=")
+MMAP_SIZE_ASSIGNMENT = re.compile(r"\bmmap_size\s*=\s*")
 
 
 def mid_is_assigned(mid):
@@ -211,14 +219,6 @@ def _inside_hex_blob(text, start, end):
     return False
 
 
-def _line_containing(text, offset):
-    start = text.rfind("\n", 0, offset) + 1
-    end = text.find("\n", offset)
-    if end < 0:
-        end = len(text)
-    return text[start:end]
-
-
 def text_hits(text):
     """Assigned-MID tokens in any text.
 
@@ -226,18 +226,21 @@ def text_hits(text):
     move the MID to digits 2-4; the previous guard did not do that.
 
     A nine-digit token inside a hex run of 64 or more characters is not a
-    vessel id (``hex-run-64-or-longer``). A token on a line that assigns
-    ``mmap_size`` is a byte count (``mmap-size-assignment``). The same digits
-    outside that context are a hit. An f-string prefix whose first three
-    digits are an assigned MID is a hit even when the format field completes
-    the nine digits at runtime.
+    vessel id (``hex-run-64-or-longer``). The token that starts immediately
+    after a whole-word ``mmap_size`` assignment is a byte count
+    (``mmap-size-assignment``). The same digits outside that value are a hit.
+    An f-string prefix whose first three digits are an assigned MID is a hit
+    even when the format field completes the nine digits at runtime. The
+    prefix may be ``f`` or ``F``, with an optional ``r`` on either side, and
+    the quote may be single or triple.
     """
     hits = []
+    mmap_values = {match.end() for match in MMAP_SIZE_ASSIGNMENT.finditer(text)}
     for match in TOKEN_9.finditer(text):
         token = match.group(1)
         if _inside_hex_blob(text, match.start(), match.end()):
             continue
-        if MMAP_SIZE_ASSIGNMENT.search(_line_containing(text, match.start())):
+        if match.start() in mmap_values:
             continue
         if mid_is_assigned(token[:3]):
             hits.append(token)
@@ -744,12 +747,44 @@ class TokenRuleTests(unittest.TestCase):
         self.assertEqual(text_hits(f"{ten} {bare}"), [bare])
 
     def test_decimal_fraction_does_not_fire(self):
-        self.assertEqual(text_hits("29.123456789"), [])
         planted = "367" + "123456"
+        self.assertEqual(text_hits("29.123456789"), [])
+        self.assertEqual(text_hits("-29.123456789"), [])
+        self.assertEqual(text_hits("1." + planted), [])
         self.assertEqual(text_hits("29." + planted), [])
         self.assertEqual(text_hits("lat 29.123456789 lon"), [])
         self.assertEqual(text_hits(planted + ".12"), [planted])
         self.assertEqual(text_hits("29.123456789 " + planted), [planted])
+
+    def test_dot_without_a_preceding_digit_still_fires(self):
+        planted = "367" + "123456"
+        samples = (
+            "id." + planted,
+            "vessel." + planted,
+            "..." + planted,
+            "https://example.com/id." + planted,
+            "foo/bar." + planted,
+        )
+        for sample in samples:
+            self.assertEqual(text_hits(sample), [planted], sample)
+
+    def test_fstring_prefix_variants_with_an_assigned_mid_fire(self):
+        mid = "367"
+        self.assertTrue(mid_is_assigned(int(mid)))
+        openers = (
+            "f'", 'f"', "F'", 'F"',
+            "fr'", 'fr"', "Fr'", 'Fr"', "fR'", 'fR"', "FR'", 'FR"',
+            "rf'", 'rf"', "Rf'", 'Rf"', "rF'", 'rF"', "RF'", 'RF"',
+            'f"""', "f'''", 'F"""', "F'''",
+            'fr"""', "fr'''", 'rf"""', "RF'''",
+        )
+        expected = mid + "{...}"
+        for opener in openers:
+            text = opener + mid + "{n}"
+            self.assertIn(expected, text_hits(text), opener)
+        self.assertEqual(text_hits('"' + mid + '{n}"'), [])
+        self.assertEqual(text_hits("r'" + mid + "{n}'"), [])
+        self.assertEqual(text_hits('f"199{n}"'), [])
 
     def test_leading_zero_and_leading_nine_do_not_use_digits_2_to_4(self):
         group = "0" + "367" + "12345"
@@ -801,6 +836,11 @@ class GuardScanTests(unittest.TestCase):
             [],
         )
         self.assertEqual(python_source_hits(f"mmap_size = {token}\n"), [])
+        # The assigned value is exempt. These three are not that value.
+        other = "367" + "123456"
+        self.assertEqual(text_hits("not_mmap_size = " + other), [other])
+        self.assertEqual(text_hits("mmsi = " + other + "; mmap_size = 0"), [other])
+        self.assertEqual(text_hits(other + "  # mmap_size = 1"), [other])
         # Same digits, not an mmap_size assignment: the guard fails.
         self.assertEqual(python_source_hits(f'mmsi = "{token}"\n'), [token])
         self.assertEqual(python_source_hits(f"value = {token}\n"), [token])
