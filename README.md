@@ -30,6 +30,14 @@ python -m pip install -e '.[rights]'
 
 Without `jsonschema`, the helper exits 2 and does not grant a decision. No checked-in source is approved. See [the rights register](docs/data/rights-register.md).
 
+## Aggregate release gate (SPEC-003)
+
+`harborlens-release-summary` stages a coarse allowlisted count summary only after the current purpose-specific rights decision and a signed human review of that exact summary. `harborlens-verify-release` re-checks the staged file without reading AIS. Neither command approves a source. A stationary candidate in the underlying run is not a berth, anchorage, wait, port call, or accuracy claim. The checked-in rights register keeps every source at `review_required`, so this gate denies a real release.
+
+`reviewed_at_utc` must be an RFC3339 UTC date-time. It is accepted only when it is not older than 30 days and not more than 5 minutes ahead of the checker clock. Those 5 minutes are a fixed clock-skew allowance, not a configuration knob. A date-only value is rejected.
+
+The contracts are [public-summary](schemas/v1/public-summary.schema.json), [publication-review](schemas/v1/publication-review.schema.json), and [release-verification-result](schemas/v1/release-verification-result.schema.json). The same bytes ship in the wheel and sdist under `harborlens/schemas/v1/` and load with `importlib.resources` (`read_packaged_release_schema`). See [the publication gate](docs/data/aggregate-publication-gate.md) and [schemas/README.md](schemas/README.md).
+
 [Specification-driven process](docs/engineering/spec-driven-development.md) · [Requirements](docs/requirements/functional.md) · [Open-source versus paid scope](docs/product/open-core.md). No real-world AIS accuracy or commercial product is claimed.
 
 Sources: [NOAA AIS](https://marinecadastre.gov/ais/), [USACE](https://www.iwr.usace.army.mil/About/Technical-Centers/WCSC-Waterborne-Commerce-Statistics-Center/), [BTS](https://www.bts.gov/ports), [EPA emissions guidance](https://www.epa.gov/state-and-local-transportation/port-emissions-inventory-guidance).

@@ -15,6 +15,7 @@ import os
 import re
 import tempfile
 from datetime import datetime, timedelta, timezone
+from importlib.resources import files
 from pathlib import Path
 
 from harborlens.provenance import checksum, digests_equal, verify_manifest
@@ -29,6 +30,18 @@ MAX_DOCUMENT_BYTES = 1024 * 1024
 MAX_CLEANED_RECOUNT_BYTES = 256 * 1024 * 1024
 MIN_OBSERVATIONS = 100
 MIN_VESSELS = 10
+# Fixed review freshness window. Not a configuration knob.
+# A timestamp may be at most REVIEW_FUTURE_TOLERANCE ahead of the checker
+# clock. That allowance is clock skew. Older than REVIEW_MAX_AGE is stale.
+REVIEW_MAX_AGE = timedelta(days=30)
+REVIEW_FUTURE_TOLERANCE = timedelta(minutes=5)
+# Release-gate contracts shipped in the wheel. The rights register schema
+# stays on its own loader. Other research schemas are not packaged.
+PACKAGED_RELEASE_SCHEMAS = (
+    "public-summary.schema.json",
+    "publication-review.schema.json",
+    "release-verification-result.schema.json",
+)
 RELEASE_PURPOSES = ("public_aggregates", "commercial")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 REVIEWER_ID = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
@@ -179,6 +192,36 @@ def _review_moment(reviewed_at):
     return moment
 
 
+def review_timestamp_is_current(moment, now):
+    """Return whether ``moment`` sits in the fixed review freshness window.
+
+    Inclusive bounds are ``now - 30 days`` through ``now + 5 minutes``.
+    The five minutes are a fixed clock-skew allowance, not a setting.
+    Comparing a naive ``moment`` with an aware ``now`` raises ``TypeError``.
+    Callers deny the review in that case.
+    """
+    return now - REVIEW_MAX_AGE <= moment <= now + REVIEW_FUTURE_TOLERANCE
+
+
+def read_packaged_release_schema(name):
+    """Read one release-gate schema shipped inside this package.
+
+    ``importlib.resources`` only. A name outside ``PACKAGED_RELEASE_SCHEMAS``
+    is refused, including a path. Parent directories are not searched.
+    """
+    if name not in PACKAGED_RELEASE_SCHEMAS:
+        raise ValueError("Unknown packaged schema")
+    try:
+        text = files("harborlens").joinpath(
+            "schemas", "v1", name
+        ).read_text(encoding="utf-8")
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise ValueError("Packaged schema is unreadable") from exc
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Packaged schema is unreadable")
+    return text
+
+
 def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates"):
     """Verify artifacts, review rights and construct a non-published summary."""
     if purpose not in RELEASE_PURPOSES:
@@ -298,7 +341,7 @@ def _validate_review(path, expected_sha, purpose, needs_conditions, *,
     moment = _review_moment(review.get("reviewed_at_utc"))
     now = datetime.now(timezone.utc)
     try:
-        fresh = now - timedelta(days=30) <= moment <= now + timedelta(minutes=5)
+        fresh = review_timestamp_is_current(moment, now)
     except TypeError as exc:
         raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time") from exc
     if not fresh:
@@ -315,18 +358,19 @@ def _validate_review(path, expected_sha, purpose, needs_conditions, *,
     return review
 
 
-def release_summary(run_dir, source_file, register, out, review,
-                    purpose="public_aggregates", *, trusted_public_key=None,
-                    expected_public_key_sha256=None, expected_reviewer_id=None):
-    """Create a reviewed, sanitized local release JSON; never auto-upload it."""
+def _stage_release(summary, out, review, *, trusted_public_key,
+                   expected_public_key_sha256, expected_reviewer_id):
+    """Write one already prepared summary. Does not call ``prepare_summary``."""
     out = Path(out)
     if out.suffix.lower() != ".json" or out.is_file() or out.is_symlink():
         raise ReleaseDenied("Output must be a new JSON file")
-    summary = prepare_summary(run_dir, source_file, register, purpose)
+    if (not isinstance(summary, dict)
+            or summary.get("purpose") not in RELEASE_PURPOSES):
+        raise ReleaseDenied("Only public_aggregates or commercial release is supported")
     digest = summary_sha256(summary)
     approval = _validate_review(
-        review, digest, purpose,
-        summary["rights_status"] == "reviewed_permitted_with_conditions",
+        review, digest, summary["purpose"],
+        summary.get("rights_status") == "reviewed_permitted_with_conditions",
         trusted_public_key=trusted_public_key,
         expected_public_key_sha256=expected_public_key_sha256,
         expected_reviewer_id=expected_reviewer_id,
@@ -356,9 +400,33 @@ def release_summary(run_dir, source_file, register, out, review,
     return result
 
 
+def release_summary(run_dir, source_file, register, out, review,
+                    purpose="public_aggregates", *, trusted_public_key=None,
+                    expected_public_key_sha256=None, expected_reviewer_id=None):
+    """Create a reviewed, sanitized local release JSON; never auto-upload it.
+
+    ``prepare_summary`` runs once. The staged file is that result.
+    """
+    out = Path(out)
+    if out.suffix.lower() != ".json" or out.is_file() or out.is_symlink():
+        raise ReleaseDenied("Output must be a new JSON file")
+    summary = prepare_summary(run_dir, source_file, register, purpose)
+    return _stage_release(
+        summary, out, review,
+        trusted_public_key=trusted_public_key,
+        expected_public_key_sha256=expected_public_key_sha256,
+        expected_reviewer_id=expected_reviewer_id,
+    )
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Offline rights-gated aggregate release (NOT raw AIS export)"
+        description=(
+            "Offline rights-gated aggregate release (NOT raw AIS export). "
+            "reviewed_at_utc must be an RFC3339 UTC date-time no older than "
+            "30 days and at most 5 minutes ahead of this clock. The 5 minutes "
+            "are a fixed clock-skew allowance."
+        )
     )
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--source-file", required=True, type=Path)
@@ -372,8 +440,12 @@ def main(argv=None):
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     try:
+        # One prepare_summary for this process. Dry-run prints its digest.
+        # A real staging reuses that same object and does not compute it again.
         summary = prepare_summary(args.run, args.source_file,
                                   args.rights_register, args.purpose)
+        if summary.get("purpose") != args.purpose:
+            raise ReleaseDenied("Prepared summary purpose does not match the request")
         digest = summary_sha256(summary)
         if args.dry_run:
             print(json.dumps({"decision": "requires_human_release_review",
@@ -389,12 +461,12 @@ def main(argv=None):
                 "--trusted-reviewer-key-sha256 and --trusted-reviewer-id "
                 "are required without --dry-run"
             )
-        release = release_summary(args.run, args.source_file,
-                                  args.rights_register, args.out, args.review,
-                                  args.purpose,
-                                  trusted_public_key=args.trusted_reviewer_key,
-                                  expected_public_key_sha256=args.trusted_reviewer_key_sha256,
-                                  expected_reviewer_id=args.trusted_reviewer_id)
+        release = _stage_release(
+            summary, args.out, args.review,
+            trusted_public_key=args.trusted_reviewer_key,
+            expected_public_key_sha256=args.trusted_reviewer_key_sha256,
+            expected_reviewer_id=args.trusted_reviewer_id,
+        )
         print(json.dumps({"decision": "locally_staged_not_uploaded",
                           "summary_sha256": release["summary_sha256"],
                           "output": str(args.out)}, indent=2))

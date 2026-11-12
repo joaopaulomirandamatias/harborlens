@@ -375,6 +375,32 @@ class IndependentReleaseVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseVerificationError, "stale"):
             self.verify()
 
+    def test_future_skew_accepts_four_minutes_and_denies_six(self):
+        self.review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=4)
+        ).isoformat().replace("+00:00", "Z")
+        self._write_signed()
+        self.assertTrue(self.verify()["verified"])
+        self.review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=6)
+        ).isoformat().replace("+00:00", "Z")
+        self._write_signed()
+        with self.assertRaisesRegex(ReleaseVerificationError, "future"):
+            self.verify()
+
+    def test_review_age_window_is_thirty_days(self):
+        self.review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) - timedelta(days=30) + timedelta(seconds=2)
+        ).isoformat().replace("+00:00", "Z")
+        self._write_signed()
+        self.assertTrue(self.verify()["verified"])
+        self.review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) - timedelta(days=30, seconds=2)
+        ).isoformat().replace("+00:00", "Z")
+        self._write_signed()
+        with self.assertRaisesRegex(ReleaseVerificationError, "stale"):
+            self.verify()
+
     def test_malformed_file_and_untrusted_summary_rejected(self):
         self.out.write_bytes(b"x" * (128 * 1024 + 1))
         with self.assertRaisesRegex(ReleaseVerificationError, "bounded size"):
@@ -402,22 +428,33 @@ class IndependentReleaseVerificationTests(unittest.TestCase):
 
     def test_release_review_schemas_match_fixture(self):
         from jsonschema import Draft202012Validator
-        review_schema = json.loads(
-            (ROOT / "schemas/v1/publication-review.schema.json").read_text()
+        from harborlens.publication import read_packaged_release_schema
+        review_text = read_packaged_release_schema("publication-review.schema.json")
+        release_text = read_packaged_release_schema("public-summary.schema.json")
+        self.assertEqual(
+            review_text,
+            (ROOT / "schemas/v1/publication-review.schema.json").read_text(encoding="utf-8"),
         )
-        release_schema = json.loads(
-            (ROOT / "schemas/v1/public-summary.schema.json").read_text()
+        self.assertEqual(
+            release_text,
+            (ROOT / "schemas/v1/public-summary.schema.json").read_text(encoding="utf-8"),
         )
-        Draft202012Validator(review_schema).validate(self.review)
-        Draft202012Validator(release_schema).validate(
+        Draft202012Validator(json.loads(review_text)).validate(self.review)
+        Draft202012Validator(json.loads(release_text)).validate(
             json.loads(self.out.read_text(encoding="utf-8"))
         )
 
     def test_verification_result_matches_versioned_contract(self):
         from jsonschema import Draft202012Validator
-        schema = json.loads(
-            (ROOT / "schemas/v1/release-verification-result.schema.json").read_text()
+        from harborlens.publication import read_packaged_release_schema
+        text = read_packaged_release_schema("release-verification-result.schema.json")
+        self.assertEqual(
+            text,
+            (ROOT / "schemas/v1/release-verification-result.schema.json").read_text(
+                encoding="utf-8"
+            ),
         )
+        schema = json.loads(text)
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(self.verify())
 

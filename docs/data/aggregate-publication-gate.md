@@ -45,7 +45,7 @@ Create a **signed local** review JSON from the exact proposed summary fingerprin
 }
 ```
 
-The reviewer must check **data rights, privacy, scientific limitations and any special license conditions**. Fields in the example are placeholders, not a valid signature. The review must be signed offline using a reviewer-controlled Ed25519 private key; see [signed review and trust-root procedure](signed-release-review.md). The publisher independently pins the reviewer's public-key fingerprint and identity. The Ed25519-signed reviewer decision must match the exact summary digest/purpose, expected public-key fingerprint, reviewer identity and be recent (within 30 days); an altered registry or output manifests produces a different digest and requires another review.
+The reviewer must check **data rights, privacy, scientific limitations and any special license conditions**. Fields in the example are placeholders, not a valid signature. The review must be signed offline using a reviewer-controlled Ed25519 private key; see [signed review and trust-root procedure](signed-release-review.md). The publisher independently pins the reviewer's public-key fingerprint and identity. The Ed25519-signed reviewer decision must match the exact summary digest/purpose, expected public-key fingerprint, and reviewer identity. `reviewed_at_utc` must be an RFC3339 UTC date-time. It is accepted when it is not older than 30 days and not more than 5 minutes ahead of the checker clock, inclusive. Those 5 minutes are a fixed clock-skew allowance, not a configuration knob. A timestamp further ahead is denied as in the future. A date-only value is denied. An altered registry or output manifest produces a different digest and requires another review. The command evaluates `prepare_summary` once per invocation and stages that same summary.
 
 To **stage a local release only**, supply that review JSON:
 
@@ -74,6 +74,6 @@ The command writes a single non-overwriting JSON file with `summary`, `summary_s
 
 **Important:** `harborlens`, `harborlens-multiday` and existing acquisition adapters still export their own local research artifacts; this new command governs **only releases made through it**. It does not pretend to prevent manual copies or all other CLI outputs.
 
-**Validation:** `python -m unittest discover -s tests -v`, in a checkout with `pip install -e '.[noaa,dev,geo]'`. New tests are synthetic-only; no network access or real AIS is needed. Reference schemas: `schemas/v1/publication-review.schema.json`, `schemas/v1/public-summary.schema.json`.
+**Validation:** `python -m unittest discover -s tests -v`, in a checkout with `pip install -e '.[noaa,dev,geo]'`. New tests are synthetic-only; no network access or real AIS is needed. Reference schemas: `schemas/v1/publication-review.schema.json`, `schemas/v1/public-summary.schema.json`. The same bytes are packaged at `src/harborlens/schemas/v1/` and load with `importlib.resources` (`read_packaged_release_schema`). `schemas/v1/release-verification-result.schema.json` is packaged the same way.
 
 **NOT FOR NAVIGATION.**

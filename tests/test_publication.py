@@ -26,8 +26,14 @@ from harborlens.erddap import fetch_subset
 from harborlens.archive_extract import extract_archive
 from harborlens.provenance import checksum
 from harborlens.publication import (
-    ReleaseDenied, prepare_summary, release_summary, summary_sha256,
-    main as release_main
+    REVIEW_FUTURE_TOLERANCE,
+    REVIEW_MAX_AGE,
+    ReleaseDenied,
+    prepare_summary,
+    release_summary,
+    review_timestamp_is_current,
+    summary_sha256,
+    main as release_main,
 )
 from harborlens.rights import rights_receipt
 from harborlens.review_signatures import (
@@ -275,6 +281,95 @@ class PublicationGateTests(unittest.TestCase):
         self.review.write_text(json.dumps(review))
         with self.assertRaisesRegex(ReleaseDenied, "stale"):
             self.produce()
+
+    def test_review_window_accepts_four_minutes_ahead_and_thirty_days(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=4)
+        ).isoformat().replace("+00:00", "Z")
+        self.sign_review(review)
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        self.produce()
+        self.out.unlink()
+        review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) - timedelta(days=30) + timedelta(seconds=2)
+        ).isoformat().replace("+00:00", "Z")
+        self.sign_review(review)
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        staged = self.produce()
+        self.assertEqual(
+            staged["release_review"]["reviewed_at_utc"],
+            review["reviewed_at_utc"],
+        )
+
+    def test_review_six_minutes_ahead_or_past_thirty_days_is_denied(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=6)
+        ).isoformat().replace("+00:00", "Z")
+        self.sign_review(review)
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        with self.assertRaisesRegex(ReleaseDenied, "future"):
+            self.produce()
+        review["reviewed_at_utc"] = (
+            datetime.now(timezone.utc) - timedelta(days=30, seconds=2)
+        ).isoformat().replace("+00:00", "Z")
+        self.sign_review(review)
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        with self.assertRaisesRegex(ReleaseDenied, "stale"):
+            self.produce()
+        self.assertFalse(self.out.exists())
+
+    def test_cli_evaluates_prepare_summary_once_and_reuses_it(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.approve(summary)
+        seen = []
+
+        def spy(*args, **kwargs):
+            value = prepare_summary(*args, **kwargs)
+            seen.append(value)
+            return value
+
+        with mock.patch(
+            "harborlens.publication.prepare_summary", side_effect=spy
+        ) as prepared, mock.patch(
+            "harborlens.publication.rights_receipt", wraps=rights_receipt
+        ) as receipt:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                release_main(self.release_command())
+            self.assertEqual(prepared.call_count, 1)
+            self.assertEqual(receipt.call_count, 1)
+            self.assertEqual(len(seen), 1)
+            staged = json.loads(self.out.read_text(encoding="utf-8"))
+            self.assertEqual(staged["summary"], seen[0])
+            self.assertEqual(staged["summary_sha256"], summary_sha256(seen[0]))
+            response = json.loads(output.getvalue())
+            self.assertEqual(response["summary_sha256"], staged["summary_sha256"])
+            prepared.reset_mock()
+            receipt.reset_mock()
+            seen.clear()
+            dry = [
+                "--run", str(self.rundir),
+                "--source-file", str(self.source),
+                "--rights-register", str(self.registry),
+                "--dry-run",
+            ]
+            dry_out = io.StringIO()
+            with contextlib.redirect_stdout(dry_out):
+                release_main(dry)
+            self.assertEqual(prepared.call_count, 1)
+            self.assertEqual(receipt.call_count, 1)
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(
+                json.loads(dry_out.getvalue())["summary_sha256"],
+                summary_sha256(seen[0]),
+            )
 
     def test_license_conditions_need_explicit_review(self):
         self.decide(restricted=True)
@@ -993,6 +1088,26 @@ class CleanedRecountWithoutSignatureTests(unittest.TestCase):
         self.assertIn("modified or replaced", message)
         self.assertNotIn('"verified": true', stdout.getvalue())
         self.assertFalse(self.out.exists())
+
+
+class ReviewFreshnessTests(unittest.TestCase):
+    """The 5-minute future allowance and 30-day age are fixed bounds."""
+
+    def test_inclusive_edges_and_one_microsecond_outside(self):
+        self.assertEqual(REVIEW_FUTURE_TOLERANCE, timedelta(minutes=5))
+        self.assertEqual(REVIEW_MAX_AGE, timedelta(days=30))
+        now = datetime(2026, 11, 12, 12, 0, tzinfo=timezone.utc)
+        self.assertTrue(review_timestamp_is_current(now, now))
+        self.assertTrue(review_timestamp_is_current(now + timedelta(minutes=5), now))
+        self.assertFalse(review_timestamp_is_current(
+            now + timedelta(minutes=5, microseconds=1), now
+        ))
+        self.assertTrue(review_timestamp_is_current(now - timedelta(days=30), now))
+        self.assertFalse(review_timestamp_is_current(
+            now - timedelta(days=30, microseconds=1), now
+        ))
+        with self.assertRaises(TypeError):
+            review_timestamp_is_current(datetime(2026, 11, 12, 12, 0), now)
 
 
 if __name__ == "__main__":
