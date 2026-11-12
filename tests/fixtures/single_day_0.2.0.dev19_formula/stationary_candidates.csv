@@ -1,0 +1,44 @@
+event_id,mmsi,start_utc,end_utc,duration_min,point_count,centroid_lon,centroid_lat,maximum_distance_m,type,method_version,parameter_set,confidence_label,left_censoring,right_censoring,vessel_type,transceiver_class,length_m,draft_m,mmsi_category
+56ae1e0152c8944d65,199010001,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.4,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'=cmd,,,,other
+02834e39508b16b124,199010002,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.42,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'+cmd,,,,other
+60c3ea2fc9b404c518,199010003,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.44,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'-cmd,,,,other
+464fb2813d2e67b0f2,199010004,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.46,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'@SUM(A1),,,,other
+ac63f6f0357fb3c673,199010005,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.48,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'	cmd,,,,other
+f2ccbe31a390ddcb31,199010006,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.5,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,"'cmd",,,,other
+c6e3902123a9795a50,199010007,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.52,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'＝cmd,,,,other
+e0dc3c2ccd717f785e,199010008,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.54,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'＋cmd,,,,other
+190daae583ab6436da,199010009,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.56,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'－cmd,,,,other
+ff5bc399a97bed55c6,199010010,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.58,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'＠cmd,,,,other
+6243027fe75c35f545,199010011,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.6,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'﻿=1+1,,,,other
+967167ed1af5c2d668,199010012,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.62,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'​@SUM,,,,other
+c4226943d38bfe4a68,199010013,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.64,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'abc,,,,other
+6c0c66e1b3c936ba2a,199010014,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.66,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,''=x,,,,other
+e6f5604f83b723dc3a,199010015,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.68,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'''=x,,,,other
+a4fe45f2f718a4aef2,199010016,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.7,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,' +1,,,,other
+b55e733dd8a016462d,199010017,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.72,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,70,,,,other
+adafc96310e23bf86d,199010018,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.74,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'  =cmd,,,,other
+b395f6870a439d203e,199010019,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.755,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‌=cmd,,,,other
+69c6dcd0455babb5c4,199010020,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.762,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‍=cmd,,,,other
+5f4560f8c84592c60e,199010021,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.769,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‎=cmd,,,,other
+1cf460b18d731e2114,199010022,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.776,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‏=cmd,,,,other
+7f128bc1dcac8ef75e,199010023,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.783,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁠=cmd,,,,other
+beb868cde8c98ff02b,199010024,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.79,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁡=cmd,,,,other
+6f55506276ee6fa28c,199010025,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.797,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁢=cmd,,,,other
+3d6f91ace22f0887df,199010026,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.804,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁣=cmd,,,,other
+fbd790e94f6e43d130,199010027,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.811,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁤=cmd,,,,other
+20538357f160b64195,199010028,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.818,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁪=cmd,,,,other
+c0e7ff7099dc11aaab,199010029,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.825,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁫=cmd,,,,other
+468a347152d97ffc20,199010030,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.832,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁬=cmd,,,,other
+4b0487a6f9055be45d,199010031,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.839,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁭=cmd,,,,other
+1bfac264fcc0c0ffde,199010032,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.846,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁮=cmd,,,,other
+f5b453524b483d33b1,199010033,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.853,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁯=cmd,,,,other
+a98887998eb94873a7,199010034,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.86,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'­=cmd,,,,other
+e9a9d50d217876c63f,199010035,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.867,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'᠎=cmd,,,,other
+33ea32cd414ea10888,199010036,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.874,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‌‍­᠎=cmd,,,,other
+93bf21a57c73f5eea4,199010037,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.881,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'؜=cmd,,,,other
+af660d09dbc8725e26,199010038,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.888,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'‮=cmd,,,,other
+f84ae1ac9b2a6c7582,199010039,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.895,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,'⁦=cmd,,,,other
+ca0331ea7abea7724f,199010040,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.902,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,x‌=cmd,,,,other
+c9cc50c4c78af8445e,199010041,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.909,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,abc‌,,,,other
+75423825809fadc94b,199010042,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.916,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,‌‍­,,,,other
+2dac96329bd9298e44,199010043,2024-01-02T00:00:00Z,2024-01-02T00:36:00Z,36.0,10,-95.16,29.923,0.0,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,''‌=x,,,,other

@@ -42,6 +42,7 @@
 
 - [x] Scan every git-tracked text file for a nine-digit token whose first three digits are an assigned MID in 201–775. File-exact exclusions and context exclusions each carry a written reason. A decimal fraction and a run of 10 or more digits do not match. Package stays `0.2.0.dev16`. Refs #88 (stays open). Refs #84 (stays open).
 - [x] Prefix free-text AIS cells in `houston_clean.csv` and stationary-candidate CSVs with the shared neutralizer. Numeric columns and MMSI stay unchanged. On `tests/fixtures/synthetic_ais.csv` the three artifacts stay the `0.2.0.dev15` bytes. Package `0.2.0.dev17`. Refs #90 (stays open). Refs #85 (stays open).
+- [x] Treat invisible format characters before a trigger as ignorable using one fixed frozenset, `IGNORABLE`, so Python 3.10 and 3.12 write the same bytes. Keep the apostrophe rule. On `tests/fixtures/synthetic_ais.csv` the three artifacts stay the `0.2.0.dev15` bytes. Package `0.2.0.dev19`. Evidence: `tests/test_csv_safe.py`, `tests/test_csv_formula_diff.py`. Refs #90 (stays open). Refs #85 (stays open).
 
 ## Timestamp parity (issue #78)
 

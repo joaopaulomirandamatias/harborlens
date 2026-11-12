@@ -1,0 +1,1305 @@
+{
+  "type": "FeatureCollection",
+  "harborlens_method": {
+    "method_version": "stationary-v0.2",
+    "max_sog_knots": 0.5,
+    "min_duration_minutes": 30.0,
+    "max_gap_minutes": 15.0,
+    "max_radius_m": 1000.0,
+    "min_points": 8,
+    "max_jump_knots": 65.0,
+    "parameter_set": "dc3727719ee7"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.4
+        ]
+      },
+      "properties": {
+        "event_id": "56ae1e0152c8944d65",
+        "mmsi": "199010001",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.42
+        ]
+      },
+      "properties": {
+        "event_id": "02834e39508b16b124",
+        "mmsi": "199010002",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "+cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.44
+        ]
+      },
+      "properties": {
+        "event_id": "60c3ea2fc9b404c518",
+        "mmsi": "199010003",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "-cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.46
+        ]
+      },
+      "properties": {
+        "event_id": "464fb2813d2e67b0f2",
+        "mmsi": "199010004",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "@SUM(A1)",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.48
+        ]
+      },
+      "properties": {
+        "event_id": "ac63f6f0357fb3c673",
+        "mmsi": "199010005",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\tcmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.5
+        ]
+      },
+      "properties": {
+        "event_id": "f2ccbe31a390ddcb31",
+        "mmsi": "199010006",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\rcmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.52
+        ]
+      },
+      "properties": {
+        "event_id": "c6e3902123a9795a50",
+        "mmsi": "199010007",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\uff1dcmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.54
+        ]
+      },
+      "properties": {
+        "event_id": "e0dc3c2ccd717f785e",
+        "mmsi": "199010008",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\uff0bcmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.56
+        ]
+      },
+      "properties": {
+        "event_id": "190daae583ab6436da",
+        "mmsi": "199010009",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\uff0dcmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.58
+        ]
+      },
+      "properties": {
+        "event_id": "ff5bc399a97bed55c6",
+        "mmsi": "199010010",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\uff20cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.6
+        ]
+      },
+      "properties": {
+        "event_id": "6243027fe75c35f545",
+        "mmsi": "199010011",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\ufeff=1+1",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.62
+        ]
+      },
+      "properties": {
+        "event_id": "967167ed1af5c2d668",
+        "mmsi": "199010012",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200b@SUM",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.64
+        ]
+      },
+      "properties": {
+        "event_id": "c4226943d38bfe4a68",
+        "mmsi": "199010013",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "'abc",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.66
+        ]
+      },
+      "properties": {
+        "event_id": "6c0c66e1b3c936ba2a",
+        "mmsi": "199010014",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "'=x",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.68
+        ]
+      },
+      "properties": {
+        "event_id": "e6f5604f83b723dc3a",
+        "mmsi": "199010015",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "''=x",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.7
+        ]
+      },
+      "properties": {
+        "event_id": "a4fe45f2f718a4aef2",
+        "mmsi": "199010016",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u00a0+1",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.72
+        ]
+      },
+      "properties": {
+        "event_id": "b55e733dd8a016462d",
+        "mmsi": "199010017",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "70",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.74
+        ]
+      },
+      "properties": {
+        "event_id": "adafc96310e23bf86d",
+        "mmsi": "199010018",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "  =cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.755
+        ]
+      },
+      "properties": {
+        "event_id": "b395f6870a439d203e",
+        "mmsi": "199010019",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200c=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.762
+        ]
+      },
+      "properties": {
+        "event_id": "69c6dcd0455babb5c4",
+        "mmsi": "199010020",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200d=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.769
+        ]
+      },
+      "properties": {
+        "event_id": "5f4560f8c84592c60e",
+        "mmsi": "199010021",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200e=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.776
+        ]
+      },
+      "properties": {
+        "event_id": "1cf460b18d731e2114",
+        "mmsi": "199010022",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200f=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.783
+        ]
+      },
+      "properties": {
+        "event_id": "7f128bc1dcac8ef75e",
+        "mmsi": "199010023",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2060=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.79
+        ]
+      },
+      "properties": {
+        "event_id": "beb868cde8c98ff02b",
+        "mmsi": "199010024",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2061=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.797
+        ]
+      },
+      "properties": {
+        "event_id": "6f55506276ee6fa28c",
+        "mmsi": "199010025",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2062=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.804
+        ]
+      },
+      "properties": {
+        "event_id": "3d6f91ace22f0887df",
+        "mmsi": "199010026",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2063=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.811
+        ]
+      },
+      "properties": {
+        "event_id": "fbd790e94f6e43d130",
+        "mmsi": "199010027",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2064=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.818
+        ]
+      },
+      "properties": {
+        "event_id": "20538357f160b64195",
+        "mmsi": "199010028",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206a=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.825
+        ]
+      },
+      "properties": {
+        "event_id": "c0e7ff7099dc11aaab",
+        "mmsi": "199010029",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206b=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.832
+        ]
+      },
+      "properties": {
+        "event_id": "468a347152d97ffc20",
+        "mmsi": "199010030",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206c=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.839
+        ]
+      },
+      "properties": {
+        "event_id": "4b0487a6f9055be45d",
+        "mmsi": "199010031",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206d=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.846
+        ]
+      },
+      "properties": {
+        "event_id": "1bfac264fcc0c0ffde",
+        "mmsi": "199010032",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206e=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.853
+        ]
+      },
+      "properties": {
+        "event_id": "f5b453524b483d33b1",
+        "mmsi": "199010033",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u206f=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.86
+        ]
+      },
+      "properties": {
+        "event_id": "a98887998eb94873a7",
+        "mmsi": "199010034",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u00ad=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.867
+        ]
+      },
+      "properties": {
+        "event_id": "e9a9d50d217876c63f",
+        "mmsi": "199010035",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u180e=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.874
+        ]
+      },
+      "properties": {
+        "event_id": "33ea32cd414ea10888",
+        "mmsi": "199010036",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200c\u200d\u00ad\u180e=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.881
+        ]
+      },
+      "properties": {
+        "event_id": "93bf21a57c73f5eea4",
+        "mmsi": "199010037",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u061c=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.888
+        ]
+      },
+      "properties": {
+        "event_id": "af660d09dbc8725e26",
+        "mmsi": "199010038",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u202e=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.895
+        ]
+      },
+      "properties": {
+        "event_id": "f84ae1ac9b2a6c7582",
+        "mmsi": "199010039",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u2066=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.902
+        ]
+      },
+      "properties": {
+        "event_id": "ca0331ea7abea7724f",
+        "mmsi": "199010040",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "x\u200c=cmd",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.909
+        ]
+      },
+      "properties": {
+        "event_id": "c9cc50c4c78af8445e",
+        "mmsi": "199010041",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "abc\u200c",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.916
+        ]
+      },
+      "properties": {
+        "event_id": "75423825809fadc94b",
+        "mmsi": "199010042",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "\u200c\u200d\u00ad",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.16,
+          29.923
+        ]
+      },
+      "properties": {
+        "event_id": "2dac96329bd9298e44",
+        "mmsi": "199010043",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:36:00Z",
+        "duration_min": 36.0,
+        "point_count": 10,
+        "maximum_distance_m": 0.0,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "'\u200c=x",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    }
+  ]
+}

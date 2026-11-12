@@ -1,8 +1,10 @@
 """Diff proof for CSV formula prefixes (SPEC-001, SPEC-003, NFR-006).
 
-Package 0.2.0.dev17 prefixes free-text CSV cells. This module rebuilds the
-0.2.0.dev16 bytes with a prefix function written here. It does not import
-``harborlens.csv_safe`` or any HarborLens neutralizer.
+Package 0.2.0.dev19 skips a fixed set of invisible characters before a
+formula trigger. ``prefix_text`` below is that writer rule. It does not
+import ``harborlens.csv_safe`` or any HarborLens neutralizer. ``prefix_dev17``
+is the previous rule (Unicode whitespace, U+FEFF, and U+200B) and is used
+only to show which cells changed.
 
 The fixture is synthetic. MMSIs use unassigned MID 199. A stationary
 candidate is not a berth, anchorage, wait, or port call. GeoJSON is not
@@ -24,7 +26,8 @@ from harborlens.publication import _recount_cleaned
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "synthetic_ais_formula.csv"
-GOLDEN = ROOT / "tests" / "fixtures" / "single_day_0.2.0.dev17_formula"
+GOLDEN = ROOT / "tests" / "fixtures" / "single_day_0.2.0.dev19_formula"
+DEV17_GOLDEN = ROOT / "tests" / "fixtures" / "single_day_0.2.0.dev17_formula"
 MAIN_FIXTURE = ROOT / "tests" / "fixtures" / "synthetic_ais.csv"
 # Bytes of the main fixture. Neutralization does not touch them.
 MAIN_SHA256 = {
@@ -32,23 +35,50 @@ MAIN_SHA256 = {
     "stationary_candidates.csv": "69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05",
     "stationary_candidates.geojson": "0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3",
 }
-FORMULA_SHA256 = {
+DEV17_FORMULA_SHA256 = {
     "houston_clean.csv": "4020e780a89cc7f3e4eb2cbfb6713c9da87cc5e79a87c8f13068b76bc38b813d",
     "stationary_candidates.csv": "67f31156d01bc33ddf7000b147817c552c7270a9656daff7e86a8ec77defd3f1",
     "stationary_candidates.geojson": "be466a567b7948f4a8e5c33a7293c150a13032137cb2c5a3e13c5aadf5f83cc1",
 }
+# Filled after the dev19 formula run. The test fails if these bytes move.
+FORMULA_SHA256 = {
+    "houston_clean.csv": "f3c509e9ab0b25a3e4a1355a97b5944192eaa563dfef2ed9b7771048930e8d1a",
+    "stationary_candidates.csv": "13ea70fdd117cf46c47f00004d4fedae42b301ad983b08141369b265135e77de",
+    "stationary_candidates.geojson": "8c7fc6233e8188d75bb76b0fff4fffb1c288f4c0fd80490e781fa28a861fc4c6",
+}
 CLEANED_TEXT = frozenset({"vessel_type", "nav_status"})
 CANDIDATE_TEXT = frozenset({"vessel_type"})
-# Local copy of the writer/reader rule. Not imported from harborlens.
+# Local copy of the 0.2.0.dev19 writer rule. Not imported from harborlens.
 _TRIGGERS = frozenset("=+-@\t\r\uff1d\uff0b\uff0d\uff20")
-_EXTRA_IGNORABLE = frozenset("\ufeff\u200b")
+_IGNORABLE = frozenset(
+    "\t\n\v\f\r"
+    "\u001c\u001d\u001e\u001f"
+    "\u0085"
+    " \u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029"
+    "\u202f\u205f\u3000"
+    "\ufeff\u200b\u200c\u200d\u200e\u200f"
+    "\u2060\u2061\u2062\u2063\u2064"
+    "\u206a\u206b\u206c\u206d\u206e\u206f"
+    "\u00ad\u180e"
+    "\u061c"
+    "\u202a\u202b\u202c\u202d\u202e"
+    "\u2066\u2067\u2068\u2069"
+)
+_DEV17_EXTRA = frozenset("\ufeff\u200b")
 
 
 def _ignorable(character):
-    return character.isspace() or character in _EXTRA_IGNORABLE
+    return character in _IGNORABLE
 
 
-def _matches(text, min_apostrophes):
+def _dev17_ignorable(character):
+    """Previous rule: Unicode whitespace, U+FEFF, and U+200B."""
+    return character.isspace() or character in _DEV17_EXTRA
+
+
+def _matches(text, min_apostrophes, ignorable=_ignorable):
     """``^'*`` or ``^'+``, then ignorables, then a trigger. Local to this proof."""
     index = 0
     size = len(text)
@@ -61,7 +91,7 @@ def _matches(text, min_apostrophes):
     while index < size:
         if text[index] in _TRIGGERS:
             return True
-        if _ignorable(text[index]):
+        if ignorable(text[index]):
             index += 1
             continue
         return False
@@ -69,8 +99,15 @@ def _matches(text, min_apostrophes):
 
 
 def prefix_text(text):
-    """0.2.0.dev17 writer rule, implemented in this test."""
+    """0.2.0.dev19 writer rule, implemented in this test."""
     if _matches(text, 0):
+        return "'" + text
+    return text
+
+
+def prefix_dev17(text):
+    """0.2.0.dev17 writer rule, implemented in this test."""
+    if _matches(text, 0, _dev17_ignorable):
         return "'" + text
     return text
 
@@ -168,9 +205,15 @@ class FormulaFixtureTests(unittest.TestCase):
             for name, digest in MAIN_SHA256.items():
                 blob = (out / name).read_bytes()
                 self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev17")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev19")
 
-    def test_formula_fixture_matches_dev17_goldens(self):
+    def test_dev17_formula_goldens_stay_byte_identical(self):
+        """History. These files are not regenerated from the current fixture."""
+        for name, digest in DEV17_FORMULA_SHA256.items():
+            blob = (DEV17_GOLDEN / name).read_bytes()
+            self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
+
+    def test_formula_fixture_matches_dev19_goldens(self):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
             manifest = run(FIXTURE, out)
@@ -182,17 +225,21 @@ class FormulaFixtureTests(unittest.TestCase):
                 self.assertEqual(manifest["artifacts"][name]["size_bytes"], len(blob), name)
             golden = json.loads((GOLDEN / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(scrub_manifest(manifest), scrub_manifest(golden))
-            self.assertEqual(manifest["counts"]["written"], 180)
-            self.assertEqual(manifest["events"]["stationary_candidates"], 18)
-            self.assertEqual(manifest["events"]["vessels"], 18)
+            self.assertEqual(manifest["counts"]["written"], 430)
+            self.assertEqual(manifest["events"]["stationary_candidates"], 43)
+            self.assertEqual(manifest["events"]["vessels"], 43)
 
     def test_diff_proof_only_prefixes_text_cells(self):
-        """dev16 cells are the logical text. dev17 adds the local prefix only there."""
+        """Logical cells plus the local prefix are the written text cells.
+
+        ``prefix_dev17`` is the previous rule. Cells that differ are the ones
+        a newly ignorable character exposes.
+        """
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
             manifest = run(FIXTURE, out)
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev17"))
-            self.assertEqual(run_id_for(manifest, "0.2.0.dev16") != manifest["run_id"], True)
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev19"))
+            self.assertNotEqual(run_id_for(manifest, "0.2.0.dev17"), manifest["run_id"])
 
             _header, source_rows = read_csv(FIXTURE)
             logical_by_mmsi = {}
@@ -228,30 +275,45 @@ class FormulaFixtureTests(unittest.TestCase):
     def _assert_text_projection(self, fieldnames, rows, text_fields, logical_for, path):
         dev16_rows = []
         dev17_rows = []
+        previous_rows = []
         changed = []
+        rule_changed = []
         for row in rows:
             logical = logical_for(row)
             dev16 = dict(row)
             dev17 = dict(row)
+            previous = dict(row)
             for field in text_fields:
                 source = logical[field]
                 self.assertEqual(recover_text(row[field]), source, field)
                 self.assertEqual(row[field], prefix_text(source), field)
                 dev16[field] = source
                 dev17[field] = prefix_text(source)
+                previous[field] = prefix_dev17(source)
                 if dev16[field] != dev17[field]:
                     changed.append(field)
+                if previous[field] != dev17[field]:
+                    rule_changed.append((field, source, dev17[field]))
             for field in fieldnames:
                 if field in text_fields:
                     continue
                 self.assertFalse(row[field].startswith("'"), field)
                 dev16[field] = row[field]
                 dev17[field] = row[field]
+                previous[field] = row[field]
             dev16_rows.append(dev16)
             dev17_rows.append(dev17)
-        self.assertEqual(render_csv(fieldnames, dev17_rows), Path(path).read_bytes())
-        self.assertNotEqual(render_csv(fieldnames, dev16_rows), Path(path).read_bytes())
+            previous_rows.append(previous)
+        written = Path(path).read_bytes()
+        self.assertEqual(render_csv(fieldnames, dev17_rows), written)
+        self.assertNotEqual(render_csv(fieldnames, dev16_rows), written)
+        self.assertNotEqual(render_csv(fieldnames, previous_rows), written)
         self.assertTrue(changed)
+        self.assertTrue(rule_changed)
+        for field, source, disk in rule_changed:
+            self.assertIn(field, text_fields)
+            self.assertEqual(disk, "'" + source)
+            self.assertNotEqual(prefix_dev17(source), disk)
         dev16_written = render_csv(fieldnames, dev16_rows)
         dev17_written = render_csv(fieldnames, dev17_rows)
         dev16_fields, dev16_parsed = _parse_bytes(dev16_written)
@@ -344,7 +406,11 @@ class FormulaFixtureTests(unittest.TestCase):
             self.assertEqual(groups, manifest["events"]["vessels"])
             self.assertEqual(groups, len({row["mmsi"] for row in rows}))
             records = {row["mmsi"]: row for row in read_candidates_csv(out / "stationary_candidates.csv")}
-            self.assertEqual(len(records), 18)
+            self.assertEqual(len(records), 43)
+            self.assertEqual(records["199010019"]["vessel_type"], "\u200c=cmd")
+            self.assertEqual(records["199010036"]["vessel_type"], "\u200c\u200d\u00ad\u180e=cmd")
+            self.assertEqual(records["199010040"]["vessel_type"], "x\u200c=cmd")
+            self.assertEqual(records["199010043"]["vessel_type"], "'\u200c=x")
             self.assertEqual(records["199010001"]["vessel_type"], "=cmd")
             self.assertEqual(records["199010013"]["vessel_type"], "'abc")
             self.assertEqual(records["199010014"]["vessel_type"], "'=x")
