@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-002: multi-day memory bound, CLI errors, schema 1.1)
+- Package version `0.2.0.dev12` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. Multi-day manifests are `schema_version` `multi-day-1.1`. `resources.memory_bound` gains `soft_heap_limit_enforced`: true when `PRAGMA compile_options` lists `ENABLE_MEMORY_MANAGEMENT`, false when that list is readable and omits it, and `unknown` when the list cannot be read. The enforced pin remains cache 8192 KiB, `mmap_bytes` 0, and `temp_store` `FILE`. The 8 MiB soft heap limit is requested and is a bound only when `soft_heap_limit_enforced` is true.
+- The 1/3/7/14-day measurement also asserts that the scratch database's resident mapping stays ≤ 1 MiB. The 14-day synthetic scratch file is about 4 MiB, so RSS growth stays inside 16 MiB even with mmap on. A run with a 256 MiB cache, soft heap 0, mmap on, and `temp_store=MEMORY` maps that file and exceeds the 1 MiB ceiling.
+- `harborlens-multiday` exits 2, with a short stderr line and no traceback, when the file count is below 2 or above 16 and when the output files already exist. Existing outputs are left in place.
+- A `multi-day-1.0` manifest without `memory_bound` does not validate as `multi-day-1.1`.
+- Single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev9` and to `0.2.0.dev11`. The single-file manifest changes in `code_version.package_version` and in `run_id`, because `run_id` hashes `harborlens_version`. The GovInfo LSA report's `harborlens_version` moves with the package. Comparison behavior is unchanged. The release path is unchanged. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #77 (stays open). Refs #5 (stays open).
+
 ### Security (SPEC-003: fail-closed rights-register parsing)
 - A register that starts with a UTF-8 BOM is a named load error, `Rights register has a UTF-8 BOM`. The CLI exits 2, `rights_status` stays `review_required`, and the BOM is not stripped. `rights_status_for` returns `review_required`. `rights_receipt` reports `invalid_registry`. YAML is `Rights register is unreadable` and is not an approval.
 - `reviewed_at_utc` must match an ASCII `YYYY-MM-DDTHH:MM:SS` timestamp with no fraction or 1 to 6 fractional digits, then `Z` or `+00:00`. The same pattern is in the schema. The clock is built from the captured fields, with the fraction padded to six digits. `fromisoformat` is not used, so Python 3.10 and 3.12 accept the same strings. Seven digits, another offset, a non-ASCII digit, and an impossible calendar time (including 29 February in a non-leap year and hour 24) do not grant.

@@ -125,7 +125,7 @@ class GovInfoLSATests(unittest.TestCase):
         self.assertEqual(report["legal_effect_on_study_date"], "NOT_DETERMINED")
         self.assertEqual(report["rights_status"], "review_required")
         self.assertEqual(report["harborlens_version"], harborlens.__version__)
-        self.assertEqual(report["harborlens_version"], "0.2.0.dev11")
+        self.assertEqual(report["harborlens_version"], "0.2.0.dev12")
         expected_pdf = hashlib.sha256(SYNTHETIC_PDF).hexdigest()
         expected_text = hashlib.sha256((TITLE + PROPOSED).encode("utf-8")).hexdigest()
         for month, document in report["documents"].items():

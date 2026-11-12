@@ -1,6 +1,6 @@
 # SPEC-002: Stationary candidate inference and multi-day continuity
 
-**Status:** IMPLEMENTED for preliminary multi-day historical reconstruction with a fixed SQLite working set; real two-day engineering smoke passed, independent event truth still unvalidated. **Created:** 2026-11-08; **Updated:** 2026-11-12.
+**Status:** IMPLEMENTED for preliminary multi-day historical reconstruction with a fixed SQLite cache, mmap off, and a file temp store. The soft heap limit is enforced only when the build lists `ENABLE_MEMORY_MANAGEMENT`. Real two-day engineering smoke passed; independent event truth is still unvalidated. **Created:** 2026-11-08; **Updated:** 2026-11-12.
 
 ## Problem / user story
 
@@ -24,6 +24,10 @@ FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019
 10. **Given** a group rejected by any rule; **when** the run completes; **then** it is counted under `discarded_by_reason`.
 11. **Given** synthetic multi-day inputs of 1, 3, 7, and 14 days with the same rows per day; **when** `harborlens-multiday` runs in a fresh process per size; **then** traced Python peak and process RSS stay inside the fixed ceilings in the design, scratch bytes may grow, and a low-speed track that crosses midnight is one `stationary_candidate` with `confidence_label=unvalidated`.
 12. **Given** shuffled rows, a point filed in the wrong day's file, a same-timestamp position conflict, or an exact duplicate across files; **when** multi-day segmentation runs; **then** order is the disk order `(mmsi, epoch_us, insertion id)`, the conflict splits, the duplicate is stored once with both sources, and a descending timestamp fed straight to `Segmenter` fails closed.
+13. **Given** the SQLite build's `PRAGMA compile_options`; **when** a multi-day run finishes; **then** `resources.memory_bound.soft_heap_limit_enforced` is true only if `ENABLE_MEMORY_MANAGEMENT` is listed, false if the list is readable without it, and `unknown` if the list cannot be read. Cache, mmap, and temp store still have to match the pin or the run fails closed.
+14. **Given** synthetic inputs of 1, 3, 7, and 14 days; **when** the fixed pin is in force; **then** the resident mapping of the scratch database stays within the ceiling in the design. **Given** the same 14-day input with a 256 MiB cache, soft heap 0, mmap on, and `temp_store=MEMORY`; **when** that measurement runs; **then** the resident mapping exceeds the ceiling.
+15. **Given** fewer than 2 files, more than 16 files, or an output directory that already contains the exports; **when** `harborlens-multiday` is invoked; **then** it writes a short message to stderr and exits 2, with no traceback and without replacing existing outputs.
+16. **Given** a `multi-day-1.0` manifest without `memory_bound`; **when** it is checked against `schemas/v1/multi-day-run.schema.json`; **then** it is rejected and is not treated as `multi-day-1.1`.
 
 ## Non-goals and safety
 

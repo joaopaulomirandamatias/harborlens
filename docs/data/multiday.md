@@ -19,17 +19,17 @@ For national compressed NOAA archives, first use the existing opt-in daily downl
 ## Memory and disk architecture
 
 - Temporary SQLite stores normalized points, source membership and candidate-group membership, and orders rows by `(mmsi, epoch_us, insertion id)` through the `observations_by_vessel_time` index.
-- The working set is fixed and is not a CLI flag: page cache 8192 KiB, soft heap limit 8 MiB, memory mapping off, temporary store on disk. `PRAGMA shrink_memory` runs after each file. Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
+- The enforced working set is fixed and is not a CLI flag: page cache 8192 KiB, memory mapping off, temporary store on disk. `PRAGMA soft_heap_limit` is requested at 8 MiB. That request releases memory only when `PRAGMA compile_options` lists `ENABLE_MEMORY_MANAGEMENT`. The manifest records the answer in `resources.memory_bound.soft_heap_limit_enforced` (`true`, `false`, or `unknown`). `PRAGMA shrink_memory` runs after each file. Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
 - Shuffled rows and late points are ordered on disk. There is no in-memory reorder buffer. An exact duplicate is stored once and keeps every source. The same timestamp with a different position splits the candidate. A descending timestamp passed straight to the segmenter fails closed.
 - The temporary directory is deleted after completion or a failed run.
 - Defaults: at most 16 sources, 6 million input rows, 2,048 MiB SQLite scratch, 1,024 MiB exported files (ceiling 2,048). Exceeding a limit fails rather than silently truncating data. The manifest records the `limits` used, `resources.scratch_peak_bytes`, and `resources.memory_bound`.
-- Scratch disk may grow with accepted rows, up to the scratch cap. Process memory must not. Synthetic 1, 3, 7, and 14 day runs assert that in `tests/test_multiday_bounded.py` (traced peak ≤ 16 MiB and growth ≤ 1 MiB; RSS ≤ 192 MiB and growth ≤ 16 MiB).
+- Scratch disk may grow with accepted rows, up to the scratch cap. Process memory must not follow the scratch file. Synthetic 1, 3, 7, and 14 day runs assert that in `tests/test_multiday_bounded.py` (traced peak ≤ 16 MiB and growth ≤ 1 MiB; RSS ≤ 192 MiB and growth ≤ 16 MiB; resident mapping of the scratch database ≤ 1 MiB). At this fixture size the 14-day scratch file is about 4 MiB, so RSS growth stays inside 16 MiB even if mmap is turned on. The mapping measurement is what fails that mutation. A wrong file count (fewer than 2 or more than 16) and an existing output directory make `harborlens-multiday` exit 2 with a short stderr line and no traceback.
 - Output files are never overwritten; rerun to a new output directory for reproducibility.
 - Measured on synthetic data ([scale benchmark](scale-benchmark-2026-11-09.md)): 3.92 million rows in 78 s, 47 MiB RSS, 628 MiB scratch peak (about 168 bytes per row). The two-day NOAA run measured 46 MiB RSS. The seven-day real run measured about 47 MiB RSS and predates the soft-heap pin.
 
 ## Output
 
-The export directory contains canonical cleaned CSV, candidate CSV and GeoJSON with the same base filenames as the single-file pipeline, plus a versioned multi-day run manifest. The existing harborlens-verify command checks the three export checksums.
+The export directory contains canonical cleaned CSV, candidate CSV and GeoJSON with the same base filenames as the single-file pipeline, plus a `multi-day-1.1` run manifest. A `multi-day-1.0` manifest, including one without `memory_bound`, does not validate as 1.1. The existing harborlens-verify command checks the three export checksums.
 
 Additional event fields:
 - source_files_json: JSON array of local filename@hash-prefix references for observations that contributed to the event.

@@ -31,7 +31,25 @@ class MultiDayContractTests(unittest.TestCase):
             feature_schema = json.loads((SCHEMAS / "multi-day-candidate-feature.schema.json").read_text())
             Draft202012Validator.check_schema(manifest_schema)
             Draft202012Validator.check_schema(feature_schema)
-            Draft202012Validator(manifest_schema, format_checker=FormatChecker()).validate(manifest)
+            self.assertEqual(manifest["schema_version"], "multi-day-1.1")
+            self.assertIn(manifest["resources"]["memory_bound"]["soft_heap_limit_enforced"], (True, False, "unknown"))
+            checker = Draft202012Validator(manifest_schema, format_checker=FormatChecker())
+            checker.validate(manifest)
+            for enforced in (True, False, "unknown"):
+                variant = json.loads(json.dumps(manifest))
+                variant["resources"]["memory_bound"]["soft_heap_limit_enforced"] = enforced
+                checker.validate(variant)
+            legacy = json.loads(json.dumps(manifest))
+            legacy["schema_version"] = "multi-day-1.0"
+            del legacy["resources"]["memory_bound"]
+            snapshot = json.loads(json.dumps(legacy))
+            errors = list(Draft202012Validator(manifest_schema, format_checker=FormatChecker()).iter_errors(legacy))
+            self.assertTrue(errors)
+            self.assertTrue(any(list(err.path) == ["schema_version"] for err in errors))
+            self.assertTrue(any(list(err.path) == ["resources", "memory_bound"] or err.message.find("memory_bound") >= 0
+                                for err in errors))
+            self.assertEqual(legacy, snapshot)
+            self.assertNotIn("memory_bound", legacy["resources"])
             geo = json.loads((root / "out" / "stationary_candidates.geojson").read_text())
             self.assertEqual(len(geo["features"]), 1)
             validator = Draft202012Validator(feature_schema, format_checker=FormatChecker())
