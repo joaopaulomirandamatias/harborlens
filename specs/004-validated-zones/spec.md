@@ -31,3 +31,7 @@ An authentic current NOAA Anchorage Area polygon query succeeded, and an unvalid
 ## Additional documentary date audit
 
 A conservative, offline tool now records NOAA polygon source/receipt SHA-256 and optionally unverified ENC edition/last-issue metadata. Reports can flag charts published after the study but never approve historic polygon geometry or vessel operational state. Actual 2024 archival geometry and independent event validation remain open.
+
+## GovInfo LSA index screen (not a classification result)
+
+An opt-in comparison of the December 2023 and January 2024 GovInfo LSA Title 33 indexes is described in [the engineering note](../../docs/data/govinfo-lsa-dec-jan-comparison.md). It does not satisfy the acceptance criteria above: it loads no geofence, it does not classify a candidate, and legal effect on 2024-01-02 stays `NOT_DETERMINED`.

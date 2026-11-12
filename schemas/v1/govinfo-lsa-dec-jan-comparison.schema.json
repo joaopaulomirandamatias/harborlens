@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json",
+  "title": "HarborLens historical GPO LSA comparison (non-certifying)",
+  "description": "Index comparison of two fixed GovInfo monthly LSA PDFs. legal_effect_on_study_date is always NOT_DETERMINED. rights_status is always review_required. The report cannot approve geometry, AIS joins, berth, anchorage, wait, or port-call status.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "harborlens_version",
+    "retrieved_at_utc",
+    "source_months",
+    "documents",
+    "proposed_part110_pages_match",
+    "study_target",
+    "legal_effect_on_study_date",
+    "intervening_amendments_excluded",
+    "historical_wgs84_geometry_approved",
+    "ais_spatial_join_permitted",
+    "rights_status",
+    "mandatory_follow_up"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "govinfo-lsa-dec-jan-v1"
+    },
+    "harborlens_version": {
+      "description": "harborlens.__version__ of the code that wrote this artifact.",
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.dev(?:0|[1-9][0-9]*))?$"
+    },
+    "retrieved_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_months": {
+      "const": [
+        "2023-12",
+        "2024-01"
+      ]
+    },
+    "documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "2023-12",
+        "2024-01"
+      ],
+      "properties": {
+        "2023-12": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "official_pdf_url",
+            "official_pdf_sha256",
+            "official_pdf_size_bytes",
+            "pdf_page_count",
+            "title33_pdf_pages_1based",
+            "title33_extracted_text_sha256",
+            "target_110_197_direct_occurrences",
+            "part110_proposed_fr_pages",
+            "rights_status"
+          ],
+          "properties": {
+            "official_pdf_url": {
+              "const": "https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf"
+            },
+            "official_pdf_sha256": {
+              "const": "c226121a7617f1b4578a0fcf79f58d4735696e0405c5522615699bdb5bab037d"
+            },
+            "official_pdf_size_bytes": {
+              "const": 554882
+            },
+            "pdf_page_count": {
+              "const": 117
+            },
+            "title33_pdf_pages_1based": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "title33_extracted_text_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "target_110_197_direct_occurrences": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "part110_proposed_fr_pages": {
+              "const": [
+                "47837",
+                "89644",
+                "89646",
+                "89648"
+              ]
+            },
+            "rights_status": {
+              "const": "review_required"
+            }
+          }
+        },
+        "2024-01": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "official_pdf_url",
+            "official_pdf_sha256",
+            "official_pdf_size_bytes",
+            "pdf_page_count",
+            "title33_pdf_pages_1based",
+            "title33_extracted_text_sha256",
+            "target_110_197_direct_occurrences",
+            "part110_proposed_fr_pages",
+            "rights_status"
+          ],
+          "properties": {
+            "official_pdf_url": {
+              "const": "https://www.govinfo.gov/content/pkg/LSA-2024-01/pdf/LSA-2024-01.pdf"
+            },
+            "official_pdf_sha256": {
+              "const": "5ce3c08a45ed6853643a105690d332cbf9813400d4da391de794ef1237305348"
+            },
+            "official_pdf_size_bytes": {
+              "const": 516462
+            },
+            "pdf_page_count": {
+              "const": 82
+            },
+            "title33_pdf_pages_1based": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "title33_extracted_text_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "target_110_197_direct_occurrences": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "part110_proposed_fr_pages": {
+              "const": [
+                "47837",
+                "89644",
+                "89646",
+                "89648"
+              ]
+            },
+            "rights_status": {
+              "const": "review_required"
+            }
+          }
+        }
+      }
+    },
+    "proposed_part110_pages_match": {
+      "description": "True only when both indexes show the same four proposed-rule page citations. This is not a legal determination.",
+      "const": true
+    },
+    "study_target": {
+      "const": "33 CFR 110.197 on 2024-01-02"
+    },
+    "legal_effect_on_study_date": {
+      "description": "The only allowed value. The schema has no approval or certification state.",
+      "const": "NOT_DETERMINED"
+    },
+    "intervening_amendments_excluded": {
+      "const": false
+    },
+    "historical_wgs84_geometry_approved": {
+      "const": false
+    },
+    "ais_spatial_join_permitted": {
+      "const": false
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "mandatory_follow_up": {
+      "type": "string",
+      "minLength": 60
+    }
+  }
+}
