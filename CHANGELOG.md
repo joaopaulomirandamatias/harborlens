@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: controlled aggregate publication)
+- A new offline `harborlens-release-summary` command stages allowlisted, coarse research counts only after source/run hash checks, current purpose-specific source-rights verification and a recent human approval of the exact proposed summary digest. Pending sources and mismatched evidence fail without release output; no raw data, geofences or event-level exports are copied. Synthetic-only positive/negative/attack tests and JSON Schemas added; no source is approved in the checked-in register.
+- Package version `0.2.0.dev3`. The command prints a JSON decision and exits 2 when release is denied. A successful non-dry run writes a new `public-summary-v0.1` file (`summary`, `summary_sha256`, `release_review`). Ordinary manifests also change: `run_id` hashes `harborlens_version`, and `code_version.package_version` records it. Runs from `0.2.0.dev2` and `0.2.0.dev3` are not directly comparable.
+
 ### Added (SPEC-003: source-rights adapter receipts)
 - Optional per-purpose, exact-source-version source-rights registry lookups with SHA-256 receipts for NOAA ERDDAP, local daily archive extraction, NOAA anchorage polygons and USACE point catalog; defaults remain review_required. Receipts call `load_registry`, so a schema-invalid register is `invalid_registry` and is not granted. Synthetic-only source and schema regression tests; no license or vessel-event approval.
 - Package version `0.2.0.dev2`. Adapter sidecars gain `rights_review`. A supplied register can change `rights_status` and the USACE `license_status`. Runs from `0.2.0.dev1` and `0.2.0.dev2` are not directly comparable because `run_id` includes the package version.
