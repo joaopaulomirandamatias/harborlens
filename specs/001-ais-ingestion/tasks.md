@@ -38,6 +38,10 @@
 - [x] Vintage registry (2015–2023 ZIP, 2024–2026 csv2 zstd), registry-driven downloader that refuses unknown years, ZIP extraction, `missing_value` vs `invalid` counters, `source_vintage` in the sidecar (`tests/test_vintages.py`)
 - [ ] Manual smoke for one 2019–2023 day and one 2025 day; record headers, counts and hashes
 
+## Synthetic identifier guard
+
+- [x] Scan every git-tracked text file for a nine-digit token whose first three digits are an assigned MID in 201–775. File-exact exclusions and context exclusions each carry a written reason. A decimal fraction and a run of 10 or more digits do not match. Package stays `0.2.0.dev16`. Refs #88 (stays open). Refs #84 (stays open).
+
 ## Timestamp parity (issue #78)
 
 - [x] Parse NOAA observation timestamps and `harborlens-download-noaa --date` without `fromisoformat`, with the same acceptance on Python 3.10 and 3.12 (`tests/test_timeparse.py`, FR-002, NFR-003, NFR-004). Refs #78 (stays open).
