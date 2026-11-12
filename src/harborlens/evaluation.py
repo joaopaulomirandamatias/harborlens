@@ -12,8 +12,18 @@ This is a reproducibility harness. The report is ``evaluation-v0.2``.
 ``validation_status`` is ``unvalidated``. ``label_provenance`` is ``synthetic``
 only when the caller says so, and ``unspecified`` otherwise. The ``caveat``
 states that the labels are not independent ground truth and that the report
-makes no accuracy claim. ``read_evaluation_report`` refuses an
-``evaluation-v0.1`` file with ``EvaluationReportError``.
+makes no accuracy claim. ``warning`` says that agreement with labels at any
+evidence level, including L3, is not validated performance while
+``validation_status`` is ``unvalidated``. ``read_evaluation_report`` refuses an
+``evaluation-v0.1`` file with ``EvaluationReportError``. No ``evaluation-v0.1``
+reader is maintained.
+
+The adjudicated label file is an input CSV. This module does not write a CSV.
+Text column ``adjudicator_id`` is read with ``read_csv_cell``, which removes a
+neutralization apostrophe only when the remainder is a formula trigger.
+``sample_id``, ``label``, ``evidence_level``, ``duration_judgement``,
+``true_start_utc`` and ``true_end_utc`` are contract columns: a leading
+apostrophe is rejected and is not converted. See ``harborlens.labeling``.
 
 Nothing here upgrades a candidate to a berth, anchorage, wait or port call.
 """
@@ -30,7 +40,7 @@ from pathlib import Path
 
 from harborlens.ais import parse_time, sha256
 from harborlens.io_safe import AISInputError
-from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum
+from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum, read_csv_cell
 from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
@@ -52,9 +62,9 @@ ADJUDICATED_FIELDS = ["sample_id", "label", "evidence_level", "duration_judgemen
                       "true_start_utc", "true_end_utc", "adjudicator_id"]
 Z95 = 1.959963984540054
 WARNING = ("Metrics compare unvalidated stationary candidates with adjudicated labels from a stratified "
-           "sample. Against L2 labels they measure agreement with expert review of AIS, not independent "
-           "ground truth; only the L3 cohort supports real-world accuracy statements. Recall covers sampled "
-           "movement intervals only, not stops the method never segmented.")
+           "sample. Agreement with labels at any evidence level, including L3, is not validated performance "
+           "while validation_status is unvalidated. Recall covers sampled movement intervals only, not stops "
+           "the method never segmented.")
 
 
 class EvaluationReportError(AISInputError):
@@ -97,7 +107,19 @@ def _read_labels(path, known_ids):
         rows = list(reader)
     labels, problems = {}, []
     for row in rows:
-        sid = row["sample_id"]
+        try:
+            sid = read_csv_cell("sample_id", row.get("sample_id"))
+        except AISInputError as exc:
+            problems.append(str(exc))
+            continue
+        row["sample_id"] = sid
+        for field in ADJUDICATED_FIELDS:
+            if field == "sample_id" or field not in row:
+                continue
+            try:
+                row[field] = read_csv_cell(field, row[field])
+            except AISInputError as exc:
+                problems.append(f"{sid}: {exc}")
         if sid not in known_ids:
             problems.append(f"{sid}: not in the sampling manifest")
         if sid in labels:

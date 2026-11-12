@@ -32,7 +32,7 @@ Annotators label the unit, not the method. The sheet hides whether a unit is a c
 Every label records the evidence it rests on (`evidence_level`, `evidence_sources`):
 
 - **L2 — expert review of AIS:** the AIS track itself (speed, heading, positions, transmitted navigation status) plus public reference geography (NOAA/CFR anchorage areas, USACE facility points, imagery). This is the expected level for the pilot. It is **not** independent ground truth: AIS-based labels share the input with the method.
-- **L3 — independent operational record:** a terminal, pilot, port or vessel-schedule record for that vessel and time, obtained with permission. Only L3 labels support claims about real-world accuracy.
+- **L3 — independent operational record:** a terminal, pilot, port or vessel-schedule record for that vessel and time, obtained with permission. While `validation_status` is `unvalidated`, agreement with an L3 label is not validated performance.
 
 Transmitted `nav_status` is auxiliary evidence only (BR-011).
 
@@ -65,8 +65,18 @@ Labeling sheets contain MMSIs and timestamps from NOAA AIS. Keep them outside th
 
 ## 8. What this does not do
 
-It does not select thresholds, does not upgrade any candidate to a verified berth, anchorage, wait or port call, and does not by itself produce precision or recall. Those require the evaluator (#9) and, for real-world claims, L3 evidence.
+It does not select thresholds, does not upgrade any candidate to a verified berth, anchorage, wait or port call, and does not by itself produce precision or recall. Metrics come from the evaluator (#9). While `validation_status` is `unvalidated`, agreement with labels at any evidence level, including L3, is not validated performance.
 
 ## 9. Adjudicated file for evaluation
 
-After adjudication, one CSV per sample holds the final label per unit with the columns `sample_id`, `label`, `evidence_level`, `duration_judgement`, `true_start_utc`, `true_end_utc`, `adjudicator_id` (`schemas/v1/adjudicated-label.schema.json`). Give `true_start_utc`/`true_end_utc` (both or neither) only when the start and end of the labeled state are visible in the evidence; they feed the boundary-error metrics. `harborlens-evaluate --run … --sampling <sheet>.sampling.json --labels adjudicated.csv --out evaluation.json` writes an `evaluation-v0.2` report. `--label-provenance` is `synthetic` or `unspecified`; omitting it records `unspecified`. `validation_status` is `unvalidated`. The `caveat` states that the labels are not independent ground truth and that the report makes no accuracy claim. When provenance is unspecified, the caveat says the label provenance is unspecified. This command is a reproducibility harness. It does not collect the pilot and it does not upgrade a unit to a berth, anchorage, wait, or port call.
+After adjudication, one CSV per sample holds the final label per unit with the columns `sample_id`, `label`, `evidence_level`, `duration_judgement`, `true_start_utc`, `true_end_utc`, `adjudicator_id` (`schemas/v1/adjudicated-label.schema.json`). Give `true_start_utc`/`true_end_utc` (both or neither) only when the start and end of the labeled state are visible in the evidence; they feed the boundary-error metrics. `harborlens-evaluate --run … --sampling <sheet>.sampling.json --labels adjudicated.csv --out evaluation.json` writes an `evaluation-v0.2` report. `--label-provenance` is `synthetic` or `unspecified`; omitting it records `unspecified`. `validation_status` is `unvalidated`. The `caveat` states that the labels are not independent ground truth and that the report makes no accuracy claim. When provenance is unspecified, the caveat says the label provenance is unspecified. The report `warning` says that agreement with labels at any evidence level, including L3, is not validated performance while `validation_status` is `unvalidated`. This command is a reproducibility harness. It does not collect the pilot and it does not upgrade a unit to a berth, anchorage, wait, or port call.
+
+## 10. Spreadsheet formula neutralization
+
+`harborlens-label-sample` writes one CSV, the annotator sheet. The sampling key is `<sheet>.sampling.json`, not a CSV. `harborlens-label-agreement` and `harborlens-evaluate` write JSON.
+
+A text cell (`vessel_type_mode`, `annotator_id`, `evidence_sources`, `notes`, and on the adjudicated file `adjudicator_id`) is prefixed with one ASCII apostrophe when its first character is `=`, `+`, `-`, `@`, tab, or carriage return, or when the first character after leading Unicode whitespace is one of those triggers. Example: `  =cmd` is written as `'  =cmd`.
+
+These columns are validated and written unchanged: `sample_id` (`S` and four digits), `mmsi` and `observed_points` (unsigned integers), `centroid_lon` and `centroid_lat` (finite decimals, so `-95.1` stays `-95.1`), `start_utc` and `end_utc` (ISO-8601 UTC), censoring flags, and the annotation enums. `true_start_utc` and `true_end_utc` are the same kind of timestamp column. A value that fails its check raises `AISInputError`. The CLI exits 2 and writes no sheet, no `.partial`, and no sampling manifest.
+
+`harborlens-label-agreement` (`_read_sheet`) and `harborlens-evaluate` (`_read_labels`) remove that apostrophe only on a text column, and only when the remainder matches the trigger rule, which recovers the logical text. An apostrophe that is not that prefix is kept. A text value that already began with an apostrophe followed by a trigger is indistinguishable from a neutralized cell and comes back without the apostrophe. A leading apostrophe on a contract column is an error. The reader does not strip it and does not convert it to a number, timestamp, or enum.

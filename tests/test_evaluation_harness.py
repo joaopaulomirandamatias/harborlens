@@ -296,8 +296,14 @@ class SyntheticEvaluationHarnessTests(unittest.TestCase):
             self.assertEqual(report["caveat"], SYNTHETIC_CAVEAT)
             self.assertNotEqual(report["caveat"], UNSPECIFIED_CAVEAT)
             self.assertNotIn("Label provenance is unspecified", report["caveat"])
-            self.assertIn("not independent ground truth", report["warning"])
-            self.assertIn("L3", report["warning"])
+            self.assertEqual(
+                report["warning"],
+                "Metrics compare unvalidated stationary candidates with adjudicated labels from a stratified "
+                "sample. Agreement with labels at any evidence level, including L3, is not validated performance "
+                "while validation_status is unvalidated. Recall covers sampled movement intervals only, not stops "
+                "the method never segmented.",
+            )
+            self.assertNotIn("accuracy", report["warning"])
             schema = json.loads((SCHEMAS / "evaluation-report.schema.json").read_text(encoding="utf-8"))
             Draft202012Validator(schema, format_checker=FormatChecker()).validate(report)
 

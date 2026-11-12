@@ -94,3 +94,10 @@
 - [x] Publish `erddap-ais-source` and `noaa-archive-extract-source` schemas, including optional `rights_review`, and keep the checked-in register at `review_required` for every adapter (NFR-010). Those schemas stay unpackaged.
 - [x] CI already runs the rights wheel step with `actions/checkout@v7` and `actions/setup-python@v7`, the same pins as the rest of `.github/workflows/ci.yml`. No workflow edit was required.
 - [ ] Independent source-rights approval remains external. Refs #42 (stays open). Refs #67 (stays open). Refs #69 (stays open). Issue #68 stays open because one sample digest cannot pass on both Python 3.10 and 3.12 while `random.sample` differs.
+
+## Label-sheet hygiene (issues #85 and #86)
+
+- [x] Prefix formula-trigger text cells on the label sheet with one apostrophe. Validate unsigned integers, finite coordinates, ISO-8601 timestamps, and enums before writing. A failure raises `AISInputError`, the CLI exits 2, and no sheet, `.partial`, or sampling manifest is written (SPEC-003, FR-013, NFR-006).
+- [x] On read, remove that apostrophe only from text columns. A leading apostrophe on a contract column is rejected and is not converted. Round-trip, trigger, whitespace, negative-coordinate, and exit-2 tests are in `tests/test_label_sheet_csv.py`.
+- [x] Replace the evaluation `warning` so agreement at any evidence level, including L3, is not validated performance while `validation_status` is `unvalidated`. The caveat strings stay as they are (SPEC-003, FR-014, NFR-020).
+- [x] Keep single-day cleaned CSV, candidate CSV, and candidate GeoJSON byte-identical to `0.2.0.dev15` (`4cd39864…`, `69989a5c…`, `0e3127c8…`). The synthetic fixture label sheet has no trigger text and stays byte-identical. Package `0.2.0.dev16`. Refs #85 (stays open). Refs #86 (stays open). Refs #9 (stays open).
