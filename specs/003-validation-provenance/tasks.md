@@ -4,7 +4,7 @@
 
 - [ ] Ingest and checksum authorized NOAA sample
 - [x] Output-hash and local-verification implementation (merged in #18)
-- [ ] Independently confirm source rights and dataset provenance before distribution. Partial inventory only (`docs/data/rights-register.json`, schema `source-rights-register`, `python -m harborlens.rights`): no source approved, adapters do not consume the gate, #42 stays open
+- [ ] Independently confirm source rights and dataset provenance before distribution. Partial inventory only (`docs/data/rights-register.json`, schema `source-rights-register`, `python -m harborlens.rights`): no source approved. Optional adapter receipts are listed below and do not approve a source. Refs #42 (stays open)
 - [ ] Create annotation guide and >=100 pilot samples with negatives
 - [ ] Implement metrics and confidence intervals
 - [ ] Cross-validate independent period/port with permission
@@ -31,3 +31,8 @@
 - [x] `harborlens-evaluate`, adjudicated-label and evaluation-report schemas, synthetic tests with hand-computed metrics (`tests/test_evaluation.py`)
 - [ ] Evaluate the first adjudicated pilot (#8) and publish aggregate results only, with denominators and evidence basis
 - [ ] Repeat on a different period or port (L4 replication)
+
+## Source-rights adapter receipts (issue #42)
+
+- [x] Integrate optional, conservative source-rights receipts for NOAA/USACE acquisition adapters with exact source/version/purpose and synthetic tests (pending independent PR review/CI).
+- [ ] Obtain independent source-specific rights decisions and enforce them in export/publication workflows; registration alone is not permission.

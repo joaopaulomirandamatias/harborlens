@@ -20,6 +20,7 @@ from pathlib import Path
 from harborlens.ais import BBOX_HOUSTON, header_alias, parse_time, sha256
 from harborlens.io_safe import LimitedReader, MAX_COMPRESSED_BYTES, AISInputError, _open_text_stream
 from harborlens.vintages import header_style, vintage_for
+from harborlens.rights import PURPOSES, rights_receipt
 
 MAX_UNCOMPRESSED_GIB = 8
 # One full UTC day in the Houston research rectangle is ~560,000 rows (~105 bytes
@@ -69,6 +70,7 @@ def _archive_text(source, max_uncompressed_gib):
 def extract_archive(
     source, output, start, end, bbox=BBOX_HOUSTON,
     max_rows=MAX_MATCHING_ROWS, max_output_mib=DEFAULT_OUTPUT_MIB, max_uncompressed_gib=8,
+    rights_register=None, rights_purpose="research",
 ):
     source, output = Path(source), Path(output)
     lower = source.name.lower()
@@ -153,10 +155,14 @@ def extract_archive(
         if counters["selected"] == 0:
             raise AISInputError("No observations matched; do not infer absence of vessel traffic")
 
+        input_digest = sha256(source)
+        rights = rights_receipt("noaa_ocm_ais_daily",
+            dataset_version=f"{a.year}/archive-sha256:{input_digest}",
+            purpose=rights_purpose, register_path=rights_register)
         report = {
             "source_type": "local_noaa_daily_archive",
             "input_filename": source.name,
-            "input_sha256": sha256(source),
+            "input_sha256": input_digest,
             "output_filename": output.name,
             "output_sha256": sha256(temporary),
             "window_start_utc": a.isoformat().replace("+00:00", "Z"),
@@ -171,7 +177,8 @@ def extract_archive(
                                "layout_verification": vintage.verification},
             "limits": {"max_rows": max_rows, "max_output_mib": max_output_mib,
                        "max_uncompressed_gib": max_uncompressed_gib},
-            "rights_status": "review_required",
+            "rights_status": rights["rights_status"],
+            "rights_review": rights,
             "warning": "Origin of local archive and commercial reuse rights not independently authenticated.",
         }
         with temp_meta.open("x", encoding="utf-8") as meta:
@@ -196,10 +203,13 @@ def main():
     p.add_argument("--max-rows", type=int, default=MAX_MATCHING_ROWS)
     p.add_argument("--max-output-mib", type=int, default=DEFAULT_OUTPUT_MIB)
     p.add_argument("--max-uncompressed-gib", type=int, default=8)
+    p.add_argument("--rights-register", type=Path, default=None)
+    p.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a = p.parse_args()
     print(json.dumps(extract_archive(
         a.input, a.out, a.start, a.end, a.bbox,
-        a.max_rows, a.max_output_mib, a.max_uncompressed_gib
+        a.max_rows, a.max_output_mib, a.max_uncompressed_gib,
+        rights_register=a.rights_register, rights_purpose=a.rights_purpose
     ), indent=2))
 
 

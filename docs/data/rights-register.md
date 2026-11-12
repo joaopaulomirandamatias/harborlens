@@ -41,6 +41,6 @@ Until review, the checked-in register answers `rights_status: review_required` (
 
 ## Security and compatibility notes
 
-This increment adds an explicit **audit helper**, not automatic promotion of existing acquisition metadata. **No source has been approved. Adapters do not consume the gate yet.** Existing CLI outputs intentionally remain `review_required` until a reviewer approves a version-matched registry and those adapters are wired in a separate, tested change. In particular, an independently reviewed data license does not validate vessel events, historical anchorages or navigation suitability.
+This increment adds an explicit **audit helper**, not automatic promotion of existing acquisition metadata. **No source has been approved.** Optional adapter receipts ([rights-adapter-integration.md](rights-adapter-integration.md)) read this same gate and still default to `review_required`. A receipt is not an approval. Existing CLI outputs stay `review_required` until a reviewer approves a version-matched registry entry. In particular, an independently reviewed data license does not validate vessel events, historical anchorages or navigation suitability.
 
 **NOT FOR NAVIGATION. Not a government endorsement.**
