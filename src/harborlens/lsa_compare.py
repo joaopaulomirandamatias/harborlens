@@ -111,13 +111,34 @@ class _GovInfoRedirects(HTTPRedirectHandler):
     max_repeats = MAX_REDIRECTS
 
     def redirect_request(self, request, fp, code, message, headers, newurl):
+        """Follow 301, 302, 303, 307, and 308 only for an unchanged fixed GovInfo GET.
+
+        The next request is built here. Python 3.10's
+        ``HTTPRedirectHandler.redirect_request`` rejects 308, while 3.12 accepts
+        it, so the base method is not used. ``http_error_308`` is the same
+        handler as ``http_error_302`` so 3.10 dispatches 308.
+        """
+        if request.get_method() != "GET":
+            raise LSAComparisonError("GovInfo redirect must stay a GET")
         if code not in (301, 302, 303, 307, 308):
             raise LSAComparisonError("GovInfo redirect status is not allowed")
         current = getattr(request, "full_url", None)
         if newurl != current:
             raise LSAComparisonError("GovInfo source redirect may not change the fixed URL")
         _require_fixed_govinfo_url(newurl)
-        return super().redirect_request(request, fp, code, message, headers, newurl)
+        dropped = {"content-length", "content-type"}
+        newheaders = {
+            key: value
+            for key, value in getattr(request, "headers", {}).items()
+            if key.lower() not in dropped
+        }
+        return Request(
+            newurl,
+            headers=newheaders,
+            origin_req_host=getattr(request, "origin_req_host", None),
+            unverifiable=True,
+            method="GET",
+        )
 
     def http_error_302(self, req, fp, code, msg, headers):
         location = None

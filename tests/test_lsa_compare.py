@@ -646,10 +646,14 @@ class GovInfoLSATests(unittest.TestCase):
         handler = _GovInfoRedirects()
         fixed = FIXED_GOVINFO_URLS["2023-12"]
         request = Request(fixed)
-        for code in (307, 308, 302):
+        self.assertIs(handler.http_error_308.__func__, handler.http_error_302.__func__)
+        for code in (301, 302, 303, 307, 308):
             redirected = handler.redirect_request(request, None, code, "Found", {}, fixed)
             self.assertEqual(redirected.get_method(), "GET")
             self.assertEqual(redirected.full_url, fixed)
+        posted = Request(fixed, data=b"body", method="POST")
+        with self.assertRaisesRegex(LSAComparisonError, "GET"):
+            handler.redirect_request(posted, None, 308, "Redirect", {}, fixed)
         hostile = [
             "https://www.xn--govinfo-0ya.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
             "https://www.govinfo.gov./content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
@@ -671,6 +675,11 @@ class GovInfoLSATests(unittest.TestCase):
         handler.parent = Parent()
         headers = {"location": fixed}
         request.timeout = 60
+        fresh = Request(fixed)
+        fresh.timeout = 60
+        followed = handler.http_error_308(fresh, io.BytesIO(b""), 308, "Redirect", headers)
+        self.assertEqual(followed.full_url, fixed)
+        self.assertEqual(followed.get_method(), "GET")
         current = request
         for _ in range(MAX_REDIRECTS):
             current = handler.http_error_302(current, io.BytesIO(b""), 302, "Found", headers)
