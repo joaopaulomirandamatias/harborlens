@@ -62,13 +62,13 @@ def cli(module, function, argv):
 def synthetic_rows():
     """Eight fictional vessel ids. Each moves, stops, moves, and stops again.
 
-    MMSIs are the 367200000-367200007 block already used as synthetic ids in
+    MMSIs are the 199020000-199020007 block already used as synthetic ids in
     this repository. Nothing here is read from a real AIS source.
     """
     rows = []
     vessel_ids = []
     for n in range(8):
-        mmsi = f"36720000{n}"
+        mmsi = f"19902000{n}"
         vessel_ids.append(mmsi)
         vtype = ("70", "80", "31", "60")[n % 4]
         moment = DAY + timedelta(minutes=5 + n)

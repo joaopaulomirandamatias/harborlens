@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-001: synthetic vessel identifiers use unassigned MID 199)
+- Package version `0.2.0.dev15` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. Synthetic vessel identifiers move from assigned MIDs to unassigned MID 199, form `1990xxxxx`. The full 1:1 map is `SYNTHETIC_ID_MAP` in `tests/synthetic_id_map.py`. `tests/test_synthetic_ids.py` rejects a committed fixture MMSI, or a test vessel-id literal, whose MID is in 201–775.
+- `538001234` was found in the category table. Its MID 538 is allocated to the Republic of the Marshall Islands on the ITU Table of Maritime Identification Digits. It is migrated to `199090001`.
+- `mmsi_category` is unchanged and `other` is the correct flag for an unassigned MID. The ITU MID block is 201–775. A leading digit `2`–`7` is `ship`. A leading digit `1` is `other`. Every migrated fixture row therefore changes from `ship` to `other`. On `tests/fixtures/synthetic_ais.csv`, `mmsi_categories` changes from `{"ship": 60}` to `{"other": 60}`. Observation counts do not change (`written` 60, one stationary candidate). A leading `7` whose MID is above 775 (MID 790) still classifies as `ship`; that path is covered by a classifier test and a pipeline test.
+- The candidate `event_id` is SHA-256 of `mmsi|start|end|method_version|parameter_set`, truncated to 18 hex characters. The single-day candidate changes from `97804ba6c59f9497ed` to `f15a5a20540a9ec5b3`.
+- Golden files for this package are `tests/fixtures/single_day_0.2.0.dev15/`. `tests/fixtures/single_day_0.2.0.dev9/` is the input of the mapping proof. The proof applies `SYNTHETIC_ID_MAP`, changes `ship` to `other` only on mapped rows, and recomputes `event_id`, `input_sha256`, `run_id`, and `package_version` with `hashlib`. Those projected bytes equal the dev15 goldens. Any other difference fails.
+- SHA-256 of the single-day artifacts on `tests/fixtures/synthetic_ais.csv`:
+  - `houston_clean.csv`: `82db41ec7542bd5d32ab865ee839295b1f7fb2c33ee9be79bc654e355b2fd3b1` → `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75` (4423 → 4483 bytes)
+  - `stationary_candidates.csv`: `b5f8bf7b6bb9c855f52d0d5b26a34123b1f7d3511c441fd4efcc905b59537cd7` → `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05` (440 → 441 bytes)
+  - `stationary_candidates.geojson`: `7f063677040698bbfa0a42a139da5ecb5d292127fde4bdaf41d1ecfad367aa71` → `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3` (1167 → 1168 bytes)
+- The GovInfo LSA report's `harborlens_version` is `0.2.0.dev15` because that field copies the package version. Comparison behavior is unchanged. No source is approved. This change makes no accuracy claim. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #84 (stays open). Refs #9 (stays open).
+
 ### Changed (SPEC-003: unvalidated evaluation harness)
 - Package version `0.2.0.dev14` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `harborlens-evaluate` writes `evaluation-v0.2`. `validation_status` is the const `unvalidated`. `--label-provenance` is `synthetic` or `unspecified`; the default, with no flag, is `unspecified`. Any other value exits 2 through `parser.error`, prints no traceback, and writes nothing.
 - The report `caveat` is a fixed string. For `synthetic` it is `These labels are synthetic. They are not independent ground truth, and this report makes no accuracy claim.` For `unspecified` it is `Label provenance is unspecified. These labels are not independent ground truth, and this report makes no accuracy claim.` The existing `warning` text is unchanged.

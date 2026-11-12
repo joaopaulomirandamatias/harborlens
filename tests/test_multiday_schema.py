@@ -16,7 +16,7 @@ def fixture(minutes):
     rows = ["MMSI,BaseDateTime,LAT,LON,SOG,VesselType,Status\n"]
     for m in minutes:
         ts = (FIRST + timedelta(minutes=m)).isoformat().replace("+00:00", "Z")
-        rows.append(f"367800001,{ts},29.73,-95.16,0.2,70,5\n")
+        rows.append(f"199080001,{ts},29.73,-95.16,0.2,70,5\n")
     return "".join(rows)
 
 class MultiDayContractTests(unittest.TestCase):

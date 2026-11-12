@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "harborlens_method": {
+    "method_version": "stationary-v0.2",
+    "max_sog_knots": 0.5,
+    "min_duration_minutes": 30.0,
+    "max_gap_minutes": 15.0,
+    "max_radius_m": 1000.0,
+    "min_points": 8,
+    "max_jump_knots": 65.0,
+    "parameter_set": "dc3727719ee7"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.159998,
+          29.730001
+        ]
+      },
+      "properties": {
+        "event_id": "f15a5a20540a9ec5b3",
+        "mmsi": "199080001",
+        "start_utc": "2024-01-02T00:00:00Z",
+        "end_utc": "2024-01-02T00:45:00Z",
+        "duration_min": 45.0,
+        "point_count": 46,
+        "maximum_distance_m": 6.9,
+        "type": "stationary_candidate",
+        "method_version": "stationary-v0.2",
+        "parameter_set": "dc3727719ee7",
+        "confidence_label": "unvalidated",
+        "left_censoring": "unknown",
+        "right_censoring": "unknown",
+        "vessel_type": "70",
+        "transceiver_class": null,
+        "length_m": null,
+        "draft_m": null,
+        "mmsi_category": "other"
+      }
+    }
+  ]
+}

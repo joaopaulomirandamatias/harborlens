@@ -20,7 +20,7 @@ from harborlens.multiday import MAX_POINTS, MAX_SCRATCH_MIB, run_multiday
 
 def generate(workdir, rows_per_day, days, vessels=800, seed=1):
     rng = random.Random(seed)
-    mmsis = [f"3670{n:05d}" for n in range(vessels)]
+    mmsis = [f"1990{n:05d}" for n in range(vessels)]
     per = max(2, rows_per_day // vessels)
     paths = []
     for d in range(days):

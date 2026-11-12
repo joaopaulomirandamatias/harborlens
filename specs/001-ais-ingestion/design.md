@@ -21,6 +21,10 @@ Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible 
 
 Bounded readers check compressed bytes, ZIP entries, expansion ratio, decompressed data cap, header shape, malformed rows and finite numeric payloads. These are defensive CLI controls, not a secure user-upload service. Test synthetic adversarial examples first. Large real-data stress and streaming-memory benchmarks remain outstanding.
 
+## Synthetic vessel identifiers (FR-001, FR-002, BR-008, BR-016)
+
+Committed synthetic MMSIs use unassigned MID 199 in the form `1990xxxxx`. Assigned MIDs 201–775 are not used for those identifiers. `mmsi_category` returns `other` when the first digit is `1` and `ship` when the first digit is `2` through `7`, so moving a fixture from MID 367 to MID 199 changes that QA flag from `ship` to `other`. The candidate `event_id` is a SHA-256 of the MMSI, the time bounds, the method version, and the parameter set, so the identifier change also changes `event_id`. A stationary candidate remains unvalidated. It is not a berth, anchorage, wait, port call, or safety signal. Package `0.2.0.dev15`.
+
 ## Timestamp and download-date grammar (NFR-003, NFR-004, FR-002)
 
 `ais.parse_time` and `harborlens-download-noaa --date` do not call `fromisoformat`. Observation timestamps are ASCII `YYYY-MM-DD`, then `T` or one space, then `HH:MM:SS`, with no fraction or 1 to 6 fractional digits. A missing offset is UTC. `Z` and `±HH:MM` are accepted, and a non-UTC offset is converted to UTC. `--date` is a real `YYYY-MM-DD` calendar date only. Week dates and `YYYYMMDD` are rejected, and a rejected date exits 2 before any network call. Evidence: `tests/test_timeparse.py`. Package `0.2.0.dev13`.

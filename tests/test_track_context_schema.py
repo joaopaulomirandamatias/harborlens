@@ -26,12 +26,12 @@ class TrackContextSchemaTests(unittest.TestCase):
                 writer.writerow(["mmsi","timestamp_utc","lat","lon","sog_knots"])
                 for minute in range(0,50,5):
                     t=(START+timedelta(minutes=minute)).isoformat().replace("+00:00","Z")
-                    writer.writerow(["367800001",t,29.75,-95.16,0.2])
+                    writer.writerow(["199080001",t,29.75,-95.16,0.2])
             start=START.isoformat().replace("+00:00","Z")
             end=(START+timedelta(minutes=45)).isoformat().replace("+00:00","Z")
             candidates.write_text(json.dumps({"type":"FeatureCollection","features":[{
                 "type":"Feature","geometry":{"type":"Point","coordinates":[-95.16,29.75]},
-                "properties":{"event_id":"abcd12345","mmsi":"367800001",
+                "properties":{"event_id":"abcd12345","mmsi":"199080001",
                               "start_utc":start,"end_utc":end,"point_count":10,
                               "type":"stationary_candidate","confidence_label":"unvalidated"}
             }]}))

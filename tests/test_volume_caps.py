@@ -20,7 +20,7 @@ HEADER = ["MMSI", "BaseDateTime", "LAT", "LON", "SOG", "VesselType", "Status"]
 DAY = datetime(2024, 1, 2)
 
 
-def write(path, start, minutes, mmsi="367300001"):
+def write(path, start, minutes, mmsi="199030001"):
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(HEADER)
@@ -107,7 +107,7 @@ class VolumeCapTests(unittest.TestCase):
         path = self.root / "candidates.geojson"
         path.write_text(json.dumps({"type": "FeatureCollection", "features": [{
             "type": "Feature", "geometry": {"type": "Point", "coordinates": [-95.0, 29.5]},
-            "properties": {"event_id": "week-long", "mmsi": "367300001", "start_utc": "2024-01-02T00:00:00Z",
+            "properties": {"event_id": "week-long", "mmsi": "199030001", "start_utc": "2024-01-02T00:00:00Z",
                            "end_utc": "2024-01-09T00:00:00Z", "point_count": 10_080,
                            "type": "stationary_candidate", "confidence_label": "unvalidated"}}]}))
         rows, method = _load_candidates(path)

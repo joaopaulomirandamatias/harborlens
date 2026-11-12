@@ -32,7 +32,7 @@ def fixture_rows():
     """Eight vessels, each: 42 min moving, a stop, 42 min moving, a second stop."""
     out = []
     for n in range(8):
-        mmsi, vtype = f"36720000{n}", ("70", "80", "31", "60")[n % 4]
+        mmsi, vtype = f"19902000{n}", ("70", "80", "31", "60")[n % 4]
         t, lat, lon = DAY + timedelta(minutes=5 + n), 29.4 + n * 0.01, -95.0
         for stop in (60 + 20 * n, 40):
             for i in range(0, 45, 3):
@@ -470,7 +470,7 @@ class CensoredTruePositiveTests(unittest.TestCase):
                 writer = csv.writer(handle)
                 writer.writerow(HEADER)
                 for minute in range(0, 41):
-                    writer.writerow(["367110009", (start + timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    writer.writerow(["199011009", (start + timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                                      "29.73", "-95.16", "0.1", "70", "1"])
             run_dir = root / "run"
             run(src, run_dir, window_start="2024-01-02T00:00:00Z", window_end="2024-01-02T06:00:00Z")
