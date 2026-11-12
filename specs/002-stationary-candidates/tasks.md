@@ -1,6 +1,6 @@
 # SPEC-002: Implementation Work Items
 
-**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured. The multi-day working set is a fixed SQLite cache and soft heap (2026-11-12). Checking a task requires traceable PR/test evidence.
+**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured. The enforced multi-day pin is the SQLite page cache, no memory map, and a file temp store (2026-11-12). A soft heap limit is requested and enforced only when SQLite says so. Checking a task requires traceable PR/test evidence.
 
 - [x] Preserve existing single-file regression tests; add multi-day cases (synthetic CI verified)
 - [x] Implement SQLite-based multi-file sorting and midnight candidate continuity (PR under review)
@@ -42,7 +42,7 @@
 
 ## Fixed working set for multi-day segmentation (issue #5)
 
-- [x] Pin SQLite cache (8192 KiB), soft heap (8 MiB), `mmap_size=0`, and `temp_store=FILE`. Record `resources.memory_bound` and require it in `multi-day-run.schema.json`. Accept 2–16 files. Seventeen files fail closed with no outputs (`tests/test_multiday_bounded.py`).
+- [x] Pin the enforced controls: SQLite cache (8192 KiB), `mmap_size=0`, and `temp_store=FILE`. Request an 8 MiB soft heap and record whether `ENABLE_MEMORY_MANAGEMENT` makes it enforced (`soft_heap_limit_enforced`). Manifest schema is `multi-day-1.1`. A 1.0 manifest is not treated as 1.1. Wrong file count and existing outputs exit 2 (`tests/test_multiday_bounded.py`).
 - [x] Order late and shuffled points on disk by `(mmsi, epoch_us, insertion id)`. Exact duplicates keep both sources (BR-005). A same-timestamp position conflict splits (BR-007). A gap of exactly 15 minutes stays one candidate; 16 minutes splits. `Segmenter` rejects a descending timestamp.
 - [x] Measure traced peak and process RSS on synthetic 1, 3, 7, and 14 day inputs in subprocesses. Assert the ceilings in the design. Scratch may grow. Candidates stay `unvalidated`.
 - [x] Show single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` are byte-identical to package `0.2.0.dev9` (`tests/fixtures/single_day_0.2.0.dev9/`). Manifest differs in package version and `run_id` only.

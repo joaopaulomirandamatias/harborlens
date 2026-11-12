@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import json
 import random
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,12 +31,16 @@ from harborlens.io_safe import AISInputError
 from harborlens.multiday import (
     MAX_FILES,
     MEMORY_BOUND_POLICY,
+    MULTIDAY_SCHEMA_VERSION,
     SQLITE_CACHE_KIB,
     SQLITE_SOFT_HEAP_BYTES,
     _apply_memory_bound,
     _make_db,
-    memory_bound_record,
+    read_memory_bound,
+    require_multiday_schema,
+    require_pinned_working_set,
     run_multiday,
+    soft_heap_limit_enforced,
 )
 from harborlens.segmentation import MemoryStore, SegmentationParams, Segmenter
 
@@ -87,19 +92,44 @@ def memory_day(day_index, minutes):
     return rows
 
 
+def sqlite3_mutated(path):
+    db = sqlite3.connect(path)
+    db.execute("PRAGMA temp_store=MEMORY")
+    db.execute("PRAGMA cache_size=-262144")
+    db.execute("PRAGMA soft_heap_limit=0")
+    db.execute("PRAGMA mmap_size=268435456")
+    return db
+
+
+def assert_enforced_pin(test, bound):
+    """The bound that is always enforced: cache, mmap, and temp_store.
+
+    ``soft_heap_limit_enforced`` is recorded and is not assumed to be true.
+    """
+    test.assertEqual(bound["policy"], MEMORY_BOUND_POLICY)
+    test.assertEqual(bound["sqlite_cache_kib"], SQLITE_CACHE_KIB)
+    test.assertEqual(bound["mmap_bytes"], 0)
+    test.assertEqual(bound["temp_store"], "FILE")
+    test.assertFalse(bound["grows_with_input_rows"])
+    test.assertIn(bound["soft_heap_limit_enforced"], ("true", "false", "unknown"))
+    if bound["soft_heap_limit_enforced"] == "true":
+        test.assertEqual(bound["sqlite_soft_heap_bytes"], SQLITE_SOFT_HEAP_BYTES)
+
+
 class SqliteMemoryBoundTests(unittest.TestCase):
     def test_pragmas_match_the_fixed_bound(self):
         self.assertEqual(SQLITE_CACHE_KIB, 8192)
         self.assertEqual(SQLITE_SOFT_HEAP_BYTES, 8 * 1024 * 1024)
         self.assertEqual(MEMORY_BOUND_POLICY, "fixed-sqlite-heap-v1")
-        record = memory_bound_record()
-        self.assertFalse(record["grows_with_input_rows"])
+        self.assertEqual(MULTIDAY_SCHEMA_VERSION, "multi-day-1.1")
         with tempfile.TemporaryDirectory() as folder:
             db = _make_db(Path(folder) / "bound.sqlite3", 32)
             try:
+                record = read_memory_bound(db)
+                require_pinned_working_set(record)
+                assert_enforced_pin(self, record)
+                self.assertEqual(soft_heap_limit_enforced(db), record["soft_heap_limit_enforced"])
                 self.assertEqual(db.execute("PRAGMA cache_size").fetchone()[0], -SQLITE_CACHE_KIB)
-                self.assertEqual(db.execute("PRAGMA soft_heap_limit").fetchone()[0],
-                                 SQLITE_SOFT_HEAP_BYTES)
                 self.assertEqual(db.execute("PRAGMA mmap_size").fetchone()[0], 0)
                 self.assertEqual(db.execute("PRAGMA temp_store").fetchone()[0], 1)
             finally:
@@ -108,15 +138,83 @@ class SqliteMemoryBoundTests(unittest.TestCase):
     def test_refused_pragma_fails_closed(self):
         class Fake:
             def execute(self, sql):
-                if sql.startswith("PRAGMA cache_size") and "=" not in sql:
-                    return self
                 return self
 
             def fetchone(self):
                 return (0,)
 
-        with self.assertRaisesRegex(AISInputError, "memory bound"):
+            def fetchall(self):
+                return [("COMPILER=test",)]
+
+        with self.assertRaisesRegex(AISInputError, "fixed multi-day pin"):
             _apply_memory_bound(Fake())
+
+    def test_mutated_pin_is_rejected(self):
+        """A 256 MiB cache, soft heap 0, mmap on, and temp_store=MEMORY is not the pin.
+
+        The 14-day scaling fixture is about 4 MiB of scratch, and on a GitHub
+        runner the RSS gap for a 400,000-row load was only about 6 MiB
+        (pinned already near 100 MiB). RSS does not fail that mutation.
+        The live read-back does: cache, mmap, and temp store must match the pin.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            db = sqlite3_mutated(Path(folder) / "probe.sqlite3")
+            try:
+                mutated = read_memory_bound(db)
+            finally:
+                db.close()
+            self.assertEqual(mutated["sqlite_cache_kib"], 262144)
+            self.assertEqual(mutated["sqlite_soft_heap_bytes"], 0)
+            self.assertEqual(mutated["mmap_bytes"], 268435456)
+            self.assertEqual(mutated["temp_store"], "MEMORY")
+            with self.assertRaisesRegex(AISInputError, "cache_kib=262144") as caught:
+                require_pinned_working_set(mutated)
+            self.assertIn("temp_store=MEMORY", str(caught.exception))
+            self.assertIn("mmap_bytes=268435456", str(caught.exception))
+
+    def test_pipeline_rejects_a_monkeypatched_pin(self):
+        def bad(db):
+            db.execute("PRAGMA temp_store=MEMORY")
+            db.execute("PRAGMA cache_size=-262144")
+            db.execute("PRAGMA soft_heap_limit=0")
+            db.execute("PRAGMA mmap_size=268435456")
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            write_csv(root / "a.csv", [line(DAY + timedelta(minutes=5 * i)) for i in range(4)])
+            write_csv(root / "b.csv", [line(DAY + timedelta(days=1, minutes=5 * i)) for i in range(4)])
+            with mock.patch("harborlens.multiday._apply_memory_bound", bad):
+                with self.assertRaisesRegex(AISInputError, "fixed multi-day pin"):
+                    run_multiday([root / "a.csv", root / "b.csv"], root / "out")
+            self.assertFalse((root / "out" / "manifest.json").exists())
+
+    def test_multiday_1_0_without_memory_bound_is_not_1_1(self):
+        from jsonschema import Draft202012Validator
+
+        legacy = {
+            "schema_version": "multi-day-1.0",
+            "resources": {
+                "scratch_peak_bytes": 1,
+                "scratch_measurement": "sampled at commits; includes rollback journal",
+            },
+        }
+        snapshot = json.loads(json.dumps(legacy))
+        with self.assertRaisesRegex(AISInputError, "not treated as 1.1"):
+            require_multiday_schema(legacy)
+        self.assertEqual(legacy, snapshot)
+        self.assertNotIn("memory_bound", legacy["resources"])
+        schema = json.loads((ROOT / "schemas" / "v1" / "multi-day-run.schema.json").read_text())
+        errors = list(Draft202012Validator(schema).iter_errors(legacy))
+        self.assertTrue(errors)
+        self.assertTrue(any(err.validator == "const" for err in errors))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            write_csv(root / "a.csv", memory_day(0, range(0, 60, 4)))
+            write_csv(root / "b.csv", memory_day(1, range(0, 60, 4)))
+            manifest = run_multiday([root / "a.csv", root / "b.csv"], root / "out")
+        self.assertEqual(manifest["schema_version"], "multi-day-1.1")
+        self.assertIs(require_multiday_schema(manifest), manifest)
+        Draft202012Validator(schema).validate(manifest)
 
 
 class DayBoundaryTests(unittest.TestCase):
@@ -237,7 +335,8 @@ class DayBoundaryTests(unittest.TestCase):
         manifest = run_multiday(paths, self.root / "sixteen")
         self.assertEqual(manifest["counts"]["written"], MAX_FILES)
         self.assertEqual(len(manifest["input_files"]), MAX_FILES)
-        self.assertEqual(manifest["resources"]["memory_bound"], memory_bound_record())
+        self.assertEqual(manifest["schema_version"], "multi-day-1.1")
+        assert_enforced_pin(self, manifest["resources"]["memory_bound"])
         extra = self.root / "part-extra.csv"
         write_csv(extra, [line(DAY + timedelta(days=MAX_FILES))])
         out = self.root / "seventeen"
@@ -274,8 +373,10 @@ class WorkingSetScalingTests(unittest.TestCase):
                 self.assertEqual(payload["written"], ROWS_PER_DAY * days)
                 self.assertEqual(payload["stationary_candidates"], 4)
                 self.assertEqual(payload["cross_day_candidates"], 0 if days == 1 else 4)
-                self.assertEqual(payload["memory_bound"]["policy"], MEMORY_BOUND_POLICY)
-                self.assertFalse(payload["memory_bound"]["grows_with_input_rows"])
+                assert_enforced_pin(self, payload["memory_bound"])
+                manifest = json.loads((out / "manifest.json").read_text())
+                self.assertEqual(manifest["schema_version"], MULTIDAY_SCHEMA_VERSION)
+                assert_enforced_pin(self, manifest["resources"]["memory_bound"])
                 with (out / "stationary_candidates.csv").open(newline="") as handle:
                     candidates = list(csv.DictReader(handle))
                 self.assertEqual(len(candidates), 4)
@@ -294,6 +395,10 @@ class WorkingSetScalingTests(unittest.TestCase):
                     "traced_peak_bytes": item["traced_peak_bytes"],
                     "rss_bytes": item["rss_bytes"],
                     "scratch_peak_bytes": item["scratch_peak_bytes"],
+                    "soft_heap_limit_enforced": item["memory_bound"]["soft_heap_limit_enforced"],
+                    "sqlite_cache_kib": item["memory_bound"]["sqlite_cache_kib"],
+                    "temp_store": item["memory_bound"]["temp_store"],
+                    "mmap_bytes": item["memory_bound"]["mmap_bytes"],
                 }
                 for item in measured
             ]
@@ -309,6 +414,50 @@ class WorkingSetScalingTests(unittest.TestCase):
             # Keep the table in the failure output and in a successful assertion message
             # only when something is wrong. Print it for the PR measurement log.
             print("\nMULTIDAY_MEMORY_TABLE " + detail)
+
+
+class MultiDayCliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.a = write_csv(self.root / "a.csv", [line(DAY + timedelta(minutes=5 * i)) for i in range(4)])
+        self.b = write_csv(self.root / "b.csv", [line(DAY + timedelta(days=1, minutes=5 * i)) for i in range(4)])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _cli(self, args):
+        return subprocess.run(
+            [sys.executable, "-m", "harborlens.multiday", *args],
+            check=False, capture_output=True, text=True,
+        )
+
+    def test_wrong_file_count_exits_2_without_traceback(self):
+        for label, inputs in (
+            ("one file", [self.a]),
+            ("seventeen files", [self.a, self.b] + [
+                write_csv(self.root / f"extra-{index}.csv", [line(DAY + timedelta(days=2 + index))])
+                for index in range(15)
+            ]),
+        ):
+            with self.subTest(label=label):
+                proc = self._cli(["--input", *[str(path) for path in inputs], "--out", str(self.root / label)])
+                self.assertEqual(proc.returncode, 2, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertNotIn("Traceback", proc.stdout)
+                self.assertIn("distinct AIS files", proc.stderr)
+                self.assertEqual(proc.stdout, "")
+
+    def test_existing_output_exits_2_without_traceback(self):
+        out = self.root / "out"
+        first = self._cli(["--input", str(self.a), str(self.b), "--out", str(out)])
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self._cli(["--input", str(self.a), str(self.b), "--out", str(out)])
+        self.assertEqual(second.returncode, 2, second.stderr)
+        self.assertNotIn("Traceback", second.stderr)
+        self.assertNotIn("Traceback", second.stdout)
+        self.assertIn("already exist", second.stderr)
+        self.assertEqual(second.stdout, "")
 
 
 class SingleDayByteIdentityTests(unittest.TestCase):

@@ -28,7 +28,8 @@
       "const": "multi_day_historical"
     },
     "schema_version": {
-      "const": "multi-day-1.0"
+      "const": "multi-day-1.1",
+      "description": "multi-day-1.1 requires resources.memory_bound. A multi-day-1.0 manifest is not this schema and is not upgraded."
     },
     "input_files": {
       "type": "array",
@@ -592,11 +593,12 @@
         "memory_bound": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Fixed SQLite working set. It does not grow with input rows. Scratch disk is a separate cap.",
+          "description": "Live SQLite working set read back from the connection. The enforced pin is sqlite_cache_kib, mmap_bytes, and temp_store. sqlite_soft_heap_bytes is the requested soft heap limit and bounds memory only when soft_heap_limit_enforced is true. Scratch disk is a separate cap. This object does not validate a candidate as a berth, anchorage, wait, or port call.",
           "required": [
             "policy",
             "sqlite_cache_kib",
             "sqlite_soft_heap_bytes",
+            "soft_heap_limit_enforced",
             "mmap_bytes",
             "temp_store",
             "grows_with_input_rows"
@@ -609,7 +611,13 @@
               "const": 8192
             },
             "sqlite_soft_heap_bytes": {
-              "const": 8388608
+              "type": "integer",
+              "minimum": 0,
+              "description": "Requested soft heap limit in bytes, read back from SQLite. Not a memory bound unless soft_heap_limit_enforced is true."
+            },
+            "soft_heap_limit_enforced": {
+              "enum": ["true", "false", "unknown"],
+              "description": "true when PRAGMA compile_options lists ENABLE_MEMORY_MANAGEMENT. false when the option list is present and omits it. unknown when compile options cannot be read."
             },
             "mmap_bytes": {
               "const": 0
