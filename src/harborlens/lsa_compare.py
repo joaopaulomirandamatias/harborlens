@@ -11,10 +11,12 @@ before any GovInfo request. Digest comparisons use ``hmac.compare_digest``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import re
 import sys
@@ -22,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from harborlens import __version__
 
@@ -32,12 +34,30 @@ FIXED_GOVINFO_URLS = {
     "2024-01": "https://www.govinfo.gov/content/pkg/LSA-2024-01/pdf/LSA-2024-01.pdf",
 }
 EXPECTED_PART110_PROPOSAL_PAGES = ("47837", "89644", "89646", "89648")
+# Independently measured GovInfo bytes. A mismatch is refused before pypdf runs.
+PINNED_LSA_PDFS = {
+    "2023-12": {
+        "sha256": "c226121a7617f1b4578a0fcf79f58d4735696e0405c5522615699bdb5bab037d",
+        "size_bytes": 554882,
+        "page_count": 117,
+    },
+    "2024-01": {
+        "sha256": "5ce3c08a45ed6853643a105690d332cbf9813400d4da391de794ef1237305348",
+        "size_bytes": 516462,
+        "page_count": 82,
+    },
+}
 MAX_SOURCE_BYTES = 10 * 1048576
 MAX_TITLE33_CHARS = 500_000
-# Inclusive page ceiling, checked before any extract_text call. Matches the
-# schema maximum. One more page fails closed (CLI exit 2, no output).
+# Inclusive page ceiling. pypdf counts page-tree nodes with
+# page_tree_maximum_entries, so that limit is MAX_PDF_PAGES and a larger
+# tree fails before the whole tree is flattened. page_tree_maximum_page_entries
+# counts copied dictionary keys, not pages; the pinned December PDF needs 586.
 MIN_PDF_PAGES = 26
 MAX_PDF_PAGES = 299
+MAX_PDF_PAGE_DICTIONARY_ENTRIES = 1024
+TITLE33_HEADER = re.compile(r"TITLE\s*33\s*[-—]?\s*NAVIGATION", re.I)
+TITLE34_HEADER = re.compile(r"TITLE\s*34\s*[-—]?\s*EDUCATION", re.I)
 TIMEOUT_SECONDS = 60
 MAX_REDIRECTS = 3
 RIGHTS_STATUS = "review_required"
@@ -88,6 +108,7 @@ class _GovInfoRedirects(HTTPRedirectHandler):
     """Refuse every redirect that leaves the exact requested GovInfo URL."""
 
     max_redirections = MAX_REDIRECTS
+    max_repeats = MAX_REDIRECTS
 
     def redirect_request(self, request, fp, code, message, headers, newurl):
         if code not in (301, 302, 303, 307, 308):
@@ -97,6 +118,32 @@ class _GovInfoRedirects(HTTPRedirectHandler):
             raise LSAComparisonError("GovInfo source redirect may not change the fixed URL")
         _require_fixed_govinfo_url(newurl)
         return super().redirect_request(request, fp, code, message, headers, newurl)
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        location = None
+        if headers is not None:
+            getter = getattr(headers, "get", None)
+            if getter is not None:
+                location = getter("location") or getter("uri")
+            elif "location" in headers:
+                location = headers["location"]
+            elif "uri" in headers:
+                location = headers["uri"]
+        if not location:
+            raise LSAComparisonError("GovInfo redirect is missing Location")
+        try:
+            return super().http_error_302(req, fp, code, msg, headers)
+        except LSAComparisonError:
+            raise
+        except HTTPError as exc:
+            raise LSAComparisonError("GovInfo redirect limit exceeded") from exc
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
+def _build_govinfo_opener():
+    """Open GovInfo directly. An empty ProxyHandler ignores HTTPS_PROXY."""
+    return build_opener(ProxyHandler({}), _GovInfoRedirects())
 
 
 def _source_url(month: str) -> str:
@@ -146,7 +193,27 @@ def _parser_failure(exc: Exception) -> LSAComparisonError:
     return LSAComparisonError("Could not parse the complete official LSA PDF")
 
 
+def _page_text(page) -> str:
+    try:
+        text = page.extract_text()
+    except LSAComparisonError:
+        raise
+    except Exception as exc:
+        raise _parser_failure(exc) from exc
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        raise LSAComparisonError("Could not parse the complete official LSA PDF")
+    return text
+
+
 def _extract_title33(reader):
+    """Keep Title 33 text, including a same-page prefix before the Title 34 header.
+
+    The start page contributes only the text from the Title 33 header onward.
+    Extraction stops at the Title 34 header and does not read later pages.
+    The character ceiling is applied as text is accepted, not after a full extract.
+    """
     try:
         page_count = len(reader.pages)
     except LSAComparisonError:
@@ -159,35 +226,39 @@ def _extract_title33(reader):
         raise LSAComparisonError("Official LSA exceeds the page ceiling")
     if page_count < MIN_PDF_PAGES:
         raise LSAComparisonError("Unexpected source PDF page count")
-    pages = []
-    try:
-        for page in reader.pages:
-            text = page.extract_text()
-            if text is None:
-                text = ""
-            if not isinstance(text, str):
-                raise LSAComparisonError("Could not parse the complete official LSA PDF")
-            pages.append(text)
-    except LSAComparisonError:
-        raise
-    except Exception as exc:
-        raise _parser_failure(exc) from exc
-    starts = [index for index, body in enumerate(pages)
-              if re.search(r"TITLE\s*33\s*[-—]?\s*NAVIGATION", body, re.I)]
-    if not starts:
+    parts: list[str] = []
+    used = 0
+    start_page = None
+
+    def _accept(fragment: str) -> None:
+        nonlocal used
+        if not fragment:
+            return
+        extra = len(fragment) if not parts else len(fragment) + 1
+        if used + extra > MAX_TITLE33_CHARS:
+            raise LSAComparisonError("Title 33 extracted content exceeds the size cap")
+        parts.append(fragment)
+        used += extra
+
+    for index in range(page_count):
+        text = _page_text(reader.pages[index])
+        if start_page is None:
+            match = TITLE33_HEADER.search(text)
+            if match is None:
+                continue
+            start_page = index + 1
+            text = text[match.start():]
+        end = TITLE34_HEADER.search(text)
+        if end is not None:
+            _accept(text[:end.start()])
+            content = "\n".join(parts)
+            if len(content) < 300:
+                raise LSAComparisonError("Title 33 extracted content is unexpectedly short")
+            return content, start_page, index + 1, page_count
+        _accept(text)
+    if start_page is None:
         raise LSAComparisonError("Cannot establish Title 33 start in extracted PDF")
-    start = starts[0]
-    ends = [index for index in range(start + 1, len(pages))
-            if re.search(r"TITLE\s*34\s*[-—]?\s*EDUCATION", pages[index], re.I)]
-    if not ends:
-        raise LSAComparisonError("Cannot establish Title 33 end in extracted PDF")
-    end = ends[0]
-    content = "\n".join(pages[start:end])
-    if len(content) < 300:
-        raise LSAComparisonError("Title 33 extracted content is unexpectedly short")
-    if len(content) > MAX_TITLE33_CHARS:
-        raise LSAComparisonError("Title 33 extracted content exceeds the size cap")
-    return content, start + 1, end, page_count
+    raise LSAComparisonError("Cannot establish Title 33 end in extracted PDF")
 
 
 def _proposed_part110_pages(text: str) -> tuple[str, ...]:
@@ -220,34 +291,93 @@ def _pdf_reader(content: bytes):
         raise _parser_failure(exc) from exc
 
 
-def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: bool = False):
+def _require_pinned_pdf(month: str, raw: bytes) -> str:
+    """Refuse unexpected bytes before any PDF parser runs."""
+    pin = PINNED_LSA_PDFS[month]
+    if len(raw) != pin["size_bytes"]:
+        raise LSAComparisonError("Official LSA bytes do not match the pinned source")
+    digest = hashlib.sha256(raw).hexdigest()
+    if not digests_equal(digest, pin["sha256"]):
+        raise LSAComparisonError("Official LSA bytes do not match the pinned source")
+    return digest
+
+
+@contextlib.contextmanager
+def _quiet_pypdf_logs():
+    """Keep font and xref notices off the CLI stream. Errors still propagate."""
+    logger = logging.getLogger("pypdf")
+    previous = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
+
+
+def _parse_with_page_tree_limit(raw: bytes, reader_factory):
+    """Flatten at most MAX_PDF_PAGES page-tree nodes when using pypdf."""
+    if reader_factory is _pdf_reader:
+        try:
+            from pypdf import apply_configuration
+        except ImportError as exc:
+            raise LSAComparisonError(
+                "Install optional dependency: pip install 'harborlens[lsa]'"
+            ) from exc
+        context = apply_configuration(
+            page_tree_maximum_entries=MAX_PDF_PAGES,
+            page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,
+        )
+    else:
+        context = contextlib.nullcontext()
+    try:
+        with _quiet_pypdf_logs(), context:
+            reader = reader_factory(raw)
+            return _extract_title33(reader)
+    except LSAComparisonError:
+        raise
+    except Exception as exc:
+        raise LSAComparisonError("Could not parse the complete official LSA PDF") from exc
+
+
+def compare_official_lsa(
+    opener=None,
+    reader_factory=None,
+    *,
+    allow_network: bool = False,
+    enforce_source_pins: bool | None = None,
+):
     """Collect two source receipts while refusing to infer a legal result.
 
     ``allow_network`` defaults to false. Tests pass an in-memory opener and
     never set this flag. The CLI sets it only after ``--fetch``.
+
+    Source pins are enforced for the real pypdf reader. A byte or size mismatch
+    is refused before that reader is called. There is no wall-clock timeout
+    around pypdf parsing; that residual is accepted for this opt-in command.
     """
+    if enforce_source_pins is None:
+        enforce_source_pins = reader_factory is None
     if opener is None:
         if not allow_network:
             raise LSAComparisonError(
                 "Network fetch is opt-in; pass --fetch or allow_network=True"
             )
-        opener = build_opener(_GovInfoRedirects()).open
+        opener = _build_govinfo_opener().open
     if reader_factory is None:
         reader_factory = _pdf_reader
     documents = {}
     for month in MONTHS:
         url, raw = _fetch_source(opener, month)
-        try:
-            reader = reader_factory(raw)
-            scoped, first_page, last_page, page_count = _extract_title33(reader)
-        except LSAComparisonError:
-            raise
-        except Exception as exc:
-            raise LSAComparisonError("Could not parse the complete official LSA PDF") from exc
+        if enforce_source_pins:
+            pdf_sha = _require_pinned_pdf(month, raw)
+        else:
+            pdf_sha = hashlib.sha256(raw).hexdigest()
+        scoped, first_page, last_page, page_count = _parse_with_page_tree_limit(raw, reader_factory)
+        if enforce_source_pins and page_count != PINNED_LSA_PDFS[month]["page_count"]:
+            raise LSAComparisonError("Official LSA page count does not match the pinned source")
         proposal = _proposed_part110_pages(scoped)
         if proposal != EXPECTED_PART110_PROPOSAL_PAGES:
             raise LSAComparisonError("Proposed Part 110 page citations changed: manual review required")
-        pdf_sha = hashlib.sha256(raw).hexdigest()
         text_sha = hashlib.sha256(scoped.encode("utf-8")).hexdigest()
         if not digests_equal(pdf_sha, hashlib.sha256(raw).hexdigest()):
             raise LSAComparisonError("PDF digest check failed")
@@ -256,6 +386,7 @@ def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: boo
         documents[month] = {
             "official_pdf_url": url,
             "official_pdf_sha256": pdf_sha,
+            "official_pdf_size_bytes": len(raw),
             "pdf_page_count": page_count,
             "title33_pdf_pages_1based": [first_page, last_page],
             "title33_extracted_text_sha256": text_sha,
@@ -285,11 +416,23 @@ def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: boo
     }
 
 
-def save_report(output: Path, opener=None, reader_factory=None, *, allow_network: bool = False):
+def save_report(
+    output: Path,
+    opener=None,
+    reader_factory=None,
+    *,
+    allow_network: bool = False,
+    enforce_source_pins: bool | None = None,
+):
     output = Path(output)
     if output.suffix.lower() != ".json" or output.exists():
         raise LSAComparisonError("Output must be a new .json report")
-    report = compare_official_lsa(opener, reader_factory, allow_network=allow_network)
+    report = compare_official_lsa(
+        opener,
+        reader_factory,
+        allow_network=allow_network,
+        enforce_source_pins=enforce_source_pins,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     temp = output.with_name(output.name + ".partial")
     try:
@@ -302,7 +445,7 @@ def save_report(output: Path, opener=None, reader_factory=None, *, allow_network
     return report
 
 
-def main(argv=None, *, opener=None, reader_factory=None):
+def main(argv=None, *, opener=None, reader_factory=None, enforce_source_pins: bool | None = None):
     parser = argparse.ArgumentParser(
         description="Compare official 2023-12/2024-01 Title 33 LSA source indexes"
     )
@@ -321,6 +464,7 @@ def main(argv=None, *, opener=None, reader_factory=None):
             opener=opener,
             reader_factory=reader_factory,
             allow_network=opener is None,
+            enforce_source_pins=enforce_source_pins,
         )
     except LSAComparisonError as exc:
         print(str(exc), file=sys.stderr)

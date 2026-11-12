@@ -4,11 +4,12 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import socket
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.request import Request
+from urllib.request import ProxyHandler, Request
 
 import harborlens
 import harborlens.lsa_compare as lsa_compare
@@ -17,6 +18,7 @@ from harborlens.lsa_compare import (
     LSAComparisonError,
     MAX_PDF_PAGES,
     MAX_REDIRECTS,
+    PINNED_LSA_PDFS,
     MAX_SOURCE_BYTES,
     MAX_TITLE33_CHARS,
     MIN_PDF_PAGES,
@@ -134,6 +136,7 @@ class GovInfoLSATests(unittest.TestCase):
             self.assert_same_digest(document["official_pdf_sha256"], expected_pdf)
             self.assert_same_digest(document["title33_extracted_text_sha256"], expected_text)
             self.assert_same_digest(document["official_pdf_sha256"], expected_pdf.upper())
+            self.assertEqual(document["official_pdf_size_bytes"], len(SYNTHETIC_PDF))
 
     def test_digest_helper_rejects_mismatch_and_bad_shape(self):
         digest = hashlib.sha256(SYNTHETIC_PDF).hexdigest()
@@ -151,8 +154,19 @@ class GovInfoLSATests(unittest.TestCase):
         schema = json.loads(SCHEMA_PATH.read_text())
         Draft202012Validator.check_schema(schema)
         record = compare_official_lsa(opener, reader_factory)
+        pinned = json.loads(json.dumps(record))
+        for month, pin in PINNED_LSA_PDFS.items():
+            document = pinned["documents"][month]
+            document["official_pdf_sha256"] = pin["sha256"]
+            document["official_pdf_size_bytes"] = pin["size_bytes"]
+            document["pdf_page_count"] = pin["page_count"]
+            month_schema = schema["properties"]["documents"]["properties"][month]["properties"]
+            self.assertEqual(month_schema["official_pdf_sha256"]["const"], pin["sha256"])
+            self.assertEqual(month_schema["official_pdf_size_bytes"]["const"], pin["size_bytes"])
+            self.assertEqual(month_schema["pdf_page_count"]["const"], pin["page_count"])
         validator = Draft202012Validator(schema, format_checker=FormatChecker())
-        validator.validate(record)
+        validator.validate(pinned)
+        record = pinned
         self.assertEqual(schema["properties"]["legal_effect_on_study_date"]["const"], "NOT_DETERMINED")
         self.assertIs(schema["properties"]["ais_spatial_join_permitted"]["const"], False)
         self.assertIs(schema["properties"]["historical_wgs84_geometry_approved"]["const"], False)
@@ -326,9 +340,12 @@ class GovInfoLSATests(unittest.TestCase):
                 return Response(SYNTHETIC_PDF)
 
         def fake_build_opener(*handlers):
-            self.assertEqual(len(handlers), 1)
-            self.assertIsInstance(handlers[0], _GovInfoRedirects)
-            self.assertEqual(handlers[0].max_redirections, MAX_REDIRECTS)
+            self.assertEqual(len(handlers), 2)
+            self.assertIsInstance(handlers[0], ProxyHandler)
+            self.assertEqual(handlers[0].proxies, {})
+            self.assertIsInstance(handlers[1], _GovInfoRedirects)
+            self.assertEqual(handlers[1].max_redirections, MAX_REDIRECTS)
+            self.assertEqual(handlers[1].max_repeats, MAX_REDIRECTS)
             return Director()
 
         original = lsa_compare.build_opener
@@ -374,7 +391,7 @@ class GovInfoLSATests(unittest.TestCase):
             with self.assertRaisesRegex(LSAComparisonError, "new"):
                 save_report(dest, opener, reader_factory)
 
-    def _cli(self, reader_factory):
+    def _cli(self, reader_factory, *, enforce_source_pins=False):
         stderr = io.StringIO()
         stdout = io.StringIO()
         with tempfile.TemporaryDirectory() as folder:
@@ -387,6 +404,7 @@ class GovInfoLSATests(unittest.TestCase):
                         ["--fetch", "--out", str(dest)],
                         opener=opener,
                         reader_factory=reader_factory,
+                        enforce_source_pins=enforce_source_pins,
                     )
                 except SystemExit as exc:
                     code = exc.code
@@ -492,7 +510,7 @@ class GovInfoLSATests(unittest.TestCase):
         builtins.__import__ = guarded
         try:
             with self.assertRaises(LSAComparisonError) as caught:
-                compare_official_lsa(opener, reader_factory=None)
+                compare_official_lsa(opener, reader_factory=None, enforce_source_pins=False)
             self.assertIn("harborlens[lsa]", str(caught.exception))
             code, exists, partial, _body, stderr, stdout = self._cli(None)
         finally:
@@ -513,6 +531,215 @@ class GovInfoLSATests(unittest.TestCase):
         self.assertNotIn("Traceback", stderr)
         self.assertNotIn("Traceback", stdout)
         self.assertTrue(stderr)
+
+    def test_same_page_title_34_keeps_part110_and_drops_preamble(self):
+        combined = (
+            "preamble excluded 110.197\n"
+            + "TITLE 33—NAVIGATION AND NAVIGABLE WATERS\n"
+            + ("Historical Title 33 content. " * 30)
+            + PROPOSED
+            + "TITLE 34—EDUCATION\n"
+            + "after header 110.197 must not count\n"
+        )
+        extracted = {"n": 0}
+
+        class Later:
+            def extract_text(self):
+                extracted["n"] += 1
+                raise AssertionError("extracted past the Title 34 header")
+
+        def factory(_raw):
+            pages = [FakePage("Title 32") for _ in range(25)]
+            pages.append(FakePage(combined))
+            pages.append(Later())
+            reader = FakeReader("unused")
+            reader.pages = pages
+            return reader
+
+        report = compare_official_lsa(opener, factory)
+        text_hash_source = report["documents"]["2023-12"]["title33_extracted_text_sha256"]
+        self.assertEqual(extracted["n"], 0)
+        self.assertEqual(report["documents"]["2023-12"]["part110_proposed_fr_pages"], ["47837", "89644", "89646", "89648"])
+        self.assertEqual(report["documents"]["2023-12"]["target_110_197_direct_occurrences"], 0)
+        self.assertEqual(report["documents"]["2023-12"]["title33_pdf_pages_1based"], [26, 26])
+        scoped = None
+        # Reconstruct the accepted span from the synthetic page to compare the digest.
+        accepted = combined.split("TITLE 33—NAVIGATION AND NAVIGABLE WATERS\n", 1)[1]
+        accepted = accepted.split("TITLE 34—EDUCATION\n", 1)[0]
+        accepted = "TITLE 33—NAVIGATION AND NAVIGABLE WATERS\n" + accepted
+        self.assertNotIn("preamble excluded", accepted)
+        self.assertNotIn("after header", accepted)
+        self.assert_same_digest(text_hash_source, hashlib.sha256(accepted.encode("utf-8")).hexdigest())
+
+    def test_character_ceiling_stops_before_later_pages(self):
+        extracted = {"n": 0}
+
+        class Counted(FakePage):
+            def extract_text(self):
+                extracted["n"] += 1
+                return super().extract_text()
+
+        huge = section_of_length(MAX_TITLE33_CHARS + 1)
+
+        def factory(_raw):
+            pages = [Counted("Title 32") for _ in range(30)]
+            pages.append(Counted(huge))
+            pages.append(Counted(END))
+            reader = FakeReader("unused")
+            reader.pages = pages
+            return reader
+
+        with self.assertRaisesRegex(LSAComparisonError, "exceeds the size cap"):
+            compare_official_lsa(opener, factory)
+        self.assertEqual(extracted["n"], 31)
+
+    def test_mismatched_pinned_bytes_never_reach_the_parser(self):
+        called = {"n": 0}
+
+        def factory(_raw):
+            called["n"] += 1
+            raise AssertionError("parser was called")
+
+        with self.assertRaisesRegex(LSAComparisonError, "pinned source"):
+            lsa_compare.compare_official_lsa(opener, factory, enforce_source_pins=True)
+        self.assertEqual(called["n"], 0)
+        code, exists, partial, _body, stderr, stdout = self._cli(factory, enforce_source_pins=True)
+        self.assertEqual(called["n"], 0)
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertIn("pinned source", stderr)
+        self.assertNotIn("Traceback", stderr)
+        self.assertNotIn("Traceback", stdout)
+
+        def sized(request, timeout):
+            month = "2023-12" if "2023-12" in request.full_url else "2024-01"
+            size = PINNED_LSA_PDFS[month]["size_bytes"]
+            return Response(b"%PDF-" + b"B" * (size - 5))
+
+        called["n"] = 0
+        with self.assertRaisesRegex(LSAComparisonError, "pinned source"):
+            lsa_compare.compare_official_lsa(sized, factory, enforce_source_pins=True)
+        self.assertEqual(called["n"], 0)
+
+    def test_opener_ignores_environment_proxy(self):
+        previous = os.environ.get("HTTPS_PROXY")
+        os.environ["HTTPS_PROXY"] = "http://127.0.0.1:9"
+        try:
+            director = lsa_compare._build_govinfo_opener()
+            from urllib.request import build_opener
+            default = build_opener()
+        finally:
+            if previous is None:
+                os.environ.pop("HTTPS_PROXY", None)
+            else:
+                os.environ["HTTPS_PROXY"] = previous
+        self.assertFalse(any(isinstance(handler, ProxyHandler) for handler in director.handlers))
+        redirects = [handler for handler in director.handlers if isinstance(handler, _GovInfoRedirects)]
+        self.assertEqual(len(redirects), 1)
+        self.assertTrue(any(
+            isinstance(handler, ProxyHandler) and handler.proxies
+            for handler in default.handlers
+        ))
+
+    def test_redirect_limits_and_hostile_urls(self):
+        handler = _GovInfoRedirects()
+        fixed = FIXED_GOVINFO_URLS["2023-12"]
+        request = Request(fixed)
+        for code in (307, 308, 302):
+            redirected = handler.redirect_request(request, None, code, "Found", {}, fixed)
+            self.assertEqual(redirected.get_method(), "GET")
+            self.assertEqual(redirected.full_url, fixed)
+        hostile = [
+            "https://www.xn--govinfo-0ya.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
+            "https://www.govinfo.gov./content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
+            "https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12%2epdf",
+            "https://www.%67ovinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
+            "https://evil.example/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf",
+        ]
+        for target in hostile:
+            with self.assertRaises(LSAComparisonError):
+                handler.redirect_request(request, None, 307, "Redirect", {}, target)
+            with self.assertRaises(LSAComparisonError):
+                _require_fixed_govinfo_url(target)
+
+        class Parent:
+            def open(self, req, timeout=None):
+                req.timeout = 60 if timeout is None else timeout
+                return req
+
+        handler.parent = Parent()
+        headers = {"location": fixed}
+        request.timeout = 60
+        current = request
+        for _ in range(MAX_REDIRECTS):
+            current = handler.http_error_302(current, io.BytesIO(b""), 302, "Found", headers)
+            self.assertEqual(current.full_url, fixed)
+        with self.assertRaisesRegex(LSAComparisonError, "redirect limit"):
+            handler.http_error_302(current, io.BytesIO(b""), 308, "Redirect", headers)
+        with self.assertRaisesRegex(LSAComparisonError, "missing Location"):
+            handler.http_error_302(request, io.BytesIO(b""), 302, "Found", {})
+        with self.assertRaisesRegex(LSAComparisonError, "fixed URL"):
+            handler.http_error_307(
+                request,
+                io.BytesIO(b""),
+                307,
+                "Redirect",
+                {"location": "https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12%2epdf"},
+            )
+
+    @unittest.skipUnless(_PYPDF is not None, "optional harborlens[lsa] extra is not installed")
+    def test_page_tree_limit_is_active_while_pages_are_counted(self):
+        import pypdf
+
+        state = {"entered": 0, "kwargs": None, "during_len": None}
+
+        class Context:
+            def __enter__(self):
+                state["entered"] += 1
+                return self
+
+            def __exit__(self, *_args):
+                state["entered"] -= 1
+                return False
+
+        def apply_configuration(**kwargs):
+            state["kwargs"] = kwargs
+            return Context()
+
+        class Pages(list):
+            def __len__(self):
+                state["during_len"] = state["entered"]
+                return list.__len__(self)
+
+        class Reader:
+            def __init__(self, stream, strict=True):
+                self.pages = Pages(
+                    [FakePage("Title 32") for _ in range(30)]
+                    + [FakePage(TITLE + PROPOSED), FakePage(END)]
+                )
+
+        original_apply = pypdf.apply_configuration
+        original_reader = pypdf.PdfReader
+        pypdf.apply_configuration = apply_configuration
+        pypdf.PdfReader = Reader
+        try:
+            report = lsa_compare.compare_official_lsa(
+                opener, reader_factory=None, enforce_source_pins=False
+            )
+        finally:
+            pypdf.apply_configuration = original_apply
+            pypdf.PdfReader = original_reader
+        self.assertEqual(
+            state["kwargs"],
+            {
+                "page_tree_maximum_entries": MAX_PDF_PAGES,
+                "page_tree_maximum_page_entries": lsa_compare.MAX_PDF_PAGE_DICTIONARY_ENTRIES,
+            },
+        )
+        self.assertEqual(state["during_len"], 1)
+        self.assertEqual(state["entered"], 0)
+        self.assertEqual(report["legal_effect_on_study_date"], "NOT_DETERMINED")
 
     def test_module_does_not_join_ais_or_add_a_console_script(self):
         source = Path(lsa_compare.__file__).read_text(encoding="utf-8")
