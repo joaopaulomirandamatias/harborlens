@@ -10,7 +10,7 @@ HarborLens explores auditable AIS ingest and provisional low-speed stationary ca
 | --- | --- | --- |
 | Ingestion and provenance (SPEC-001) | Implemented | Synthetic tests; source-pinned NOAA 2024 smokes; 2015–2023 and 2025+ layouts documentary only |
 | Stationary candidates (SPEC-002) | Implemented, unvalidated | One shared engine (`stationary-v0.2`), censoring flags, synthetic 7-day scale benchmark; real two-day smoke |
-| Validation tooling (SPEC-003) | Partial | Labeling protocol, blinded sampler, agreement and evaluation CLIs; **no labels collected, no accuracy measured** |
+| Validation tooling (SPEC-003) | Partial | Labeling protocol, blinded sampler, agreement CLI, and a synthetic evaluation harness (`evaluation-v0.2`, `validation_status` `unvalidated`); **no labels collected, no accuracy claim** |
 | Zones and regulatory sources (SPEC-004) | Partial | USACE points, current NOAA polygons, CFR/Federal Register audits; no reviewed dated polygons |
 | Emissions, API/map, managed service (SPEC-005–007) | Proposed | Not built |
 
@@ -21,6 +21,10 @@ python -m pip install -e .
 python -m unittest discover -s tests -v
 harborlens --input tests/fixtures/synthetic_ais.csv --out results
 ```
+
+## Synthetic evaluation harness (SPEC-003)
+
+`harborlens-evaluate` compares one verified run with an adjudicated label file. The report schema is `evaluation-v0.2`. `validation_status` is `unvalidated`. `--label-provenance` accepts `synthetic` or `unspecified`; with no flag the value is `unspecified`, and any other value exits 2 without writing a file. The `caveat` states that the labels are not independent ground truth and that the report makes no accuracy claim. When provenance is unspecified, the caveat says the label provenance is unspecified. `mixed`, `unknown`, and unlabeled units stay in `coverage.excluded`. An `evaluation-v0.1` report is not readable: `read_evaluation_report` raises `EvaluationReportError`. The test exercise uses synthetic vessel ids only and does not commit a label sheet. No real labels have been collected. A stationary candidate is not a berth, anchorage, wait, or port call.
 
 The offline source-rights helper is `python -m harborlens.rights`. Schema checks need the optional extra, not a core dependency:
 

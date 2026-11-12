@@ -1,4 +1,4 @@
-"""Evaluation of stationary candidates against adjudicated labels (SPEC-003, issue #9).
+"""Comparison of stationary candidates with adjudicated labels (SPEC-003, issue #9).
 
 Inputs are one verified run, the sampling manifest written by
 ``harborlens-label-sample`` and an adjudicated label CSV. A candidate is the
@@ -8,10 +8,14 @@ true stationary, ``maneuvering``/``transit`` are true moving. ``mixed``,
 ``unknown`` and unlabeled units are reported separately and are never counted
 as correct.
 
-Metrics against L2 labels measure agreement with expert review of AIS, not
-independent ground truth; only L3 labels support real-world accuracy claims.
-Nothing here upgrades a candidate to a verified berth, anchorage, wait or port
-call.
+This is a reproducibility harness. The report is ``evaluation-v0.2``.
+``validation_status`` is ``unvalidated``. ``label_provenance`` is ``synthetic``
+only when the caller says so, and ``unspecified`` otherwise. The ``caveat``
+states that the labels are not independent ground truth and that the report
+makes no accuracy claim. ``read_evaluation_report`` refuses an
+``evaluation-v0.1`` file with ``EvaluationReportError``.
+
+Nothing here upgrades a candidate to a berth, anchorage, wait or port call.
 """
 from __future__ import annotations
 
@@ -30,7 +34,20 @@ from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_strat
 from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
-SCHEMA_VERSION = "evaluation-v0.1"
+SCHEMA_VERSION = "evaluation-v0.2"
+# evaluation-v0.1 reports are not readable. read_evaluation_report names that version and raises.
+PREVIOUS_SCHEMA_VERSION = "evaluation-v0.1"
+VALIDATION_STATUS = "unvalidated"
+LABEL_PROVENANCE_VALUES = ("synthetic", "unspecified")
+CAVEAT_SYNTHETIC = (
+    "These labels are synthetic. They are not independent ground truth, "
+    "and this report makes no accuracy claim."
+)
+CAVEAT_UNSPECIFIED = (
+    "Label provenance is unspecified. These labels are not independent ground truth, "
+    "and this report makes no accuracy claim."
+)
+CAVEATS = {"synthetic": CAVEAT_SYNTHETIC, "unspecified": CAVEAT_UNSPECIFIED}
 ADJUDICATED_FIELDS = ["sample_id", "label", "evidence_level", "duration_judgement",
                       "true_start_utc", "true_end_utc", "adjudicator_id"]
 Z95 = 1.959963984540054
@@ -38,6 +55,10 @@ WARNING = ("Metrics compare unvalidated stationary candidates with adjudicated l
            "sample. Against L2 labels they measure agreement with expert review of AIS, not independent "
            "ground truth; only the L3 cohort supports real-world accuracy statements. Recall covers sampled "
            "movement intervals only, not stops the method never segmented.")
+
+
+class EvaluationReportError(AISInputError):
+    """An evaluation report is outside the evaluation-v0.2 contract."""
 
 
 def wilson(successes, total):
@@ -112,8 +133,14 @@ def _timing(errors):
             "median_absolute_error_minutes": round(statistics.median(absolute), 2)}
 
 
-def evaluate(run_dir, sampling, labels_path, out):
-    """Write an evaluation report for one run, its sampling manifest and adjudicated labels."""
+def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"):
+    """Write an evaluation report for one run, its sampling manifest and adjudicated labels.
+
+    ``label_provenance`` defaults to ``unspecified``. ``synthetic`` is only for a
+    synthetic fixture. Any other value raises ``AISInputError`` before a file is written.
+    """
+    if label_provenance not in CAVEATS:
+        raise AISInputError("label_provenance must be synthetic or unspecified")
     run_dir, sampling, out = Path(run_dir), Path(sampling), Path(out)
     if out.suffix.lower() != ".json" or out.exists():
         raise AISInputError("Output must be a new .json file")
@@ -211,6 +238,9 @@ def evaluate(run_dir, sampling, labels_path, out):
 
     report = {
         "schema_version": SCHEMA_VERSION,
+        "validation_status": VALIDATION_STATUS,
+        "label_provenance": label_provenance,
+        "caveat": CAVEATS[label_provenance],
         "run_id": manifest["run_id"],
         "method_version": params.manifest()["method_version"],
         "parameter_set": params.parameter_set,
@@ -243,18 +273,67 @@ def evaluate(run_dir, sampling, labels_path, out):
     return report
 
 
+def read_evaluation_report(path):
+    """Read one ``evaluation-v0.2`` report.
+
+    An ``evaluation-v0.1`` file, or any other ``schema_version``, raises
+    ``EvaluationReportError``. The message names the version that was found.
+    This function does not upgrade the file and does not write a replacement.
+    """
+    path = Path(path)
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise EvaluationReportError(f"{path.name} is not a readable evaluation report") from exc
+    if not isinstance(body, dict):
+        raise EvaluationReportError(f"{path.name} is not an evaluation report object")
+    version = body.get("schema_version")
+    if version != SCHEMA_VERSION:
+        found = version if isinstance(version, str) else type(version).__name__
+        note = " It is not upgraded." if version == PREVIOUS_SCHEMA_VERSION else ""
+        raise EvaluationReportError(
+            f"{path.name} schema_version {found!r} is not readable.{note} "
+            f"This reader accepts only {SCHEMA_VERSION}."
+        )
+    if body.get("validation_status") != VALIDATION_STATUS:
+        raise EvaluationReportError(
+            f"{path.name} validation_status must be {VALIDATION_STATUS!r}"
+        )
+    provenance = body.get("label_provenance")
+    if provenance not in CAVEATS:
+        raise EvaluationReportError(
+            f"{path.name} label_provenance {provenance!r} is not one of "
+            f"{', '.join(LABEL_PROVENANCE_VALUES)}"
+        )
+    if body.get("caveat") != CAVEATS[provenance]:
+        raise EvaluationReportError(
+            f"{path.name} caveat does not match label_provenance {provenance!r}"
+        )
+    return body
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate unvalidated stationary candidates against adjudicated labels")
+    parser = argparse.ArgumentParser(
+        description="Compare unvalidated stationary candidates with adjudicated labels. "
+                    "The report makes no accuracy claim.")
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--sampling", type=Path, required=True, help="<sheet>.sampling.json from harborlens-label-sample")
     parser.add_argument("--labels", type=Path, required=True, help="Adjudicated label CSV")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--label-provenance", default="unspecified",
+                        help="synthetic or unspecified. Default: unspecified. Any other value is rejected.")
     args = parser.parse_args()
+    if args.label_provenance not in CAVEATS:
+        parser.error("label_provenance must be synthetic or unspecified")
     try:
-        report = evaluate(args.run, args.sampling, args.labels, args.out)
+        report = evaluate(args.run, args.sampling, args.labels, args.out,
+                          label_provenance=args.label_provenance)
     except AISInputError as exc:
         parser.error(str(exc))
-    print(json.dumps({"overall": report["overall"], "coverage": report["coverage"],
+    print(json.dumps({"validation_status": report["validation_status"],
+                      "label_provenance": report["label_provenance"],
+                      "caveat": report["caveat"],
+                      "overall": report["overall"], "coverage": report["coverage"],
                       "evidence_basis": report["evidence_basis"]}, indent=2))
 
 
