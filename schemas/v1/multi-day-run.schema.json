@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/multi-day-run.schema.json",
-  "title": "HarborLens Multi-day Historical Run Manifest v1.0",
+  "title": "HarborLens Multi-day Historical Run Manifest v1.1",
   "description": "Local input SHA-256 and historical candidate lineage; not authoritative vessel identification.",
   "type": "object",
   "additionalProperties": false,
@@ -28,7 +28,7 @@
       "const": "multi_day_historical"
     },
     "schema_version": {
-      "const": "multi-day-1.0"
+      "const": "multi-day-1.1"
     },
     "input_files": {
       "type": "array",
@@ -592,11 +592,12 @@
         "memory_bound": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Fixed SQLite working set. It does not grow with input rows. Scratch disk is a separate cap.",
+          "description": "Fixed SQLite working set. Cache, mmap_bytes, and temp_store are the enforced pin. soft_heap_limit_enforced says whether the soft heap request releases memory on this build. Scratch disk is a separate cap. This object does not validate a candidate.",
           "required": [
             "policy",
             "sqlite_cache_kib",
             "sqlite_soft_heap_bytes",
+            "soft_heap_limit_enforced",
             "mmap_bytes",
             "temp_store",
             "grows_with_input_rows"
@@ -610,6 +611,17 @@
             },
             "sqlite_soft_heap_bytes": {
               "const": 8388608
+            },
+            "soft_heap_limit_enforced": {
+              "description": "True when PRAGMA compile_options lists ENABLE_MEMORY_MANAGEMENT. False when that list is readable and omits it. The string unknown when the list cannot be read. Cache size, mmap_bytes, and temp_store do not depend on this flag.",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "const": "unknown"
+                }
+              ]
             },
             "mmap_bytes": {
               "const": 0

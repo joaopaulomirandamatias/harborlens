@@ -11,9 +11,13 @@ two inputs; the row count still scales 1:3:7:14.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
+import io
 import json
+import os
 import random
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,12 +34,15 @@ from harborlens.io_safe import AISInputError
 from harborlens.multiday import (
     MAX_FILES,
     MEMORY_BOUND_POLICY,
+    MULTIDAY_SCHEMA_VERSION,
     SQLITE_CACHE_KIB,
     SQLITE_SOFT_HEAP_BYTES,
     _apply_memory_bound,
     _make_db,
+    main,
     memory_bound_record,
     run_multiday,
+    soft_heap_limit_enforced,
 )
 from harborlens.segmentation import MemoryStore, SegmentationParams, Segmenter
 
@@ -59,8 +66,21 @@ TRACED_PEAK_CEILING = 16 * 1024 * 1024
 TRACED_GROWTH_CEILING = 1 * 1024 * 1024
 RSS_CEILING = 192 * 1024 * 1024
 RSS_GROWTH_CEILING = 16 * 1024 * 1024
+# The 14-day scratch file is about 4 MiB. Process RSS growth stays under
+# 16 MiB even with mmap on, so RSS does not notice a removed pin. The
+# resident mapping of that file is 0 while mmap is off and about 4 MiB when
+# mmap is on. 1 MiB sits between those two.
+MAPPED_RSS_CEILING = 1 * 1024 * 1024
 ROWS_PER_DAY = 4 * (24 * 60 // 4)  # 4 vessels, one point every 4 minutes
 DAY_COUNTS = (1, 3, 7, 14)
+
+
+def live_soft_heap_enforced():
+    db = sqlite3.connect(":memory:")
+    try:
+        return soft_heap_limit_enforced(db)
+    finally:
+        db.close()
 
 
 def stamp(when):
@@ -87,23 +107,77 @@ def memory_day(day_index, minutes):
     return rows
 
 
+class _CompileOptions:
+    def __init__(self, rows=None, error=False):
+        self.rows = rows
+        self.error = error
+
+    def execute(self, sql):
+        if self.error:
+            raise sqlite3.OperationalError("compile_options unavailable")
+        if not sql.startswith("PRAGMA compile_options"):
+            raise AssertionError(sql)
+        return self
+
+    def fetchall(self):
+        return self.rows
+
+
 class SqliteMemoryBoundTests(unittest.TestCase):
     def test_pragmas_match_the_fixed_bound(self):
         self.assertEqual(SQLITE_CACHE_KIB, 8192)
         self.assertEqual(SQLITE_SOFT_HEAP_BYTES, 8 * 1024 * 1024)
         self.assertEqual(MEMORY_BOUND_POLICY, "fixed-sqlite-heap-v1")
-        record = memory_bound_record()
-        self.assertFalse(record["grows_with_input_rows"])
+        self.assertEqual(MULTIDAY_SCHEMA_VERSION, "multi-day-1.1")
         with tempfile.TemporaryDirectory() as folder:
             db = _make_db(Path(folder) / "bound.sqlite3", 32)
             try:
+                enforced = soft_heap_limit_enforced(db)
+                record = memory_bound_record(enforced)
+                self.assertFalse(record["grows_with_input_rows"])
+                self.assertEqual(record["sqlite_cache_kib"], SQLITE_CACHE_KIB)
+                self.assertEqual(record["mmap_bytes"], 0)
+                self.assertEqual(record["temp_store"], "FILE")
+                self.assertEqual(record["soft_heap_limit_enforced"], enforced)
+                self.assertIn(enforced, (True, False, "unknown"))
+                names = [row[0] for row in db.execute("PRAGMA compile_options")]
+                if enforced is True:
+                    self.assertIn("ENABLE_MEMORY_MANAGEMENT", names)
+                    self.assertEqual(record["sqlite_soft_heap_bytes"], SQLITE_SOFT_HEAP_BYTES)
+                elif enforced is False:
+                    self.assertNotIn("ENABLE_MEMORY_MANAGEMENT", names)
+                    self.assertTrue(names)
                 self.assertEqual(db.execute("PRAGMA cache_size").fetchone()[0], -SQLITE_CACHE_KIB)
                 self.assertEqual(db.execute("PRAGMA soft_heap_limit").fetchone()[0],
                                  SQLITE_SOFT_HEAP_BYTES)
                 self.assertEqual(db.execute("PRAGMA mmap_size").fetchone()[0], 0)
                 self.assertEqual(db.execute("PRAGMA temp_store").fetchone()[0], 1)
+                print(
+                    "\nSQLITE_COMPILE_OPTIONS "
+                    + json.dumps({
+                        "sqlite_version": sqlite3.sqlite_version,
+                        "soft_heap_limit_enforced": enforced,
+                        "enable_memory_management": "ENABLE_MEMORY_MANAGEMENT" in names,
+                    })
+                )
             finally:
                 db.close()
+
+    def test_soft_heap_enforcement_is_true_false_or_unknown(self):
+        self.assertIs(soft_heap_limit_enforced(_CompileOptions([
+            ("COMPILER=gcc",), ("ENABLE_MEMORY_MANAGEMENT",),
+        ])), True)
+        self.assertIs(soft_heap_limit_enforced(_CompileOptions([
+            ("SQLITE_ENABLE_MEMORY_MANAGEMENT",),
+        ])), True)
+        self.assertIs(soft_heap_limit_enforced(_CompileOptions([
+            ("COMPILER=gcc",), ("TEMP_STORE=1",),
+        ])), False)
+        self.assertEqual(soft_heap_limit_enforced(_CompileOptions([])), "unknown")
+        self.assertEqual(soft_heap_limit_enforced(_CompileOptions(error=True)), "unknown")
+        self.assertEqual(soft_heap_limit_enforced(_CompileOptions([(None,)])), "unknown")
+        with self.assertRaises(AISInputError):
+            memory_bound_record("yes")
 
     def test_refused_pragma_fails_closed(self):
         class Fake:
@@ -237,7 +311,8 @@ class DayBoundaryTests(unittest.TestCase):
         manifest = run_multiday(paths, self.root / "sixteen")
         self.assertEqual(manifest["counts"]["written"], MAX_FILES)
         self.assertEqual(len(manifest["input_files"]), MAX_FILES)
-        self.assertEqual(manifest["resources"]["memory_bound"], memory_bound_record())
+        self.assertEqual(manifest["schema_version"], "multi-day-1.1")
+        self.assertEqual(manifest["resources"]["memory_bound"], memory_bound_record(live_soft_heap_enforced()))
         extra = self.root / "part-extra.csv"
         write_csv(extra, [line(DAY + timedelta(days=MAX_FILES))])
         out = self.root / "seventeen"
@@ -274,8 +349,10 @@ class WorkingSetScalingTests(unittest.TestCase):
                 self.assertEqual(payload["written"], ROWS_PER_DAY * days)
                 self.assertEqual(payload["stationary_candidates"], 4)
                 self.assertEqual(payload["cross_day_candidates"], 0 if days == 1 else 4)
-                self.assertEqual(payload["memory_bound"]["policy"], MEMORY_BOUND_POLICY)
+                self.assertEqual(payload["schema_version"], "multi-day-1.1")
+                self.assertEqual(payload["memory_bound"], memory_bound_record(live_soft_heap_enforced()))
                 self.assertFalse(payload["memory_bound"]["grows_with_input_rows"])
+                self.assertIsNotNone(payload["sqlite_mapped_rss_bytes"])
                 with (out / "stationary_candidates.csv").open(newline="") as handle:
                     candidates = list(csv.DictReader(handle))
                 self.assertEqual(len(candidates), 4)
@@ -294,6 +371,8 @@ class WorkingSetScalingTests(unittest.TestCase):
                     "traced_peak_bytes": item["traced_peak_bytes"],
                     "rss_bytes": item["rss_bytes"],
                     "scratch_peak_bytes": item["scratch_peak_bytes"],
+                    "scratch_file_bytes": item["scratch_file_bytes"],
+                    "sqlite_mapped_rss_bytes": item["sqlite_mapped_rss_bytes"],
                 }
                 for item in measured
             ]
@@ -301,14 +380,109 @@ class WorkingSetScalingTests(unittest.TestCase):
             for item in measured:
                 self.assertLessEqual(item["traced_peak_bytes"], TRACED_PEAK_CEILING, detail)
                 self.assertLessEqual(item["rss_bytes"], RSS_CEILING, detail)
+                self.assertLessEqual(item["sqlite_mapped_rss_bytes"], MAPPED_RSS_CEILING, detail)
             self.assertLessEqual(traced_growth, TRACED_GROWTH_CEILING, detail)
             self.assertLessEqual(rss_growth, RSS_GROWTH_CEILING, detail)
             scratches = [by_days[days]["scratch_peak_bytes"] for days in DAY_COUNTS]
             self.assertEqual(scratches, sorted(scratches))
             self.assertLess(scratches[0], scratches[-1])
+            # The 14-day scratch file is larger than the mapping ceiling. The
+            # pin keeps that file out of the process. A removed pin maps it.
+            self.assertGreater(by_days[14]["scratch_file_bytes"], MAPPED_RSS_CEILING)
             # Keep the table in the failure output and in a successful assertion message
             # only when something is wrong. Print it for the PR measurement log.
             print("\nMULTIDAY_MEMORY_TABLE " + detail)
+
+    def test_mutated_pin_maps_the_scratch_file(self):
+        """256 MiB cache, soft heap 0, mmap on, and temp_store MEMORY fails the measurement.
+
+        The scaling test asserts ``sqlite_mapped_rss_bytes`` <= 1 MiB. This
+        runs the same 14-day synthetic fixture with that pin removed and
+        requires the resident mapping to exceed the ceiling. RSS growth at
+        this size stays inside 16 MiB, which is why RSS alone does not bite.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            minutes = range(0, 24 * 60, 4)
+            inputs = []
+            for day in range(14):
+                path = root / f"day-{day + 1:02d}.csv"
+                write_csv(path, memory_day(day, minutes))
+                inputs.append(path)
+            env = os.environ.copy()
+            env["HARBORLENS_MULTIDAY_TEST_PIN"] = "mutated"
+            proc = subprocess.run(
+                [sys.executable, str(PROBE), str(root / "out"), *[str(path) for path in inputs]],
+                check=False, capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(proc.stdout)
+            detail = json.dumps({
+                "sqlite_mapped_rss_bytes": payload["sqlite_mapped_rss_bytes"],
+                "scratch_file_bytes": payload["scratch_file_bytes"],
+                "rss_bytes": payload["rss_bytes"],
+                "memory_bound": payload["memory_bound"],
+            })
+            print("\nMUTATED_PIN_MAPPING " + detail)
+            self.assertGreater(payload["scratch_file_bytes"], MAPPED_RSS_CEILING, detail)
+            self.assertGreater(payload["sqlite_mapped_rss_bytes"], MAPPED_RSS_CEILING, detail)
+            self.assertEqual(payload["written"], ROWS_PER_DAY * 14)
+
+
+class MultidayCliErrorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _exit(self, args):
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        argv = ["harborlens-multiday", *args]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as caught:
+                main()
+        return caught.exception.code, stderr.getvalue(), stdout.getvalue()
+
+    def test_one_file_and_seventeen_files_exit_2(self):
+        only = self.root / "only.csv"
+        write_csv(only, [line(DAY)])
+        code, text, _out = self._exit(["--input", str(only), "--out", str(self.root / "one")])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("distinct AIS files", text)
+        self.assertFalse((self.root / "one").exists())
+
+        paths = []
+        for index in range(MAX_FILES + 1):
+            path = self.root / f"part-{index:02d}.csv"
+            write_csv(path, [line(DAY + timedelta(days=index), mmsi=f"36711{index:04d}")])
+            paths.append(str(path))
+        code, text, _out = self._exit(["--input", *paths, "--out", str(self.root / "seventeen")])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("distinct AIS files", text)
+        self.assertFalse((self.root / "seventeen").exists())
+
+    def test_existing_output_exits_2_without_clobber(self):
+        first = self.root / "day-a.csv"
+        second = self.root / "day-b.csv"
+        write_csv(first, [line(DAY + timedelta(minutes=5 * i)) for i in range(4)])
+        write_csv(second, [line(DAY + timedelta(days=1, minutes=5 * i)) for i in range(4)])
+        out = self.root / "out"
+        stdout = io.StringIO()
+        argv = ["harborlens-multiday", "--input", str(first), str(second), "--out", str(out)]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(stdout):
+            main()
+        before = {path.name: path.read_bytes() for path in out.iterdir()}
+        self.assertIn("manifest.json", before)
+        code, text, _again = self._exit(["--input", str(first), str(second), "--out", str(out)])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("already exist", text)
+        self.assertEqual({path.name: path.read_bytes() for path in out.iterdir()}, before)
 
 
 class SingleDayByteIdentityTests(unittest.TestCase):
