@@ -29,6 +29,7 @@
 ## Evaluator (issue #9)
 
 - [x] `harborlens-evaluate`, adjudicated-label and evaluation-report schemas, synthetic tests with hand-computed metrics (`tests/test_evaluation.py`)
+- [x] Report contract `evaluation-v0.2`: `validation_status` const `unvalidated`, `--label-provenance` `synthetic` or `unspecified` (default `unspecified`), fixed caveat, named refusal of `evaluation-v0.1` (`EvaluationReportError`), and an end-to-end synthetic harness whose expected rates are computed in the test (`tests/test_evaluation.py`, `tests/test_evaluation_harness.py`). Package `0.2.0.dev14`.
 - [ ] Evaluate the first adjudicated pilot (#8) and publish aggregate results only, with denominators and evidence basis
 - [ ] Repeat on a different period or port (L4 replication)
 

@@ -12,8 +12,14 @@ from unittest import mock
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from jsonschema.exceptions import ValidationError
+
 from harborlens.ais import run
-from harborlens.evaluation import ADJUDICATED_FIELDS, binary_metrics, evaluate, main, wilson
+from harborlens.evaluation import (
+    ADJUDICATED_FIELDS, CAVEAT_SYNTHETIC, CAVEAT_UNSPECIFIED, SCHEMA_VERSION, VALIDATION_STATUS,
+    WARNING, binary_metrics, evaluate, main, read_evaluation_report, wilson,
+)
+from harborlens.evaluation import EvaluationReportError
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import draw_sample
 
@@ -242,6 +248,276 @@ class EvaluatorTests(unittest.TestCase):
         with path.open(newline="") as handle:
             for row in csv.DictReader(handle):
                 validator.validate(row)
+
+
+class ReportContractTests(unittest.TestCase):
+    """evaluation-v0.2 status, provenance, caveat, and the v0.1 reader (SPEC-003, FR-014, NFR-020)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        src = self.root / "in.csv"
+        with src.open("w", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(HEADER)
+            writer.writerows(fixture_rows())
+        self.run_dir = self.root / "run"
+        run(src, self.run_dir, window_start="2024-01-02T00:00:00Z", window_end="2024-01-02T12:00:00Z")
+        self.plan = draw_sample(self.run_dir, self.root / "sheet.csv", 11, candidates=10, negatives=6)
+        self.sampling = self.root / "sheet.csv.sampling.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_labels(self, assign, name="adjudicated.csv"):
+        path = self.root / name
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=ADJUDICATED_FIELDS)
+            writer.writeheader()
+            for unit in self.plan["key"]:
+                row = assign(unit)
+                if row is not None:
+                    writer.writerow({"sample_id": unit["sample_id"], "evidence_level": "L2",
+                                     "duration_judgement": "assessable", "true_start_utc": "",
+                                     "true_end_utc": "", "adjudicator_id": "J1", **row})
+        return path
+
+    def _report(self, name="eval.json"):
+        path = self.write_labels(lambda unit: {"label": "unknown"}, name="labels-" + name)
+        return evaluate(self.run_dir, self.sampling, path, self.root / name)
+
+    def test_default_provenance_is_unspecified(self):
+        report = self._report()
+        self.assertEqual(report["schema_version"], "evaluation-v0.2")
+        self.assertEqual(report["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(report["validation_status"], "unvalidated")
+        self.assertEqual(report["validation_status"], VALIDATION_STATUS)
+        self.assertEqual(report["label_provenance"], "unspecified")
+        self.assertEqual(report["caveat"], CAVEAT_UNSPECIFIED)
+        self.assertIn("Label provenance is unspecified", report["caveat"])
+        self.assertIn("not independent ground truth", report["caveat"])
+        self.assertIn("no accuracy claim", report["caveat"])
+        self.assertNotEqual(report["caveat"], CAVEAT_SYNTHETIC)
+        self.assertEqual(report["warning"], WARNING)
+        loaded = read_evaluation_report(self.root / "eval.json")
+        self.assertEqual(loaded["caveat"], report["caveat"])
+
+    def test_cli_without_the_flag_records_unspecified(self):
+        labels = self.write_labels(lambda unit: {"label": "unknown"})
+        out = self.root / "cli-default.json"
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        argv = ["harborlens-evaluate", "--run", str(self.run_dir), "--sampling", str(self.sampling),
+                "--labels", str(labels), "--out", str(out)]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            main()
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(report["label_provenance"], "unspecified")
+        self.assertEqual(report["validation_status"], "unvalidated")
+        self.assertEqual(report["caveat"], CAVEAT_UNSPECIFIED)
+        printed = json.loads(stdout.getvalue())
+        self.assertEqual(printed["label_provenance"], "unspecified")
+        self.assertEqual(printed["caveat"], CAVEAT_UNSPECIFIED)
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_schema_rejects_validation_status_other_than_unvalidated(self):
+        report = self._report("schema.json")
+        schema = json.loads((SCHEMAS / "evaluation-report.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(schema["properties"]["schema_version"]["const"], "evaluation-v0.2")
+        self.assertEqual(schema["properties"]["validation_status"], {"const": "unvalidated"})
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        validator.validate(report)
+        for status in ("validated", "provisional", "synthetic", "", None):
+            mutated = json.loads(json.dumps(report))
+            mutated["validation_status"] = status
+            with self.subTest(status=status):
+                with self.assertRaises(ValidationError) as caught:
+                    validator.validate(mutated)
+                self.assertIn("unvalidated", str(caught.exception))
+        old = json.loads(json.dumps(report))
+        old["schema_version"] = "evaluation-v0.1"
+        with self.assertRaises(ValidationError) as caught:
+            validator.validate(old)
+        self.assertIn("evaluation-v0.2", str(caught.exception))
+        swapped = json.loads(json.dumps(report))
+        swapped["caveat"] = CAVEAT_SYNTHETIC
+        with self.assertRaises(ValidationError):
+            validator.validate(swapped)
+
+    def test_mixed_unknown_and_unlabeled_are_not_counted_as_correct(self):
+        candidates = [unit for unit in self.plan["key"] if unit["kind"] == "candidate"]
+        negatives = [unit for unit in self.plan["key"] if unit["kind"] == "negative"]
+        self.assertGreaterEqual(len(candidates), 2)
+        self.assertGreaterEqual(len(negatives), 2)
+        mixed_id = candidates[0]["sample_id"]
+        unknown_id = negatives[0]["sample_id"]
+        unlabeled_id = negatives[1]["sample_id"]
+
+        def assign(unit):
+            if unit["sample_id"] == mixed_id:
+                return {"label": "mixed"}
+            if unit["sample_id"] == unknown_id:
+                return {"label": "unknown"}
+            if unit["sample_id"] == unlabeled_id:
+                return None
+            if unit["kind"] == "candidate":
+                return {"label": "at_berth"}
+            return {"label": "transit"}
+
+        report = evaluate(self.run_dir, self.sampling, self.write_labels(assign, "excluded.csv"),
+                          self.root / "excluded.json")
+        tp = len(candidates) - 1
+        tn = len(negatives) - 2
+        overall = report["overall"]
+        self.assertEqual((overall["tp"], overall["fp"], overall["fn"], overall["tn"]), (tp, 0, 0, tn))
+        self.assertEqual(overall["n"], tp + tn)
+        self.assertNotEqual(overall["tn"], len(negatives))
+        self.assertEqual(report["coverage"]["excluded"], {"mixed": 1, "unknown": 1, "unlabeled": 1})
+        self.assertEqual(report["coverage"]["evaluated_units"], tp + tn)
+
+    def test_zero_judged_units_leave_metrics_null(self):
+        candidates = [unit for unit in self.plan["key"] if unit["kind"] == "candidate"]
+        negatives = [unit for unit in self.plan["key"] if unit["kind"] == "negative"]
+        self.assertGreaterEqual(len(candidates), 1)
+        self.assertGreaterEqual(len(negatives), 1)
+        mixed_id = candidates[0]["sample_id"]
+        unlabeled_id = negatives[0]["sample_id"]
+
+        def assign(unit):
+            if unit["sample_id"] == unlabeled_id:
+                return None
+            if unit["sample_id"] == mixed_id:
+                return {"label": "mixed"}
+            return {"label": "unknown"}
+
+        report = evaluate(self.run_dir, self.sampling, self.write_labels(assign, "none.csv"),
+                          self.root / "none.json")
+        overall = report["overall"]
+        self.assertEqual((overall["tp"], overall["fp"], overall["fn"], overall["tn"], overall["n"]), (0, 0, 0, 0, 0))
+        for name in ("precision", "recall", "f1", "specificity",
+                     "precision_ci95", "recall_ci95", "specificity_ci95"):
+            self.assertIsNone(overall[name], name)
+            self.assertNotIn(overall[name], (0, 1, 0.0, 1.0))
+        self.assertIsNone(report["design_weighted_precision"])
+        self.assertNotIn(report["design_weighted_precision"], (0, 1, 0.0, 1.0))
+        for edge in ("start", "end", "duration"):
+            timing = report["boundary_error_minutes"][edge]
+            self.assertEqual(timing["n"], 0)
+            self.assertIsNone(timing["mae_minutes"])
+            self.assertIsNone(timing["median_absolute_error_minutes"])
+            self.assertNotIn(timing["mae_minutes"], (0, 1, 0.0, 1.0))
+        self.assertEqual(report["coverage"]["evaluated_units"], 0)
+        self.assertEqual(report["coverage"]["excluded"]["mixed"], 1)
+        self.assertEqual(report["coverage"]["excluded"]["unlabeled"], 1)
+        self.assertGreaterEqual(report["coverage"]["excluded"]["unknown"], 1)
+
+    def test_denominator_of_one(self):
+        candidate = next(unit for unit in self.plan["key"] if unit["kind"] == "candidate")
+
+        def assign(unit):
+            if unit["sample_id"] == candidate["sample_id"]:
+                return {"label": "at_berth"}
+            return {"label": "unknown"}
+
+        report = evaluate(self.run_dir, self.sampling, self.write_labels(assign, "one.csv"),
+                          self.root / "one.json")
+        overall = report["overall"]
+        self.assertEqual((overall["tp"], overall["fp"], overall["fn"], overall["tn"], overall["n"]), (1, 0, 0, 0, 1))
+        self.assertEqual(overall["precision"], 1.0)
+        self.assertEqual(overall["recall"], 1.0)
+        self.assertEqual(overall["f1"], 1.0)
+        self.assertIsNone(overall["specificity"])
+        # Wilson 95% for 1 success in 1 trial, rounded to 4 decimals: 1 / (1 + 1.959963984540054**2).
+        self.assertEqual(overall["precision_ci95"], [0.2065, 1.0])
+        self.assertEqual(overall["recall_ci95"], [0.2065, 1.0])
+        self.assertIsNone(overall["specificity_ci95"])
+        self.assertIsNot(overall["precision"], None)
+
+    def test_invalid_label_provenance_exits_2_and_writes_nothing(self):
+        labels = self.write_labels(lambda unit: {"label": "unknown"})
+        for value in ("ground_truth", "Synthetic", "synthetic ", ""):
+            out = self.root / f"rejected-{len(value)}.json"
+            stderr = io.StringIO()
+            argv = ["harborlens-evaluate", "--run", str(self.run_dir), "--sampling", str(self.sampling),
+                    "--labels", str(labels), "--out", str(out), "--label-provenance", value]
+            with self.subTest(value=value):
+                with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as caught:
+                        main()
+                self.assertEqual(caught.exception.code, 2)
+                text = stderr.getvalue()
+                self.assertNotIn("Traceback", text)
+                self.assertIn("label_provenance", text)
+                self.assertFalse(out.exists())
+                self.assertFalse(Path(str(out) + ".partial").exists())
+
+    def test_library_rejects_unknown_provenance_before_writing(self):
+        labels = self.write_labels(lambda unit: {"label": "unknown"})
+        out = self.root / "library-rejected.json"
+        with self.assertRaises(AISInputError):
+            evaluate(self.run_dir, self.sampling, labels, out, label_provenance="ground_truth")
+        self.assertFalse(out.exists())
+
+
+class CensoredTruePositiveTests(unittest.TestCase):
+    def test_all_true_positives_censored_leave_mae_and_median_null(self):
+        """A stop that begins on the window edge is censored, so timing stays null."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            src = root / "edge.csv"
+            start = datetime(2024, 1, 2)
+            with src.open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(HEADER)
+                for minute in range(0, 41):
+                    writer.writerow(["367110009", (start + timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                     "29.73", "-95.16", "0.1", "70", "1"])
+            run_dir = root / "run"
+            run(src, run_dir, window_start="2024-01-02T00:00:00Z", window_end="2024-01-02T06:00:00Z")
+            plan = draw_sample(run_dir, root / "sheet.csv", 3, candidates=1, negatives=0)
+            candidates = [unit for unit in plan["key"] if unit["kind"] == "candidate"]
+            self.assertEqual(len(candidates), 1)
+            geo = json.loads((run_dir / "stationary_candidates.geojson").read_text(encoding="utf-8"))
+            props = {feature["properties"]["event_id"]: feature["properties"] for feature in geo["features"]}
+            event = props[candidates[0]["event_id"]]
+            self.assertEqual(event["left_censoring"], "censored")
+            labels = root / "adjudicated.csv"
+            with labels.open("w", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=ADJUDICATED_FIELDS)
+                writer.writeheader()
+                writer.writerow({"sample_id": candidates[0]["sample_id"], "label": "at_berth",
+                                 "evidence_level": "L2", "duration_judgement": "assessable",
+                                 "true_start_utc": "2024-01-02T00:00:00Z", "true_end_utc": "2024-01-02T00:40:00Z",
+                                 "adjudicator_id": "J1"})
+            report = evaluate(run_dir, root / "sheet.csv.sampling.json", labels, root / "eval.json")
+            self.assertEqual(report["overall"]["tp"], 1)
+            self.assertEqual(report["overall"]["n"], 1)
+            for edge in ("start", "end", "duration"):
+                timing = report["boundary_error_minutes"][edge]
+                self.assertEqual(timing["n"], 0, edge)
+                self.assertIsNone(timing["mae_minutes"], edge)
+                self.assertIsNone(timing["median_absolute_error_minutes"], edge)
+                self.assertNotIn(timing["mae_minutes"], (0, 0.0, 1, 1.0))
+
+
+class EvaluationV01CompatibilityTests(unittest.TestCase):
+    def test_v01_report_raises_evaluation_report_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "old-evaluation.json"
+            path.write_text(json.dumps({
+                "schema_version": "evaluation-v0.1",
+                "validation_status": "unvalidated",
+                "warning": "previous report",
+            }), encoding="utf-8")
+            with self.assertRaises(EvaluationReportError) as caught:
+                read_evaluation_report(path)
+            message = str(caught.exception)
+            self.assertEqual(type(caught.exception).__name__, "EvaluationReportError")
+            self.assertIsInstance(caught.exception, AISInputError)
+            self.assertIn("evaluation-v0.1", message)
+            self.assertIn("evaluation-v0.2", message)
+            self.assertNotIn("Traceback", message)
+            self.assertEqual(path.read_text(encoding="utf-8").count("evaluation-v0.1"), 1)
 
 
 class MetricMathTests(unittest.TestCase):

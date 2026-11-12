@@ -2,11 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/evaluation-report.schema.json",
   "title": "HarborLens candidate evaluation report",
-  "description": "Sample-based metrics of unvalidated stationary candidates against adjudicated labels. L2 labels are expert review of AIS, not independent ground truth.",
+  "description": "Reproducibility harness comparing unvalidated stationary candidates with adjudicated labels. validation_status is unvalidated. label_provenance is synthetic or unspecified. The caveat states that the labels are not independent ground truth and that this report makes no accuracy claim. L2 labels are expert review of AIS. An evaluation-v0.1 document does not validate.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "validation_status",
+    "label_provenance",
+    "caveat",
     "run_id",
     "method_version",
     "parameter_set",
@@ -23,7 +26,17 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "evaluation-v0.1"
+      "const": "evaluation-v0.2"
+    },
+    "validation_status": {
+      "const": "unvalidated"
+    },
+    "label_provenance": {
+      "enum": ["synthetic", "unspecified"]
+    },
+    "caveat": {
+      "type": "string",
+      "minLength": 1
     },
     "run_id": {
       "type": "string",
@@ -747,5 +760,41 @@
     "warning": {
       "type": "string"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "label_provenance": {
+            "const": "synthetic"
+          }
+        },
+        "required": ["label_provenance"]
+      },
+      "then": {
+        "properties": {
+          "caveat": {
+            "const": "These labels are synthetic. They are not independent ground truth, and this report makes no accuracy claim."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "label_provenance": {
+            "const": "unspecified"
+          }
+        },
+        "required": ["label_provenance"]
+      },
+      "then": {
+        "properties": {
+          "caveat": {
+            "const": "Label provenance is unspecified. These labels are not independent ground truth, and this report makes no accuracy claim."
+          }
+        }
+      }
+    }
+  ]
 }
