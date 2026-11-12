@@ -1,15 +1,19 @@
 """Evaluator tests (SPEC-003, issue #9). Synthetic AIS and synthetic labels only."""
+import contextlib
 import csv
+import io
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from jsonschema import Draft202012Validator, FormatChecker
 
 from harborlens.ais import run
-from harborlens.evaluation import ADJUDICATED_FIELDS, binary_metrics, evaluate, wilson
+from harborlens.evaluation import ADJUDICATED_FIELDS, binary_metrics, evaluate, main, wilson
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import draw_sample
 
@@ -184,6 +188,52 @@ class EvaluatorTests(unittest.TestCase):
             evaluate(self.run_dir, damaged, labels, self.root / "damaged-eval.json")
         self.assertIn(unit["sample_id"], str(caught.exception))
         self.assertFalse((self.root / "damaged-eval.json").exists())
+
+    def test_kind_must_match_the_stratum(self):
+        labels = self.write_labels(
+            lambda item: {"label": "at_berth"} if item["kind"] == "candidate" else {"label": "transit"},
+            name="kind-labels.csv")
+        candidate = next(item for item in self.plan["key"] if item["kind"] == "candidate")
+        negative = next(item for item in self.plan["key"] if item["kind"] == "negative")
+
+        def reject(name, sample_id, mutate):
+            body = json.loads(self.sampling.read_text())
+            mutate(next(item for item in body["key"] if item["sample_id"] == sample_id))
+            path = self.root / f"{name}.sampling.json"
+            path.write_text(json.dumps(body))
+            out = self.root / f"{name}.json"
+            with self.subTest(name=name), self.assertRaises(AISInputError) as caught:
+                evaluate(self.run_dir, path, labels, out)
+            message = str(caught.exception)
+            self.assertIn(sample_id, message)
+            self.assertIn("kind", message)
+            self.assertNotIn("not in the run", message)
+            self.assertFalse(out.exists())
+
+        reject("candidate-as-negative", candidate["sample_id"], lambda unit: unit.update(kind="negative"))
+        reject("negative-as-candidate", negative["sample_id"], lambda unit: unit.update(kind="candidate"))
+        reject("missing-kind", candidate["sample_id"], lambda unit: unit.pop("kind"))
+
+    def test_cli_reports_input_error_without_a_traceback(self):
+        body = json.loads(self.sampling.read_text())
+        unit = next(item for item in body["key"] if item["kind"] == "candidate")
+        unit.pop("kind")
+        sampling = self.root / "cli-missing-kind.sampling.json"
+        sampling.write_text(json.dumps(body))
+        labels = self.write_labels(lambda item: {"label": "unknown"}, name="cli-labels.csv")
+        out = self.root / "cli-eval.json"
+        stderr = io.StringIO()
+        argv = ["harborlens-evaluate", "--run", str(self.run_dir), "--sampling", str(sampling),
+                "--labels", str(labels), "--out", str(out)]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                main()
+        self.assertEqual(caught.exception.code, 2)
+        text = stderr.getvalue()
+        self.assertNotIn("Traceback", text)
+        self.assertIn(unit["sample_id"], text)
+        self.assertIn("kind", text)
+        self.assertFalse(out.exists())
 
     def test_adjudicated_rows_satisfy_schema(self):
         path = self.write_labels(lambda u: {"label": "unknown"})
