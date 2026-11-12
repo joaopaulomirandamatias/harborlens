@@ -144,7 +144,7 @@
         },
         "vessel_type": {
           "type": "string",
-          "description": "First non-empty transmitted ship type in the candidate."
+          "description": "First non-empty transmitted ship type in the candidate. This is the logical value. GeoJSON stores it without a neutralization apostrophe."
         },
         "transceiver_class": {
           "enum": [

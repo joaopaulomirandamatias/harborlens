@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
 
+from harborlens.ais import interpret_cleaned_row
 from harborlens.provenance import checksum, digests_equal, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
@@ -157,7 +158,12 @@ def _recount_cleaned_bytes(raw):
                 if not reader.fieldnames or "mmsi" not in reader.fieldnames:
                     raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
                 for row in reader:
-                    mmsi = row.get("mmsi")
+                    # Free-text cells use the shared reader. mmsi stays the raw
+                    # cell, so a formula prefix on vessel_type does not change
+                    # the observation count or the MMSI set. SHA-256 is of
+                    # these bytes, not of the recovered text.
+                    interpreted = interpret_cleaned_row(row)
+                    mmsi = interpreted.get("mmsi")
                     if not isinstance(mmsi, str) or mmsi == "":
                         raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
                     observations += 1

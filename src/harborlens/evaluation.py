@@ -19,11 +19,15 @@ evidence level, including L3, is not validated performance while
 reader is maintained.
 
 The adjudicated label file is an input CSV. This module does not write a CSV.
-Text column ``adjudicator_id`` is read with ``read_csv_cell``, which removes a
-neutralization apostrophe only when the remainder is a formula trigger.
+Text column ``adjudicator_id`` is read with ``read_csv_cell``, which removes
+exactly one leading apostrophe when the cell matches
+``^'+<ignorable>*<trigger>`` (see ``harborlens.csv_safe``). A raw value that
+already started with an apostrophe keeps that apostrophe after a round trip.
 ``sample_id``, ``label``, ``evidence_level``, ``duration_judgement``,
 ``true_start_utc`` and ``true_end_utc`` are contract columns: a leading
-apostrophe is rejected and is not converted. See ``harborlens.labeling``.
+apostrophe is rejected and is not converted. A contract cell that comes back
+carrying a formula trigger without that apostrophe, and that fails its
+contract, is rejected the same way. See ``harborlens.labeling``.
 
 Nothing here upgrades a candidate to a berth, anchorage, wait or port call.
 """

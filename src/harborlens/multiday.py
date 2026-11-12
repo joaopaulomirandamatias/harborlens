@@ -26,6 +26,7 @@ from pathlib import Path
 from harborlens.ais import (
     ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
 )
+from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
 from harborlens.segmentation import (
     METHOD_VERSION, SegmentationParams, Segmenter, add_threshold_arguments,
@@ -490,10 +491,8 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
     with (files["houston_clean.csv"].open("w", newline="", encoding="utf-8") as clean,
           files["stationary_candidates.csv"].open("w", newline="", encoding="utf-8") as events,
           files["stationary_candidates.geojson"].open("w", encoding="utf-8") as geo):
-        normalized = csv.DictWriter(clean, fieldnames=CLEAN_FIELDS, lineterminator="\n")
-        normalized.writeheader()
-        candidate_writer = csv.DictWriter(events, fieldnames=MULTIDAY_FIELDS, lineterminator="\n")
-        candidate_writer.writeheader()
+        normalized = CsvDictWriter(clean, CLEAN_FIELDS, lineterminator="\n")
+        candidate_writer = CsvDictWriter(events, MULTIDAY_FIELDS, lineterminator="\n")
         geo.write('{"type":"FeatureCollection","harborlens_method":'
                   + json.dumps(geojson_method_member(params), separators=(",", ":"))
                   + ',"features":[\n')
@@ -511,7 +510,11 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
             crossing = group["start_dt"].date() != group["end_dt"].date()
             record = {**record, "source_files_json": json.dumps(refs, separators=(",", ":")),
                       "source_count": len(refs), "crosses_utc_date": crossing}
-            candidate_writer.writerow(record)
+            # source_files_json is a JSON array, so the cell starts with "[".
+            # A file name inside that array is not the start of the cell.
+            csv_record = dict(record)
+            csv_record["vessel_type"] = neutralize_text_cell(csv_record.get("vessel_type", ""))
+            candidate_writer.writerow(csv_record)
             properties = {k: v for k, v in record.items()
                           if k not in ("centroid_lon", "centroid_lat", "source_files_json")}
             properties["source_files"] = refs
@@ -537,7 +540,9 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
             category = mmsi_category(mmsi)
             categories[category] = categories.get(category, 0) + 1
             normalized.writerow({"mmsi": mmsi, "timestamp_utc": ts, "lat": lat, "lon": lon,
-                                 "sog_knots": sog, "vessel_type": vessel_type, "nav_status": nav_status,
+                                 "sog_knots": sog,
+                                 "vessel_type": neutralize_text_cell(vessel_type),
+                                 "nav_status": neutralize_text_cell(nav_status),
                                  **{k: csv_value(v) for k, v in attrs.items()}, "mmsi_category": category})
             if num_rows % 10000 == 0:
                 clean.flush()

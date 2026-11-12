@@ -45,10 +45,12 @@
       "maximum": 100
     },
     "vessel_type": {
-      "type": "string"
+      "type": "string",
+      "description": "Transmitted ship-type text. The logical value has no neutralization apostrophe. The CSV writer may prefix one apostrophe when the cell matches the formula-trigger rule."
     },
     "nav_status": {
-      "type": "string"
+      "type": "string",
+      "description": "Transmitted navigation-status text. The logical value has no neutralization apostrophe. The CSV writer may prefix one apostrophe when the cell matches the formula-trigger rule."
     },
     "cog_deg": {
       "anyOf": [

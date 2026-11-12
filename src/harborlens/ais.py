@@ -12,6 +12,7 @@ import json
 import math
 import zipfile
 from pathlib import Path
+from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell, recover_text_cell
 from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
 from harborlens.provenance import add_provenance
@@ -43,6 +44,9 @@ OPTIONAL_COLUMNS = ("vessel_type","nav_status","cog","heading","length","width",
 # New columns are appended so positional consumers of earlier files keep working (#39).
 CLEAN_FIELDS = ["mmsi","timestamp_utc","lat","lon","sog_knots","vessel_type","nav_status",
                 "cog_deg","heading_deg","length_m","width_m","draft_m","transceiver_class","mmsi_category"]
+# Free text copied from the AIS row. Neutralized on write and recovered on read.
+# Numeric columns and mmsi are not in this set, so -95.1 is never prefixed.
+CLEANED_FREE_TEXT = ("vessel_type", "nav_status")
 EVENT_FIELDS = ["event_id","mmsi","start_utc","end_utc","duration_min","point_count",
                 "centroid_lon","centroid_lat","maximum_distance_m","type","method_version","parameter_set",
                 "confidence_label","left_censoring","right_censoring",
@@ -95,8 +99,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     truncated=False
     categories={}
     with output.open("w",newline="",encoding="utf-8") as stream:
-        writer=csv.DictWriter(stream,fieldnames=CLEAN_FIELDS)
-        writer.writeheader()
+        writer=CsvDictWriter(stream,CLEAN_FIELDS)
         cols=None
         for row in stream_rows(source):
             if cols is None:
@@ -139,7 +142,8 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
             writer.writerow({
                 "mmsi":mmsi,"timestamp_utc":t.isoformat().replace("+00:00","Z"),
                 "lat":lat,"lon":lon,"sog_knots":sog,
-                "vessel_type":get("vessel_type"),"nav_status":get("nav_status"),
+                "vessel_type":neutralize_text_cell(get("vessel_type")),
+                "nav_status":neutralize_text_cell(get("nav_status")),
                 **{k:csv_value(v) for k,v in attributes.items()},"mmsi_category":category,
             })
             counts["written"]+=1
@@ -158,6 +162,20 @@ haversine_m = _haversine_m
 # ~1.8 GiB RSS). The cap bounds memory at roughly 2.8 GiB and fails before loading more.
 MAX_IN_MEMORY_ROWS = 6_000_000
 
+def interpret_cleaned_row(row):
+    """Logical cells of one ``houston_clean.csv`` row.
+
+    ``vessel_type`` and ``nav_status`` are recovered with the shared reader.
+    ``mmsi``, timestamps, and numeric columns stay the raw cell text. A
+    leading apostrophe on those columns is not removed. The release recount
+    uses this function and still counts raw MMSI strings.
+    """
+    interpreted=dict(row)
+    for field in CLEANED_FREE_TEXT:
+        if field in interpreted:
+            interpreted[field]=recover_text_cell(interpreted.get(field) or "")
+    return interpreted
+
 def load_cleaned(cleaned,max_rows=MAX_IN_MEMORY_ROWS):
     """Read canonical cleaned AIS and return rows sorted by (mmsi, time, file order).
 
@@ -171,9 +189,11 @@ def load_cleaned(cleaned,max_rows=MAX_IN_MEMORY_ROWS):
             if index>=max_rows:
                 raise AISInputError("Cleaned AIS exceeds the in-memory row cap; refusing a partial result")
             try:
-                rows.append((str(row["mmsi"]),parse_time(row["timestamp_utc"]),float(row["lat"]),
-                             float(row["lon"]),float(row["sog_knots"]),str(row.get("vessel_type") or ""),index,
-                             parse_csv_attributes(row)))
+                interpreted=interpret_cleaned_row(row)
+                rows.append((str(interpreted["mmsi"]),parse_time(interpreted["timestamp_utc"]),float(interpreted["lat"]),
+                             float(interpreted["lon"]),float(interpreted["sog_knots"]),
+                             str(interpreted.get("vessel_type") or ""),index,
+                             parse_csv_attributes(interpreted)))
             except (ValueError,TypeError,KeyError):
                 unparsable+=1
     rows.sort(key=lambda r:(r[0],r[1],r[6]))
@@ -219,6 +239,8 @@ def read_candidates_csv(path):
     """Read stationary_candidates.csv back into typed records matching the candidate schema."""
     with Path(path).open(newline="",encoding="utf-8") as stream:
         def convert(k,v):
+            if k == "vessel_type":
+                v=recover_text_cell(v)
             if k in CANDIDATE_CSV_OPTIONAL:
                 return CANDIDATE_CSV_OPTIONAL[k](v) if v!="" else None
             return CANDIDATE_CSV_TYPES[k](v) if k in CANDIDATE_CSV_TYPES else v
@@ -229,9 +251,12 @@ def write_events(events,out,params=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
     with (out/"stationary_candidates.csv").open("w",newline="",encoding="utf-8") as stream:
-        writer=csv.DictWriter(stream,fieldnames=EVENT_FIELDS)
-        writer.writeheader()
-        writer.writerows(events)
+        writer=CsvDictWriter(stream,EVENT_FIELDS)
+        for event in events:
+            # Copy so GeoJSON keeps the logical vessel_type. JSON strings are not formulas.
+            row={field:event[field] for field in EVENT_FIELDS}
+            row["vessel_type"]=neutralize_text_cell(row["vessel_type"])
+            writer.writerow(row)
     features=[{"type":"Feature","geometry":{"type":"Point","coordinates":[e["centroid_lon"],e["centroid_lat"]]},
                "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
     collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
