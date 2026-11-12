@@ -30,7 +30,7 @@ harborlens-extract-noaa-archive --input data/ais-2024-01-02.csv.zst --out data/h
   --max-rows 1000000 --max-output-mib 256
 ~~~
 
-The manual workflow `.github/workflows/noaa-week-integration.yml` downloads, extracts and deletes one archive at a time for 2–7 consecutive full days, then runs `harborlens-multiday` and publishes aggregate metrics only.
+The manual workflow `.github/workflows/noaa-week-integration.yml` downloads, extracts and deletes one archive at a time for 2–7 consecutive full days, then runs `harborlens-multiday` and publishes aggregate metrics only. The command accepts up to 16 files. The week workflow stays at seven full days because the 6 million row cap is sized for about that many Houston days.
 
 ## Archive vintages (#36)
 

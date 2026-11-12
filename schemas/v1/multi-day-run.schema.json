@@ -33,7 +33,7 @@
     "input_files": {
       "type": "array",
       "minItems": 2,
-      "maxItems": 7,
+      "maxItems": 16,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -578,7 +578,8 @@
       "additionalProperties": false,
       "required": [
         "scratch_peak_bytes",
-        "scratch_measurement"
+        "scratch_measurement",
+        "memory_bound"
       ],
       "properties": {
         "scratch_peak_bytes": {
@@ -587,6 +588,39 @@
         },
         "scratch_measurement": {
           "type": "string"
+        },
+        "memory_bound": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fixed SQLite working set. It does not grow with input rows. Scratch disk is a separate cap.",
+          "required": [
+            "policy",
+            "sqlite_cache_kib",
+            "sqlite_soft_heap_bytes",
+            "mmap_bytes",
+            "temp_store",
+            "grows_with_input_rows"
+          ],
+          "properties": {
+            "policy": {
+              "const": "fixed-sqlite-heap-v1"
+            },
+            "sqlite_cache_kib": {
+              "const": 8192
+            },
+            "sqlite_soft_heap_bytes": {
+              "const": 8388608
+            },
+            "mmap_bytes": {
+              "const": 0
+            },
+            "temp_store": {
+              "const": "FILE"
+            },
+            "grows_with_input_rows": {
+              "const": false
+            }
+          }
         }
       }
     },

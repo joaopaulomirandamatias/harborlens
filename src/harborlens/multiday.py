@@ -1,7 +1,9 @@
 """Bounded-memory multi-file AIS stationary-candidate reconstruction (SPEC-002).
 
 Use a temporary SQLite database to sort observations across multiple local
-historical AIS subsets. No network activity, live tracking, navigation guidance,
+historical AIS subsets. The page cache and soft heap limit are fixed, so the
+working set does not grow with the number of days or rows. Scratch disk may
+grow up to its cap. No network activity, live tracking, navigation guidance,
 validated port-call labels, or real-world accuracy claims are provided.
 
 Data remain in a private temporary directory and are deleted on exit.
@@ -39,14 +41,38 @@ METHOD = METHOD_VERSION
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 ONE_MICROSECOND = timedelta(microseconds=1)
 MULTIDAY_FIELDS = EVENT_FIELDS + ["source_files_json", "source_count", "crosses_utc_date"]
-MAX_FILES = 7
+# File count is not a memory axis: each file is streamed once. Sixteen covers a
+# 14-day measurement plus a one-file boundary. Full Houston days remain limited
+# by MAX_POINTS (about seven days at ~560,000 rows), not by this file count.
+MAX_FILES = 16
+# Fixed working set (SPEC-002). Not a CLI flag: a caller must not raise it.
+# cache_size is kibibytes when negative. The soft heap limit is bytes.
+# mmap is off so scratch pages are not mapped into the process.
+# The seven-day NOAA run peaked near 47 MiB RSS with this 8 MiB page cache.
+SQLITE_CACHE_KIB = 8192
+SQLITE_SOFT_HEAP_BYTES = 8 * 1024 * 1024
+MEMORY_BOUND_POLICY = "fixed-sqlite-heap-v1"
 # Ceilings sized from a synthetic benchmark (~161 bytes of SQLite scratch per row,
 # ~47 MiB RSS independent of size, ~20 s per million rows) for seven full Houston
 # days (~3.9 million rows) with headroom. Limits still fail closed.
+# Scratch disk MAY grow with accepted rows, up to MAX_SCRATCH_MIB. Process
+# memory must not: the cache and soft heap above stay fixed.
 MAX_POINTS = 6_000_000
 MAX_SCRATCH_MIB = 2048
 MAX_EXPORT_MIB = 2048
 DEFAULT_EXPORT_MIB = 1024
+
+
+def memory_bound_record():
+    """Manifest record of the fixed working set. Values match the pragmas."""
+    return {
+        "policy": MEMORY_BOUND_POLICY,
+        "sqlite_cache_kib": SQLITE_CACHE_KIB,
+        "sqlite_soft_heap_bytes": SQLITE_SOFT_HEAP_BYTES,
+        "mmap_bytes": 0,
+        "temp_store": "FILE",
+        "grows_with_input_rows": False,
+    }
 
 
 def _csv_bytes(fields):
@@ -75,13 +101,33 @@ class ScratchMeter:
         return size
 
 
+def _apply_memory_bound(db):
+    """Pin SQLite's working set. Fail closed if the engine does not report it."""
+    db.execute("PRAGMA temp_store=FILE")
+    db.execute(f"PRAGMA cache_size=-{SQLITE_CACHE_KIB}")
+    db.execute(f"PRAGMA soft_heap_limit={SQLITE_SOFT_HEAP_BYTES}")
+    db.execute("PRAGMA mmap_size=0")
+    cache, heap, mmap, temp_store = (
+        db.execute("PRAGMA cache_size").fetchone()[0],
+        db.execute("PRAGMA soft_heap_limit").fetchone()[0],
+        db.execute("PRAGMA mmap_size").fetchone()[0],
+        db.execute("PRAGMA temp_store").fetchone()[0],
+    )
+    if (cache != -SQLITE_CACHE_KIB or heap != SQLITE_SOFT_HEAP_BYTES
+            or mmap != 0 or temp_store != 1):
+        raise AISInputError(
+            "SQLite refused the fixed multi-day memory bound "
+            f"(cache={cache}, soft_heap={heap}, mmap={mmap}, temp_store={temp_store})"
+        )
+    db.execute("PRAGMA shrink_memory")
+
+
 def _make_db(path, max_scratch_mib):
     db = sqlite3.connect(str(path))
     db.execute("PRAGMA synchronous=OFF")
     db.execute("PRAGMA journal_mode=DELETE")
-    db.execute("PRAGMA temp_store=FILE")
-    db.execute("PRAGMA cache_size=-8192")
     db.execute("PRAGMA page_size=4096")
+    _apply_memory_bound(db)
     db.execute(f"PRAGMA max_page_count={max_scratch_mib * 1024 * 1024 // 4096}")
     db.executescript(
         """
@@ -101,6 +147,8 @@ def _make_db(path, max_scratch_mib):
         );
         CREATE UNIQUE INDEX unique_observation
           ON observations(mmsi, ts, lat_micro, lon_micro);
+        CREATE INDEX observations_by_vessel_time
+          ON observations(mmsi, epoch_us, id);
         CREATE TABLE observation_sources (
           observation_id INTEGER NOT NULL,
           source_id INTEGER NOT NULL,
@@ -211,11 +259,13 @@ def _load_files(db, inputs, bbox, max_points, meter):
             )
             if counts["total"] % 5000 == 0:
                 db.commit()
+                db.execute("PRAGMA shrink_memory")
                 meter.check()
         if file_rows == 0:
             raise AISInputError(f"Source has no AIS observations: {path.name}")
         item["rows_scanned"] = file_rows
         db.commit()
+        db.execute("PRAGMA shrink_memory")
         meter.check()
     return counts, source_items, (first, last)
 
@@ -266,14 +316,18 @@ def run_multiday(
     window_end=None,
     params=None,
 ):
-    """Reconstruct provisional stationary candidates across 2–7 local AIS files.
+    """Reconstruct provisional stationary candidates across 2–16 local AIS files.
 
-    Only bounded counters and a current candidate are held in Python memory;
-    full sorted points and group membership live in temporary SQLite on disk.
+    Rows are streamed into temporary SQLite and ordered by (mmsi, epoch_us, id)
+    on disk. Out-of-order rows and late points are not held in a Python buffer.
+    The page cache and soft heap limit are fixed constants, so the SQLite
+    working set does not grow with the number of days or rows. Scratch disk may
+    grow until ``max_scratch_mib``. Python keeps counters and one open candidate.
+    ``Segmenter.feed`` still rejects a descending (mmsi, timestamp) key.
     """
     paths = tuple(sorted((Path(p).resolve() for p in inputs), key=str))
     if not 2 <= len(paths) <= MAX_FILES or len(set(paths)) != len(paths):
-        raise AISInputError("Provide 2–7 distinct AIS files")
+        raise AISInputError(f"Provide 2–{MAX_FILES} distinct AIS files")
     if not all(path.is_file() for path in paths):
         raise AISInputError("All source files must exist")
     if not (1 <= max_points <= MAX_POINTS and 16 <= max_scratch_mib <= MAX_SCRATCH_MIB
@@ -327,7 +381,8 @@ def run_multiday(
                 "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
                            "max_export_mib": max_export_mib},
                 "resources": {"scratch_peak_bytes": meter.peak_bytes,
-                              "scratch_measurement": "sampled at commits; includes rollback journal"},
+                              "scratch_measurement": "sampled at commits; includes rollback journal",
+                              "memory_bound": memory_bound_record()},
                 "run_id": hashlib.sha256(
                     json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
@@ -366,6 +421,9 @@ class _SQLiteGroupStore:
 def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter):
     """Stream sorted observations through the shared engine and write exports."""
     max_bytes = export_cap_mib * 1048576
+    # Release insert cache before the ordered scan. The scan uses
+    # observations_by_vessel_time, so it does not build an in-memory sort.
+    db.execute("PRAGMA shrink_memory")
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
     with (files["houston_clean.csv"].open("w", newline="", encoding="utf-8") as clean,
@@ -441,7 +499,8 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
 
 def main():
     parser = argparse.ArgumentParser(description="Historical multi-day AIS stationary-candidate reconstruction")
-    parser.add_argument("--input", nargs="+", required=True, type=Path, help="Two to seven local AIS subsets")
+    parser.add_argument("--input", nargs="+", required=True, type=Path,
+                        help=f"Two to {MAX_FILES} local AIS subsets")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--bbox", nargs=4, type=float, default=BBOX_HOUSTON, metavar=("W","S","E","N"))
     parser.add_argument("--max-points", type=int, default=MAX_POINTS)
