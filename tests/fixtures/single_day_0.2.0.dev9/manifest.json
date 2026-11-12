@@ -1,0 +1,112 @@
+{
+  "input_file": "INPUT",
+  "input_sha256": "f6fee50b71f9e6acf5aa8c361f95ca01312ffe9a0688d08f537809d7466c88c5",
+  "output": "OUTPUT",
+  "bbox_lon_lat": [
+    -95.7,
+    29.1,
+    -94.2,
+    30.1
+  ],
+  "counts": {
+    "total": 63,
+    "in_bbox": 61,
+    "missing_value": 0,
+    "invalid": 1,
+    "outside_bbox": 1,
+    "duplicate": 1,
+    "written": 60
+  },
+  "note": "QA counts, not port-call statistics",
+  "input_truncated": false,
+  "limits": {
+    "max_rows": null
+  },
+  "mmsi_categories": {
+    "ship": 60
+  },
+  "events": {
+    "vessels": 3,
+    "points": 60,
+    "moving_points": 10,
+    "timestamp_conflicts": 0,
+    "gap_splits": 1,
+    "identity_conflicts": 0,
+    "implausible_jumps": 0,
+    "spatial_splits": 0,
+    "discarded_groups": 2,
+    "discarded_by_reason": {
+      "too_few_points": 2,
+      "too_short": 0,
+      "radius_exceeded": 0
+    },
+    "stationary_candidates": 1,
+    "candidates_per_mmsi": {
+      "max": 1,
+      "mmsi_with_multiple": 0
+    },
+    "unparsable_rows": 0,
+    "censoring": {
+      "rule_version": "window-edge-v1",
+      "left_censored": 0,
+      "right_censored": 0,
+      "both_censored": 0,
+      "uncensored": 0,
+      "unknown": 1
+    },
+    "warning": "Stationary candidates are unvalidated, NOT verified berth, anchorage, waiting, or port calls."
+  },
+  "method_parameters": {
+    "method_version": "stationary-v0.2",
+    "max_sog_knots": 0.5,
+    "min_duration_minutes": 30.0,
+    "max_gap_minutes": 15.0,
+    "max_radius_m": 1000.0,
+    "min_points": 8,
+    "max_jump_knots": 65.0,
+    "parameter_set": "dc3727719ee7"
+  },
+  "analysis_window": {
+    "status": "unknown",
+    "rule_version": "window-edge-v1",
+    "edge_tolerance_minutes": 15.0,
+    "blocks": [],
+    "internal_gaps": 0,
+    "declarations": [
+      {
+        "input": "synthetic_ais.csv",
+        "source": "none"
+      }
+    ],
+    "observed_time_range": {
+      "start_utc": "2024-01-02T00:00:00Z",
+      "end_utc": "2024-01-02T00:45:00Z"
+    }
+  },
+  "run_id": "c8f646f7b6fd49bf0fee224d9d65a92ee9345df26734c6fea753fbf47ad633ee",
+  "provenance_schema_version": "1.1",
+  "code_version": {
+    "package_version": "0.2.0.dev9",
+    "git_commit": null
+  },
+  "source_metadata": {
+    "source_url": null,
+    "metadata_origin": "user_declared",
+    "rights_status": "review_required"
+  },
+  "artifacts": {
+    "houston_clean.csv": {
+      "sha256": "82db41ec7542bd5d32ab865ee839295b1f7fb2c33ee9be79bc654e355b2fd3b1",
+      "size_bytes": 4423
+    },
+    "stationary_candidates.csv": {
+      "sha256": "b5f8bf7b6bb9c855f52d0d5b26a34123b1f7d3511c441fd4efcc905b59537cd7",
+      "size_bytes": 440
+    },
+    "stationary_candidates.geojson": {
+      "sha256": "7f063677040698bbfa0a42a139da5ecb5d292127fde4bdaf41d1ecfad367aa71",
+      "size_bytes": 1167
+    }
+  },
+  "provenance_warning": "Integrity hashes do not establish source authenticity, data rights or verified events."
+}

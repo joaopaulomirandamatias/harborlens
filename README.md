@@ -52,7 +52,7 @@ For temporal trajectories use authorized daily historical compressed archives ra
 
 ## Experimental multi-day AIS candidates
 
-A separate local tool can reconstruct provisional low-speed candidate segments across UTC midnight from two or more existing historic AIS subsets, using an ephemeral SQLite sort and per-file input lineage. No automatic downloads. See [multi-day engineering guide](docs/data/multiday.md). No real multi-day accuracy or official berth/waiting claims are established.
+A separate local tool can reconstruct provisional low-speed candidate segments across UTC midnight from two to sixteen existing historic AIS subsets, using an ephemeral SQLite sort and per-file input lineage. The SQLite cache and soft heap limit are fixed. No automatic downloads. See [multi-day engineering guide](docs/data/multiday.md). No real multi-day accuracy or official berth/waiting claims are established.
 
 ## First real consecutive-day engineering run
 

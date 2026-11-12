@@ -1,0 +1,2 @@
+event_id,mmsi,start_utc,end_utc,duration_min,point_count,centroid_lon,centroid_lat,maximum_distance_m,type,method_version,parameter_set,confidence_label,left_censoring,right_censoring,vessel_type,transceiver_class,length_m,draft_m,mmsi_category
+97804ba6c59f9497ed,367800001,2024-01-02T00:00:00Z,2024-01-02T00:45:00Z,45.0,46,-95.159998,29.730001,6.9,stationary_candidate,stationary-v0.2,dc3727719ee7,unvalidated,unknown,unknown,70,,,,ship

@@ -1,6 +1,6 @@
 # SPEC-002: Implementation Work Items
 
-**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured. Checking a task requires traceable PR/test evidence.
+**State:** IMPLEMENTED — real one- and two-day NOAA smokes; event validity unmeasured. The multi-day working set is a fixed SQLite cache and soft heap (2026-11-12). Checking a task requires traceable PR/test evidence.
 
 - [x] Preserve existing single-file regression tests; add multi-day cases (synthetic CI verified)
 - [x] Implement SQLite-based multi-file sorting and midnight candidate continuity (PR under review)
@@ -39,3 +39,12 @@
 
 - [x] Multi-day, track-context and in-memory ceilings sized from a synthetic 3.92-million-row benchmark ([report](../../docs/data/scale-benchmark-2026-11-09.md)); scratch peak recorded in the manifest; export-phase scratch check uses the configured scratch cap
 - [x] Confirm resource use on seven real NOAA days (NFR-007) ([2026-11-09 re-run](../../docs/data/noaa-real-data-rerun-2026-11-09.md))
+
+## Fixed working set for multi-day segmentation (issue #5)
+
+- [x] Pin SQLite cache (8192 KiB), soft heap (8 MiB), `mmap_size=0`, and `temp_store=FILE`. Record `resources.memory_bound` and require it in `multi-day-run.schema.json`. Accept 2–16 files. Seventeen files fail closed with no outputs (`tests/test_multiday_bounded.py`).
+- [x] Order late and shuffled points on disk by `(mmsi, epoch_us, insertion id)`. Exact duplicates keep both sources (BR-005). A same-timestamp position conflict splits (BR-007). A gap of exactly 15 minutes stays one candidate; 16 minutes splits. `Segmenter` rejects a descending timestamp.
+- [x] Measure traced peak and process RSS on synthetic 1, 3, 7, and 14 day inputs in subprocesses. Assert the ceilings in the design. Scratch may grow. Candidates stay `unvalidated`.
+- [x] Show single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` are byte-identical to package `0.2.0.dev9` (`tests/fixtures/single_day_0.2.0.dev9/`). Manifest differs in package version and `run_id` only.
+- [ ] Stream the release-path recount past 256 MiB. Proposal only, in the SPEC-002 design. `publication.py` and `release_verify.py` are unchanged. Refs #70 (stays open).
+- [ ] Measure this working set on another authorized seasonal NOAA sample. The 2026-11-09 seven-day run predates the soft-heap pin.

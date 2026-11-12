@@ -58,7 +58,9 @@ The output contract is [release-verification-result.schema.json](../../schemas/v
 
 ## Known limitation
 
-`harborlens-verify-release` does not recount the cleaned AIS CSV. The Ed25519 review attests the counts as checked by the reviewer on the release path. Every successful result has `verification_scope=signed_release_and_pinned_rights_only`. A signed retained count inflated above the 100-observation and 10-MMSI-group floors is not detectable by this verifier without the CSV. Anyone holding `houston_clean.csv` must recount through the release path (`harborlens-release-summary`). That path reads the file once, checks SHA-256 of those bytes against the manifest, and recounts from the same buffer.
+`harborlens-verify-release` does not recount the cleaned AIS CSV. The Ed25519 review attests the counts as checked by the reviewer on the release path. Every successful result has `verification_scope=signed_release_and_pinned_rights_only`. A signed retained count inflated above the 100-observation and 10-MMSI-group floors is not detectable by this verifier without the CSV. Anyone holding `houston_clean.csv` must recount through the release path (`harborlens-release-summary`). That path reads the file once, checks SHA-256 of those bytes against the manifest, and recounts from the same buffer. The buffer is capped at 256 MiB.
+
+A later slice can recount a longer cleaned CSV without holding the file: one read, an incremental SHA-256 over those chunks, and a streamed row and MMSI recount of the same chunks, with the distinct-MMSI set capped. That proposal is in the SPEC-002 design. This command and `harborlens-release-summary` do not implement it. Refs #70 (stays open).
 
 ## Test evidence
 

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-002: fixed multi-day working set)
+- Package version `0.2.0.dev10` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `harborlens-multiday` accepts 2 to 16 local files. Seventeen files fail closed and write nothing. `MAX_POINTS` stays 6,000,000, so about seven full Houston days still fit.
+- SQLite page cache is 8192 KiB, the soft heap limit is 8 MiB, memory mapping is off, and temporary store is `FILE`. Those values are constants, not CLI flags. The run fails closed if SQLite does not report them. `PRAGMA shrink_memory` runs after each file and before the ordered scan. The scan uses an index on `(mmsi, epoch_us, id)`.
+- Multi-day manifests gain `resources.memory_bound` (`policy=fixed-sqlite-heap-v1`, `grows_with_input_rows=false`). `schemas/v1/multi-day-run.schema.json` requires that object and allows 16 input files. Scratch disk may still grow up to `max_scratch_mib`.
+- Shuffled rows and late points are ordered on disk. There is no in-memory reorder buffer. An exact duplicate is stored once and keeps every source. The same timestamp with a different position splits the candidate. `Segmenter` rejects a descending timestamp.
+- Single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev9`. The single-file manifest changes in `code_version.package_version` and in `run_id`, because `run_id` hashes `harborlens_version`. The GovInfo LSA report's `harborlens_version` moves with the package. The comparison behavior is unchanged. Runs from `0.2.0.dev9` and `0.2.0.dev10` are not directly comparable. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #5 (stays open).
+- The 256 MiB release-path recount is unchanged. A streamed recount (one read, incremental SHA-256, streamed row and MMSI recount, capped MMSI set) is proposed in the SPEC-002 design and is not implemented. Refs #70 (stays open).
+
 ### Security (SPEC-003: release summary rights_status is an allowlist)
 - `harborlens-release-summary` denies a staged summary whose `rights_status` is missing, `None`, not a string, or outside `APPROVED_STATUSES` (`reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions`). The denial is `ReleaseDenied` and the CLI exits 2 with no traceback and no file. A missing status no longer skips the `conditions_reviewed` requirement. Package version stays `0.2.0.dev9`. Successful release documents are unchanged. Refs #70 (stays open).
 
