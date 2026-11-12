@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: source rights register, #42)
+- `docs/data/rights-register.json`: offline inventory of five official sources. **No source has been approved.** Every checked-in entry stays `rights_status=review_required`.
+- Schema `source-rights-register` (`schemas/v1/source-rights-register.schema.json`). `load_registry` validates a register against that schema before any decision; a schema-invalid register is a load error and is not granted.
+- `python -m harborlens.rights`: offline audit helper. Exit 0 only when `rights_status` is an approved status; exit 1 for any other status, including `review_required` and `use_restricted`; exit 2 when the register cannot be loaded, parsed or schema-validated. JSON stays on stdout, and a load failure includes an `error` field so it is distinct from pending. **Adapters do not consume the gate yet**; acquisition metadata remains `review_required`.
+- The schema copy used at runtime is `src/harborlens/schemas/v1/source-rights-register.schema.json`, byte-identical to `schemas/v1/source-rights-register.schema.json`, and is loaded with `importlib.resources` only. The helper does not search parent directories.
+- Optional extra `rights` (`pip install 'harborlens[rights]'`) installs `jsonschema`. Core dependencies stay empty. If `jsonschema` is missing, the helper exits 2 and the JSON `error` names that extra. Validation is never skipped.
+- Terms, evidence and source URLs must be `https` with a real host. `https://user@`, `https://.`, `https:// ` and `https://@` are rejected. The schema pattern requires a host.
+
 ### Changed (SPEC-003: transceiver class in the labeling sample, #65)
 - `harborlens-label-sample` stratifies candidates by duration band × censoring × vessel group × transceiver class (`A`, `B`, `absent_or_unknown`) and negative movement intervals by vessel group × transceiver class. Missing, blank and any value other than A or B is `absent_or_unknown` and stays in the sample. On the recorded seven-day NOAA run, Class B was 7.4% of points and 32% of stationary candidates (`docs/data/noaa-real-data-rerun-2026-11-09.md`), so class coverage is no longer left to a proportional draw.
 - When fewer units are requested than there are non-empty strata, full cross-cell coverage is impossible. `stratification.all_non_empty_strata_drawn` is then false. Every transceiver class present in the frame (`A`, `B`, `absent_or_unknown`) is still drawn when the request is at least as large as the number of those classes. The annotator sheet is unchanged and still blinded.

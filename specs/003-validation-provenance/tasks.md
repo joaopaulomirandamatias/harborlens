@@ -4,7 +4,7 @@
 
 - [ ] Ingest and checksum authorized NOAA sample
 - [x] Output-hash and local-verification implementation (merged in #18)
-- [ ] Independently confirm source rights and dataset provenance before distribution
+- [ ] Independently confirm source rights and dataset provenance before distribution. Partial inventory only (`docs/data/rights-register.json`, schema `source-rights-register`, `python -m harborlens.rights`): no source approved, adapters do not consume the gate, #42 stays open
 - [ ] Create annotation guide and >=100 pilot samples with negatives
 - [ ] Implement metrics and confidence intervals
 - [ ] Cross-validate independent period/port with permission

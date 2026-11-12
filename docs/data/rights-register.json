@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "purpose": "SPEC-003 source rights decision register (issue #42). All entries unreviewed; this is not a license grant.",
+  "sources": [
+    {
+      "source_id": "noaa_ocm_ais_daily",
+      "dataset_version": "2024",
+      "source_url": "https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html",
+      "terms_url": null,
+      "rights_status": "review_required",
+      "decision": "pending",
+      "permitted_uses": {
+        "research": "unreviewed",
+        "public_aggregates": "unreviewed",
+        "commercial": "unreviewed"
+      },
+      "attribution": null,
+      "reviewed_by": null,
+      "reviewed_at_utc": null,
+      "terms_sha256": null,
+      "evidence_url": null,
+      "review_note": "The InPort record is for AIS vessel TRACKS, not necessarily identical to daily raw AIS archives. Verify exact raw-data licensing and vintage before approval. No exact applicable licensing terms URL verified yet; terms_url intentionally null while pending review."
+    },
+    {
+      "source_id": "noaa_pmel_erddap",
+      "dataset_version": "AIS2024_AIS",
+      "source_url": "https://data.pmel.noaa.gov/pmel/erddap/tabledap/AIS2024_AIS.html",
+      "terms_url": "https://data.pmel.noaa.gov/pmel/erddap/info/AIS2024_AIS/index.htmlTable",
+      "rights_status": "review_required",
+      "decision": "pending",
+      "permitted_uses": {
+        "research": "unreviewed",
+        "public_aggregates": "unreviewed",
+        "commercial": "unreviewed"
+      },
+      "attribution": null,
+      "reviewed_by": null,
+      "reviewed_at_utc": null,
+      "terms_sha256": null,
+      "evidence_url": null,
+      "review_note": "Dataset metadata contains a CC0-1.0 declaration; verify exact dataset scope, metadata vintage, third-party content and attribution before approving."
+    },
+    {
+      "source_id": "noaa_oceanreports_anchorages",
+      "dataset_version": "current_unversioned",
+      "source_url": "https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0",
+      "terms_url": null,
+      "rights_status": "review_required",
+      "decision": "pending",
+      "permitted_uses": {
+        "research": "unreviewed",
+        "public_aggregates": "unreviewed",
+        "commercial": "unreviewed"
+      },
+      "attribution": null,
+      "reviewed_by": null,
+      "reviewed_at_utc": null,
+      "terms_sha256": null,
+      "evidence_url": null,
+      "review_note": "Current spatial geometry has no verified validity for Jan 2024; confirm NOAA service terms and source attribution. Do not approve historical use merely from current data. No exact applicable licensing terms URL verified yet; terms_url intentionally null while pending review."
+    },
+    {
+      "source_id": "usace_ntad_navigation_facilities",
+      "dataset_version": "2026-09-30",
+      "source_url": "https://catalog.data.gov/dataset/docks",
+      "terms_url": null,
+      "rights_status": "review_required",
+      "decision": "pending",
+      "permitted_uses": {
+        "research": "unreviewed",
+        "public_aggregates": "unreviewed",
+        "commercial": "unreviewed"
+      },
+      "attribution": null,
+      "reviewed_by": null,
+      "reviewed_at_utc": null,
+      "terms_sha256": null,
+      "evidence_url": null,
+      "review_note": "Data.gov catalog labels this dataset public domain, but check source snapshot/version, terms, attribution and whether hosted layer is identical; facility points never establish historical berth polygons. No exact applicable licensing terms URL verified yet; terms_url intentionally null while pending review."
+    },
+    {
+      "source_id": "federal_33cfr_110_197",
+      "dataset_version": "2024-07-01",
+      "source_url": "https://www.ecfr.gov/current/title-33/chapter-I/subchapter-I/part-110/section-110.197",
+      "terms_url": null,
+      "rights_status": "review_required",
+      "decision": "pending",
+      "permitted_uses": {
+        "research": "unreviewed",
+        "public_aggregates": "unreviewed",
+        "commercial": "unreviewed"
+      },
+      "attribution": null,
+      "reviewed_by": null,
+      "reviewed_at_utc": null,
+      "terms_sha256": null,
+      "evidence_url": null,
+      "review_note": "July 1, 2024 CFR is not proof of Jan 2, 2024 legal effect; verify FR/LSA timeline, datum and source geometry before any geofence use. No exact applicable licensing terms URL verified yet; terms_url intentionally null while pending review."
+    }
+  ]
+}

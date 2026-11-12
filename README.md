@@ -22,6 +22,14 @@ python -m unittest discover -s tests -v
 harborlens --input tests/fixtures/synthetic_ais.csv --out results
 ```
 
+The offline source-rights helper is `python -m harborlens.rights`. Schema checks need the optional extra, not a core dependency:
+
+```bash
+python -m pip install -e '.[rights]'
+```
+
+Without `jsonschema`, the helper exits 2 and does not grant a decision. No checked-in source is approved. See [the rights register](docs/data/rights-register.md).
+
 [Specification-driven process](docs/engineering/spec-driven-development.md) · [Requirements](docs/requirements/functional.md) · [Open-source versus paid scope](docs/product/open-core.md). No real-world AIS accuracy or commercial product is claimed.
 
 Sources: [NOAA AIS](https://marinecadastre.gov/ais/), [USACE](https://www.iwr.usace.army.mil/About/Technical-Centers/WCSC-Waterborne-Commerce-Statistics-Center/), [BTS](https://www.bts.gov/ports), [EPA emissions guidance](https://www.epa.gov/state-and-local-transportation/port-emissions-inventory-guidance).
