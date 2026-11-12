@@ -139,7 +139,12 @@ class TransceiverStratumTests(unittest.TestCase):
         self.assertNotIn("kind", fields)
         self.assertNotIn("stratum", fields)
 
-    def test_small_sample_still_covers_every_present_class(self):
+    def test_short_request_records_cross_cell_gap_and_covers_every_class(self):
+        """Full stratum coverage is impossible when the request is smaller than the frame.
+
+        all_non_empty_strata_drawn is false, and every present class is still drawn
+        when the request is at least the number of classes (SPEC-003, FR-013, #65).
+        """
         rows = (track("367100011", "70", "A", [40], 0)
                 + track("367100012", "70", "A", [200], 1)
                 + track("367100013", "80", "B", [40], 2)
@@ -148,10 +153,16 @@ class TransceiverStratumTests(unittest.TestCase):
         for seed in range(8):
             with self.subTest(seed=seed):
                 record = self.draw(run_dir, f"s{seed}.csv", seed=seed, candidates=3, negatives=0)
+                candidate_frame = record["frame"]["candidates"]
+                requested = record["requested"]["candidates"]
                 coverage = record["stratification"]["transceiver_classes"]["candidates"]
-                self.assertEqual(record["drawn"]["candidates"], 3)
-                self.assertEqual(coverage["drawn"], coverage["in_frame"])
+                drawn_strata = {row["stratum"] for row in record["key"] if row["kind"] == "candidate"}
+                self.assertLess(requested, len(candidate_frame))
+                self.assertGreaterEqual(requested, len(coverage["in_frame"]))
+                self.assertEqual(record["drawn"]["candidates"], requested)
                 self.assertEqual(coverage["in_frame"], ["A", "B", "absent_or_unknown"])
+                self.assertEqual(coverage["drawn"], coverage["in_frame"])
+                self.assertLess(len(drawn_strata), len(candidate_frame))
                 self.assertFalse(record["stratification"]["all_non_empty_strata_drawn"])
 
     def test_empty_transceiver_stratum_is_omitted(self):

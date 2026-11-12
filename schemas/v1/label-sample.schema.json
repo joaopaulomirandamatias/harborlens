@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/label-sample.schema.json",
   "title": "HarborLens labeling-sample manifest (holds the blinding key)",
-  "description": "Seeded stratified sample drawn from one verified run (label-sample-v0.2). Candidate stratum keys are duration_band|censoring|vessel_group|transceiver_class. Negative keys are negative|vessel_group|transceiver_class. Transceiver class is A, B, or absent_or_unknown (missing, blank, or any other value); those units stay in the sample. The key maps sample_id to candidate or negative; do not share it with annotators. The annotator sheet does not carry kind, event_id, or transceiver class.",
+  "description": "Seeded stratified sample drawn from one verified run (label-sample-v0.2). Candidate stratum keys are duration_band|censoring|vessel_group|transceiver_class. Negative keys are negative|vessel_group|transceiver_class. Transceiver class is A, B, or absent_or_unknown (missing, blank, or any other value); those units stay in the sample. Per-class coverage is guaranteed when the requested count is at least the number of classes present in the frame. Full cross-cell coverage is not: when the request is smaller than the number of non-empty strata, stratification.all_non_empty_strata_drawn is false. The key maps sample_id to candidate or negative; do not share it with annotators. The annotator sheet does not carry kind, event_id, or transceiver class.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -181,7 +181,7 @@
     "stratification": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Coverage of the drawn sample. When fewer units are requested than there are non-empty strata, every transceiver class present in that frame is still drawn if the request is at least as large as the number of classes. Empty strata are omitted rather than allocated.",
+      "description": "Coverage of the drawn sample. Per-class coverage is guaranteed: every transceiver class present in a frame is drawn when the request for that frame is at least as large as the number of those classes. Full cross-cell coverage is separate. all_non_empty_strata_drawn is false when the requested size is smaller than the number of non-empty strata, because some cross-cells are then omitted. Empty strata are omitted from the frame and are not a gap.",
       "required": [
         "dimensions",
         "all_non_empty_strata_drawn",
@@ -215,7 +215,8 @@
           }
         },
         "all_non_empty_strata_drawn": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "True only when every non-empty candidate stratum and every non-empty negative stratum received at least one unit. False when the requested size is smaller than the number of non-empty strata, so full cross-cell coverage is impossible. That false value does not drop a transceiver class: when the request is at least the number of classes present in the frame, every such class still appears in transceiver_classes.candidates.drawn or transceiver_classes.negatives.drawn. Empty strata are not listed in the frame and do not make this flag false."
         },
         "transceiver_classes": {
           "type": "object",
