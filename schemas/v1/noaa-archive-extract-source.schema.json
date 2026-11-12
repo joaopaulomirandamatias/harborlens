@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/noaa-archive-extract-source.schema.json",
+  "title": "NOAA daily archive extraction source receipt",
+  "description": "Sidecar written by harborlens-extract-noaa-archive (SPEC-003, FR-010, NFR-013, NFR-019, BR-015, BR-016). rights_review is optional. A recorded rights_status is not permission to redistribute the archive, and it is not a navigation or event label. The checked-in register stays review_required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_type",
+    "input_filename",
+    "input_sha256",
+    "output_filename",
+    "output_sha256",
+    "window_start_utc",
+    "window_end_utc",
+    "bbox_lon_lat",
+    "counts",
+    "bytes_written",
+    "source_vintage",
+    "limits",
+    "rights_status",
+    "warning"
+  ],
+  "properties": {
+    "source_type": {
+      "const": "local_noaa_daily_archive"
+    },
+    "input_filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "output_filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "window_start_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z(?![\\s\\S])"
+    },
+    "window_end_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z(?![\\s\\S])"
+    },
+    "bbox_lon_lat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows_scanned",
+        "missing_value",
+        "invalid",
+        "outside_time",
+        "outside_bbox",
+        "selected"
+      ],
+      "properties": {
+        "rows_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outside_time": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outside_bbox": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "bytes_written": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_vintage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layout",
+        "year",
+        "expected_header_style",
+        "detected_header_style",
+        "missing_values",
+        "layout_verification"
+      ],
+      "properties": {
+        "layout": {
+          "type": "string",
+          "minLength": 1
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 2015,
+          "maximum": 2026
+        },
+        "expected_header_style": {
+          "enum": [
+            "legacy_camel_case",
+            "lowercase_snake_case"
+          ]
+        },
+        "detected_header_style": {
+          "enum": [
+            "legacy_camel_case",
+            "lowercase_snake_case",
+            "unrecognized"
+          ]
+        },
+        "missing_values": {
+          "enum": [
+            "sentinels",
+            "nulls"
+          ]
+        },
+        "layout_verification": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_rows",
+        "max_output_mib",
+        "max_uncompressed_gib"
+      ],
+      "properties": {
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "max_output_mib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "max_uncompressed_gib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        }
+      }
+    },
+    "rights_status": {
+      "enum": [
+        "review_required",
+        "reviewed_public_domain_attribution_required",
+        "reviewed_permitted_with_conditions",
+        "use_restricted"
+      ]
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 10
+    },
+    "rights_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source_id",
+        "dataset_version",
+        "purpose",
+        "registry_sha256",
+        "evaluation",
+        "rights_status"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "source_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{3,100}$"
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "purpose": {
+          "enum": [
+            "research",
+            "public_aggregates",
+            "commercial"
+          ]
+        },
+        "registry_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evaluation": {
+          "enum": [
+            "not_supplied",
+            "invalid_registry",
+            "pending_or_unmatched",
+            "reviewed_record"
+          ]
+        },
+        "rights_status": {
+          "enum": [
+            "review_required",
+            "reviewed_public_domain_attribution_required",
+            "reviewed_permitted_with_conditions",
+            "use_restricted"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evaluation": {
+                "const": "not_supplied"
+              }
+            },
+            "required": [
+              "evaluation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "registry_sha256": {
+                "type": "null"
+              },
+              "rights_status": {
+                "const": "review_required"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evaluation": {
+                "const": "invalid_registry"
+              }
+            },
+            "required": [
+              "evaluation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rights_status": {
+                "const": "review_required"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evaluation": {
+                "const": "pending_or_unmatched"
+              }
+            },
+            "required": [
+              "evaluation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rights_status": {
+                "const": "review_required"
+              },
+              "registry_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evaluation": {
+                "const": "reviewed_record"
+              }
+            },
+            "required": [
+              "evaluation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "registry_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "rights_status": {
+                "enum": [
+                  "reviewed_public_domain_attribution_required",
+                  "reviewed_permitted_with_conditions",
+                  "use_restricted"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

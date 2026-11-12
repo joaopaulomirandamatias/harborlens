@@ -71,6 +71,12 @@ class RightsAdapterTests(unittest.TestCase):
         self.receipt_schema = json.loads(
             (ROOT / "schemas/v1/source-rights-receipt.schema.json").read_text()
         )
+        self.erddap_schema = json.loads(
+            (ROOT / "schemas/v1/erddap-ais-source.schema.json").read_text()
+        )
+        self.archive_schema = json.loads(
+            (ROOT / "schemas/v1/noaa-archive-extract-source.schema.json").read_text()
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -223,6 +229,75 @@ class RightsAdapterTests(unittest.TestCase):
                 self.assertEqual(status, "review_required", purpose)
                 self.assertEqual(sidecar["rights_review"]["rights_status"], "review_required")
                 self.assertNotIn(status, granted)
+                if sidecar.get("dataset") == "AIS2024_AIS":
+                    Draft202012Validator(self.erddap_schema).validate(sidecar)
+                if sidecar.get("source_type") == "local_noaa_daily_archive":
+                    Draft202012Validator(self.archive_schema).validate(sidecar)
+
+    def test_erddap_and_archive_sidecars_without_a_register_match_schema(self):
+        erddap = fetch_subset(
+            "2024-06-10T00:00:00Z", "2024-06-10T01:00:00Z",
+            (-95.7, 29.1, -94.2, 30.1), self.root / "plain.csv", opener=erddap_mock,
+        )
+        Draft202012Validator(self.erddap_schema).validate(erddap)
+        self.assertEqual(erddap["rights_status"], "review_required")
+        self.assertEqual(erddap["rights_review"]["evaluation"], "not_supplied")
+        self.assertNotIn(erddap["rights_status"], {
+            "reviewed_public_domain_attribution_required",
+            "reviewed_permitted_with_conditions",
+        })
+        fixture = ROOT / "tests/fixtures/synthetic_ais.csv"
+        archive = self.root / "ais-2024-01-02.csv.zst"
+        archive.write_bytes(zstandard.ZstdCompressor().compress(fixture.read_bytes()))
+        report = extract_archive(
+            archive, self.root / "plain-extract.csv",
+            "2024-01-02T00:00:00Z", "2024-01-02T00:59:00Z",
+        )
+        Draft202012Validator(self.archive_schema).validate(report)
+        self.assertEqual(report["rights_status"], "review_required")
+        self.assertEqual(report["rights_review"]["evaluation"], "not_supplied")
+
+    def test_sidecar_schemas_reject_a_disguised_grant(self):
+        erddap = fetch_subset(
+            "2024-06-10T00:00:00Z", "2024-06-10T01:00:00Z",
+            (-95.7, 29.1, -94.2, 30.1), self.root / "neg.csv", opener=erddap_mock,
+        )
+        Draft202012Validator(self.erddap_schema).validate(erddap)
+        erddap["rights_review"]["evaluation"] = "reviewed_record"
+        erddap["rights_review"]["rights_status"] = "review_required"
+        self.assertFalse(Draft202012Validator(self.erddap_schema).is_valid(erddap))
+        erddap["rights_status"] = "approved"
+        erddap["rights_review"]["evaluation"] = "not_supplied"
+        erddap["rights_review"]["rights_status"] = "review_required"
+        erddap["rights_review"]["registry_sha256"] = None
+        self.assertFalse(Draft202012Validator(self.erddap_schema).is_valid(erddap))
+        missing = dict(erddap)
+        missing.pop("rights_status")
+        self.assertFalse(Draft202012Validator(self.erddap_schema).is_valid(missing))
+
+    def test_sidecar_receipt_block_matches_the_receipt_schema(self):
+        receipt = json.loads(
+            (ROOT / "schemas/v1/source-rights-receipt.schema.json").read_text()
+        )
+        receipt.pop("$schema")
+        receipt.pop("title")
+        for name in (
+            "erddap-ais-source.schema.json",
+            "noaa-archive-extract-source.schema.json",
+        ):
+            schema = json.loads((ROOT / "schemas/v1" / name).read_text())
+            Draft202012Validator.check_schema(schema)
+            self.assertEqual(schema["properties"]["rights_review"], receipt)
+            self.assertNotIn("rights_review", schema["required"])
+            self.assertIn("rights_status", schema["required"])
+        from importlib.resources import files
+        packaged = {
+            path.name
+            for path in files("harborlens").joinpath("schemas", "v1").iterdir()
+            if path.name.endswith(".json")
+        }
+        self.assertNotIn("erddap-ais-source.schema.json", packaged)
+        self.assertNotIn("noaa-archive-extract-source.schema.json", packaged)
 
 
 if __name__ == "__main__":

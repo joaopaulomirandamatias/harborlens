@@ -35,8 +35,7 @@ The report records:
 - `rights_status=review_required` on the report and on each document
 - `historical_wgs84_geometry_approved=false` and `ais_spatial_join_permitted=false`
 
-Package `0.2.0.dev10` identifies this artifact. The report field `harborlens_version` is that version. The comparison behavior is unchanged from `0.2.0.dev9`; the version string moved with the package. Ordinary AIS `run_id` values also change, because they hash `harborlens_version`. The module is still not a console script and is not imported by `harborlens` or `harborlens-verify`.
-
+Package `0.2.0.dev11` identifies this artifact. The report field `harborlens_version` is that version. The comparison behavior is unchanged from `0.2.0.dev8`. The version string moved with the package: `0.2.0.dev9` when the packaged rights-register schema changed, `0.2.0.dev10` with the multi-day working set on main, and `0.2.0.dev11` when those changes were merged. Ordinary AIS `run_id` values also change, because they hash `harborlens_version`. The module is still not a console script and is not imported by `harborlens` or `harborlens-verify`.
 The schema is `schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json`, registered in `schemas/README.md`. It is not copied into the wheel. setuptools packages `src/harborlens/schemas/v1/*.json`: the rights register and the three release-gate schemas (`public-summary`, `publication-review`, `release-verification-result`).
 
 No original source PDF, extracted legal text, AIS records, or nautical chart polygons should be committed. Tests use a short synthetic `%PDF-SYNTHETIC` body and an in-memory page reader.

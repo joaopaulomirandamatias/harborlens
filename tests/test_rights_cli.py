@@ -10,7 +10,10 @@ from pathlib import Path
 
 from unittest.mock import patch
 
-from harborlens.rights import APPROVED_STATUSES, _MISSING_JSONSCHEMA, _NOTICE, main
+from harborlens.rights import (
+    APPROVED_STATUSES, _DUPLICATE_KEY_ERROR, _MISSING_JSONSCHEMA, _NOTICE,
+    _UNREADABLE_REGISTER, _UTF8_BOM_ERROR, main,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,6 +196,75 @@ class RightsCLITests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(result["error"], _MISSING_JSONSCHEMA)
         self.assertIn("pip install 'harborlens[rights]'", result["error"])
+        self.assertEqual(result["rights_status"], "review_required")
+        self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
+
+    def test_utf8_bom_exits_2_and_names_the_bom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rights.json"
+            path.write_bytes(b"\xef\xbb\xbf" + json.dumps(_reviewed_register()).encode("utf-8"))
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _UTF8_BOM_ERROR)
+            self.assertEqual(result["rights_status"], "review_required")
+            self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
+            completed = subprocess.run(
+                [sys.executable, "-m", "harborlens.rights",
+                 "--register", str(path), "--source-id", "noaa_pmel_erddap",
+                 "--dataset-version", "AIS2024_AIS", "--purpose", "research"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(completed.returncode, 2, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual(payload["error"], _UTF8_BOM_ERROR)
+            self.assertEqual(payload["rights_status"], "review_required")
+
+    def test_duplicate_key_and_deep_nesting_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rights.json"
+            text = json.dumps(_reviewed_register())
+            path.write_text(text.replace(
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                '"rights_status": "review_required", '
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                1,
+            ), encoding="utf-8")
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _DUPLICATE_KEY_ERROR)
+            self.assertEqual(result["rights_status"], "review_required")
+            self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
+            path.write_text('{"k":' * 10000 + "1" + "}" * 10000, encoding="utf-8")
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _UNREADABLE_REGISTER)
+            self.assertEqual(result["rights_status"], "review_required")
+
+    def test_yaml_exits_2_and_does_not_approve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rights.yaml"
+            path.write_text("schema_version: 1\nsources: []\n", encoding="utf-8")
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+            ])
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "Rights register is unreadable")
         self.assertEqual(result["rights_status"], "review_required")
         self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
 

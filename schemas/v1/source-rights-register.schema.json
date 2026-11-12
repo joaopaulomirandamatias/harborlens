@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "HarborLens source-rights review register (SPEC-003)",
+  "description": "Fail-closed inventory of source-rights decisions (SPEC-003, FR-010, NFR-013, NFR-019, BR-015, BR-016). https URLs use an ASCII hostname; punycode is accepted. IPv6 literals, raw IDN hostnames, userinfo, an uppercase scheme, and any whitespace, a backslash, and C0/C1 controls fail closed. Ports, when present, are 1-65535. reviewed_at_utc is a UTC timestamp with a T separator, ASCII digits, no fraction or 1 to 6 fractional digits, and a Z or +00:00 suffix. A string that only ends in Z is rejected. A file that starts with a UTF-8 BOM is a load error and is not an approval. Whitespace-only reviewer or attribution text is rejected when decision is reviewed.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -46,14 +47,14 @@
           },
           "source_url": {
             "type": "string",
-            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::[0-9]{1,5})?(?:[/?#].*)?$"
+            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s\\\\\\x00-\\x1f\\x7f-\\x9f]*)?(?![\\s\\S])"
           },
           "terms_url": {
             "type": [
               "string",
               "null"
             ],
-            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::[0-9]{1,5})?(?:[/?#].*)?$"
+            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s\\\\\\x00-\\x1f\\x7f-\\x9f]*)?(?![\\s\\S])"
           },
           "rights_status": {
             "enum": [
@@ -117,7 +118,7 @@
               "string",
               "null"
             ],
-            "pattern": "Z$"
+            "pattern": "^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\\.([0-9]{1,6}))?(?:Z|\\+00:00)(?![\\s\\S])"
           },
           "terms_sha256": {
             "type": [
@@ -131,7 +132,7 @@
               "string",
               "null"
             ],
-            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::[0-9]{1,5})?(?:[/?#].*)?$"
+            "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s\\\\\\x00-\\x1f\\x7f-\\x9f]*)?(?![\\s\\S])"
           },
           "review_note": {
             "type": "string"
@@ -159,15 +160,17 @@
                 },
                 "attribution": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "\\S"
                 },
                 "reviewed_by": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "\\S"
                 },
                 "reviewed_at_utc": {
                   "type": "string",
-                  "pattern": "Z$"
+                  "pattern": "^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\\.([0-9]{1,6}))?(?:Z|\\+00:00)(?![\\s\\S])"
                 },
                 "terms_sha256": {
                   "type": "string",
@@ -175,11 +178,11 @@
                 },
                 "evidence_url": {
                   "type": "string",
-                  "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::[0-9]{1,5})?(?:[/?#].*)?$"
+                  "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s\\\\\\x00-\\x1f\\x7f-\\x9f]*)?(?![\\s\\S])"
                 },
                 "terms_url": {
                   "type": "string",
-                  "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::[0-9]{1,5})?(?:[/?#].*)?$"
+                  "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s\\\\\\x00-\\x1f\\x7f-\\x9f]*)?(?![\\s\\S])"
                 }
               }
             }
