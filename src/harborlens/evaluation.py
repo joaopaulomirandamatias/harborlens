@@ -26,7 +26,7 @@ from pathlib import Path
 
 from harborlens.ais import parse_time, sha256
 from harborlens.io_safe import AISInputError
-from harborlens.labeling import COLLAPSED, LABELS, censoring_status
+from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum
 from harborlens.provenance import verify_manifest
 from harborlens.segmentation import SegmentationParams
 
@@ -127,6 +127,7 @@ def evaluate(run_dir, sampling, labels_path, out):
     if plan.get("run_manifest_sha256") != sha256(manifest_path) or plan.get("parameter_set") != params.parameter_set:
         raise AISInputError("Sampling manifest was not drawn from this run")
     key = {k["sample_id"]: k for k in plan["key"]}
+    schema_version = plan.get("schema_version")
     labels = _read_labels(labels_path, set(key))
     geo = json.loads((run_dir / "stationary_candidates.geojson").read_text(encoding="utf-8"))
     candidates = {f["properties"]["event_id"]: f["properties"] for f in geo["features"]}
@@ -134,6 +135,10 @@ def evaluate(run_dir, sampling, labels_path, out):
     excluded = Counter()
     rows = []
     for sid, unit in sorted(key.items()):
+        # Parse before exclusion so a damaged key cannot become a vessel-group cohort.
+        parsed = parse_stratum(unit.get("stratum"), schema_version, sid)
+        if unit.get("kind") != parsed["kind"]:
+            raise AISInputError(f"{sid}: kind {unit.get('kind')!r} does not match stratum kind {parsed['kind']!r}")
         row = labels.get(sid)
         if row is None:
             excluded["unlabeled"] += 1
@@ -142,20 +147,21 @@ def evaluate(run_dir, sampling, labels_path, out):
         if truth in ("mixed", "unknown"):
             excluded[truth] += 1
             continue
-        predicted = "stationary" if unit["kind"] == "candidate" else "moving"
+        predicted = "stationary" if parsed["kind"] == "candidate" else "moving"
         outcome = {("stationary", "stationary"): "tp", ("stationary", "moving"): "fp",
                    ("moving", "stationary"): "fn", ("moving", "moving"): "tn"}[(predicted, truth)]
         stratum = unit["stratum"]
-        if unit["kind"] == "candidate":
+        if parsed["kind"] == "candidate":
             props = candidates.get(unit["event_id"])
             if props is None:
                 raise AISInputError(f"{sid}: candidate {unit['event_id']} is not in the run")
             censoring = censoring_status(props["left_censoring"], props["right_censoring"])
         else:
             props, censoring = None, None
-        rows.append({"sample_id": sid, "kind": unit["kind"], "stratum": stratum, "outcome": outcome,
+        rows.append({"sample_id": sid, "kind": parsed["kind"], "stratum": stratum, "outcome": outcome,
                      "label": row["label"], "evidence_level": row["evidence_level"], "props": props,
-                     "censoring": censoring, "vessel_group": stratum.rsplit("|", 1)[-1], "label_row": row})
+                     "censoring": censoring,
+                     "vessel_group": parsed["vessel_group"], "label_row": row})
 
     def metrics(selected):
         counts = Counter(r["outcome"] for r in selected)
@@ -243,7 +249,10 @@ def main():
     parser.add_argument("--labels", type=Path, required=True, help="Adjudicated label CSV")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    report = evaluate(args.run, args.sampling, args.labels, args.out)
+    try:
+        report = evaluate(args.run, args.sampling, args.labels, args.out)
+    except AISInputError as exc:
+        parser.error(str(exc))
     print(json.dumps({"overall": report["overall"], "coverage": report["coverage"],
                       "evidence_basis": report["evidence_basis"]}, indent=2))
 
