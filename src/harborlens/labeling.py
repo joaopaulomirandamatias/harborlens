@@ -21,6 +21,9 @@ writes JSON; it does not write a CSV.
 A text cell is prefixed with one ASCII apostrophe (``'``) when its first
 character is ``=``, ``+``, ``-``, ``@``, tab, or carriage return, or when the
 first character after leading Unicode whitespace is one of those triggers.
+A field that contains a comma, quote, carriage return, or line feed is quoted,
+including on Python 3.10, whose ``csv.writer`` would otherwise leave a
+carriage return bare when the row ends in ``\\n``.
 ``vessel_type_mode``, ``annotator_id``, ``evidence_sources``, ``notes``, and
 ``adjudicator_id`` are text. Contract columns are never prefixed:
 ``sample_id`` (``S`` and four digits), ``mmsi`` and ``observed_points``
@@ -45,7 +48,6 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import io
 import json
 import math
 import os
@@ -253,19 +255,34 @@ def prepare_sheet_row(row):
     return prepared
 
 
+def _quote_csv_field(value):
+    """One CSV field, quoted when it contains a comma, quote, CR, or LF.
+
+    ``csv.writer`` on Python 3.10 does not quote a carriage return when the
+    line ending is ``\\n``. Python 3.12 does. A carriage return is also a
+    formula trigger, so the sheet has to quote that field on both interpreters
+    or the row splits. Cells with none of those characters stay unquoted, which
+    is what the current synthetic sheet already does.
+    """
+    text = value if isinstance(value, str) else str(value)
+    if any(character in text for character in ",\"\r\n"):
+        return '"' + text.replace('"', '""') + '"'
+    return text
+
+
 def render_label_sheet(rows):
     """Return the label-sheet CSV. Raises ``AISInputError`` before any byte is useful.
 
     Callers write the returned text only after this function returns. A
     contract failure therefore creates no sheet, no ``.partial``, and no
-    sampling manifest.
+    sampling manifest. Rows end in ``\\n``. A field that contains a comma,
+    quote, carriage return, or line feed is quoted on Python 3.10 and 3.12.
     """
     prepared = [prepare_sheet_row(row) for row in rows]
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=SHEET_FIELDS, lineterminator="\n")
-    writer.writeheader()
-    writer.writerows(prepared)
-    return buffer.getvalue()
+    lines = [",".join(SHEET_FIELDS)]
+    for row in prepared:
+        lines.append(",".join(_quote_csv_field(row[field]) for field in SHEET_FIELDS))
+    return "\n".join(lines) + "\n"
 
 
 def _iso(value):

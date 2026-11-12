@@ -75,7 +75,7 @@ After adjudication, one CSV per sample holds the final label per unit with the c
 
 `harborlens-label-sample` writes one CSV, the annotator sheet. The sampling key is `<sheet>.sampling.json`, not a CSV. `harborlens-label-agreement` and `harborlens-evaluate` write JSON.
 
-A text cell (`vessel_type_mode`, `annotator_id`, `evidence_sources`, `notes`, and on the adjudicated file `adjudicator_id`) is prefixed with one ASCII apostrophe when its first character is `=`, `+`, `-`, `@`, tab, or carriage return, or when the first character after leading Unicode whitespace is one of those triggers. Example: `  =cmd` is written as `'  =cmd`.
+A text cell (`vessel_type_mode`, `annotator_id`, `evidence_sources`, `notes`, and on the adjudicated file `adjudicator_id`) is prefixed with one ASCII apostrophe when its first character is `=`, `+`, `-`, `@`, tab, or carriage return, or when the first character after leading Unicode whitespace is one of those triggers. Example: `  =cmd` is written as `'  =cmd`. A field that contains a comma, quote, carriage return, or line feed is quoted. Python 3.10's `csv.writer` would leave a bare carriage return when the row ends in a line feed, which splits the row, so the sheet quotes that field on both Python 3.10 and 3.12.
 
 These columns are validated and written unchanged: `sample_id` (`S` and four digits), `mmsi` and `observed_points` (unsigned integers), `centroid_lon` and `centroid_lat` (finite decimals, so `-95.1` stays `-95.1`), `start_utc` and `end_utc` (ISO-8601 UTC), censoring flags, and the annotation enums. `true_start_utc` and `true_end_utc` are the same kind of timestamp column. A value that fails its check raises `AISInputError`. The CLI exits 2 and writes no sheet, no `.partial`, and no sampling manifest.
 

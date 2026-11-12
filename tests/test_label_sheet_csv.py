@@ -143,6 +143,8 @@ class NeutralizerTests(unittest.TestCase):
                         self.assertTrue(raw_row["evidence_sources"].startswith("'"))
                         self.assertEqual(labels[sid]["evidence_sources"], text)
                     self.assertEqual(labels[sid]["centroid_lon"], "-95.1")
+                    if text.startswith("\r"):
+                        self.assertIn(b'"\'\rcmd"', sheet.read_bytes())
             second = [trigger_row(index, text, "A2") for index, (_, text) in enumerate(TRIGGERS, 1)]
             write_rendered(root / "second.csv", second)
             report = agreement(sheet, root / "second.csv", root / "agreement.json")
