@@ -17,7 +17,7 @@ Each new sidecar contains an additional `rights_review` receipt, validated by [`
 
 `reviewed_record` identifies a syntactically complete reviewer assertion that already passed `load_registry`. It is **not** external authentication or a grant of data rights; verification of the terms snapshot and named reviewer remains a separate human gate.
 
-`rights_receipt` hashes the same bounded file bytes that `load_registry` validates. That loader reads `src/harborlens/schemas/v1/source-rights-register.schema.json` with `importlib.resources` only and does not search parent directories. A missing, unreadable, oversized, or schema-invalid file yields `evaluation=invalid_registry` and `rights_status=review_required`. `jsonschema` is the `rights` extra; if it is missing, the receipt fails closed the same way.
+`rights_receipt` reads the register file once. That buffer is parsed and checked with the same validation as `load_registry`, and the SHA-256 and the decision both come from it. The path is not opened again. The schema is `src/harborlens/schemas/v1/source-rights-register.schema.json`, loaded with `importlib.resources` only; parent directories are not searched. A missing, unreadable, oversized, or schema-invalid buffer yields `evaluation=invalid_registry` and `rights_status=review_required`. `jsonschema` is the `rights` extra; if it is missing, the receipt fails closed the same way.
 
 | Adapter | Fixed source ID | Version identity |
 | --- | --- | --- |

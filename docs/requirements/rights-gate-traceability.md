@@ -16,6 +16,6 @@
 
 ## Follow-on integration: source rights receipts
 
-- **FR-010, NFR-013/NFR-019, BR-015/BR-016:** Four NOAA/USACE adapters now emit version/purpose-bound `rights_review` provenance. `rights_receipt` calls `load_registry`, which reads the packaged schema with `importlib.resources` only. Exact dataset IDs or output/input SHA-256 digests prevent broad year/catalog assertions from being reused across mutable snapshots. A schema-invalid register is `invalid_registry` and `review_required`.
+- **FR-010, NFR-013/NFR-019, BR-015/BR-016:** Four NOAA/USACE adapters now emit version/purpose-bound `rights_review` provenance. `rights_receipt` reads the register once and validates that buffer with the packaged schema (`importlib.resources` only). The SHA-256 and the decision come from that buffer. Exact dataset IDs or output/input SHA-256 digests prevent broad year/catalog assertions from being reused across mutable snapshots. A schema-invalid register is `invalid_registry` and `review_required`.
 - **Verification:** `tests/test_rights_adapters.py` covers synthetic matching, mismatching, invalid registry, prohibited purpose, hash evidence, and the receipt schema. Existing acquisition tests remain applicable.
 - **Residual gates:** independent reviewer and terms decisions; explicit enforcement at export/publication boundaries; independently verified dated geometry. No confirmed events or authorized distribution. Refs #42 (stays open).

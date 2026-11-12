@@ -1,4 +1,5 @@
 """Offline, synthetic tests for the fail-closed rights decision gate."""
+import hashlib
 import json
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 from harborlens.rights import (
     PENDING, RESTRICTED, _MISSING_JSONSCHEMA, _is_https_url, load_registry,
-    rights_status_for,
+    rights_receipt, rights_status_for,
 )
 
 
@@ -195,6 +196,43 @@ class RightsGateTests(unittest.TestCase):
                     directory.rmdir()
                 except OSError:
                     pass
+
+    def test_receipt_reads_once_and_binds_hash_to_that_buffer(self):
+        self.write()
+        original = self.path.read_bytes()
+        swapped_doc = deepcopy(self.data)
+        swapped_doc["sources"][0]["dataset_version"] = "other-version"
+        swapped = json.dumps(swapped_doc).encode("utf-8")
+        reads = []
+        real_read = Path.read_bytes
+        real_text = Path.read_text
+
+        def fake_read(path_self, *args, **kwargs):
+            if Path(path_self) == self.path:
+                reads.append(path_self)
+                if len(reads) == 1:
+                    self.path.write_bytes(swapped)
+                    return original
+                return real_read(path_self, *args, **kwargs)
+            return real_read(path_self, *args, **kwargs)
+
+        def fake_text(path_self, *args, **kwargs):
+            if Path(path_self) == self.path:
+                raise AssertionError("rights_receipt reopened the register as text")
+            return real_text(path_self, *args, **kwargs)
+
+        with patch.object(Path, "read_bytes", fake_read), patch.object(Path, "read_text", fake_text):
+            receipt = rights_receipt(
+                "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+                purpose="research", register_path=self.path,
+            )
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(receipt["registry_sha256"], hashlib.sha256(original).hexdigest())
+        self.assertNotEqual(receipt["registry_sha256"], hashlib.sha256(swapped).hexdigest())
+        self.assertEqual(
+            receipt["rights_status"], "reviewed_public_domain_attribution_required"
+        )
+        self.assertEqual(receipt["evaluation"], "reviewed_record")
 
     def test_missing_jsonschema_names_rights_extra(self):
         self.write()

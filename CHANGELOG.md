@@ -5,6 +5,7 @@
 ### Added (SPEC-003: source-rights adapter receipts)
 - Optional per-purpose, exact-source-version source-rights registry lookups with SHA-256 receipts for NOAA ERDDAP, local daily archive extraction, NOAA anchorage polygons and USACE point catalog; defaults remain review_required. Receipts call `load_registry`, so a schema-invalid register is `invalid_registry` and is not granted. Synthetic-only source and schema regression tests; no license or vessel-event approval.
 - Package version `0.2.0.dev2`. Adapter sidecars gain `rights_review`. A supplied register can change `rights_status` and the USACE `license_status`. Runs from `0.2.0.dev1` and `0.2.0.dev2` are not directly comparable because `run_id` includes the package version.
+- `rights_receipt` reads the register once. The SHA-256 and the decision both come from that buffer after the packaged-schema check. The package version stays `0.2.0.dev2`.
 
 ### Added (SPEC-003: source rights register, #42)
 - `docs/data/rights-register.json`: offline inventory of five official sources. **No source has been approved.** Every checked-in entry stays `rights_status=review_required`.

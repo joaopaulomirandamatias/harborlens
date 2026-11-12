@@ -102,14 +102,19 @@ def _valid_utc_time(value):
         return False
 
 
-def load_registry(path):
-    """Load an explicit local decision record; never fetch from the network."""
-    target = Path(path)
-    if not target.is_file() or target.stat().st_size > MAX_REGISTRY_BYTES:
+def _load_registry_bytes(raw):
+    """Validate one register buffer with the packaged schema.
+
+    ``raw`` is parsed as UTF-8 JSON and checked with the schema shipped inside
+    this package (``importlib.resources`` only). The same structural errors as
+    ``load_registry`` are raised. Hostname rules are enforced by that schema
+    and again by ``_is_https_url`` when a decision is made.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_REGISTRY_BYTES:
         raise ValueError("Missing or excessive rights register")
     try:
-        data = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError) as exc:
+        data = json.loads(bytes(raw).decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
         raise ValueError("Rights register is unreadable") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise ValueError("Unsupported rights register version")
@@ -132,20 +137,25 @@ def load_registry(path):
     return data
 
 
-def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
-    """Return only conservative decisions for an exact source, vintage and use.
+def load_registry(path):
+    """Load an explicit local decision record; never fetch from the network."""
+    target = Path(path)
+    if not target.is_file() or target.stat().st_size > MAX_REGISTRY_BYTES:
+        raise ValueError("Missing or excessive rights register")
+    try:
+        raw = target.read_bytes()
+    except OSError as exc:
+        raise ValueError("Rights register is unreadable") from exc
+    return _load_registry_bytes(raw)
 
-    Invalid or absent records fail closed to review_required. A reviewer entry
-    is an audit assertion, not cryptographic authentication or legal approval.
-    """
+
+def _rights_status_from_registry(document, source_id, dataset_version, purpose):
+    """Decide from an already validated register document."""
     if purpose not in PURPOSES:
         raise ValueError("Unsupported use purpose")
     if not source_id or not dataset_version:
         return PENDING
-    try:
-        records = load_registry(register_path)["sources"]
-    except (ValueError, OSError):
-        return PENDING
+    records = document["sources"]
     matched = [r for r in records if r["source_id"] == source_id
                and r["dataset_version"] == dataset_version]
     if len(matched) != 1:
@@ -177,11 +187,31 @@ def rights_status_for(source_id, *, dataset_version, purpose="research", registe
     return PENDING
 
 
-def rights_receipt(source_id, *, dataset_version, purpose="research", register_path=None):
-    """Snapshot one local registry read and return an auditable sidecar receipt.
+def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
+    """Return only conservative decisions for an exact source, vintage and use.
 
-    The fingerprint is the SHA-256 of the bounded file bytes validated by
-    ``load_registry`` (packaged schema via ``importlib.resources`` only).
+    Invalid or absent records fail closed to review_required. A reviewer entry
+    is an audit assertion, not cryptographic authentication or legal approval.
+    """
+    if purpose not in PURPOSES:
+        raise ValueError("Unsupported use purpose")
+    if not source_id or not dataset_version:
+        return PENDING
+    try:
+        document = load_registry(register_path)
+    except (ValueError, OSError):
+        return PENDING
+    return _rights_status_from_registry(
+        document, source_id, dataset_version, purpose
+    )
+
+
+def rights_receipt(source_id, *, dataset_version, purpose="research", register_path=None):
+    """Return a sidecar receipt for one in-memory read of a local register.
+
+    The path is read once. That buffer is parsed and schema-validated, and
+    both the SHA-256 and the decision come from it. The path is not opened
+    again. The schema is the packaged file via ``importlib.resources`` only.
     A missing, unreadable, oversized, or schema-invalid register is
     ``invalid_registry`` and ``review_required``. A recorded status is an
     audit assertion, not legal advice or a redistribution grant.
@@ -206,26 +236,14 @@ def rights_receipt(source_id, *, dataset_version, purpose="research", register_p
         if not path.is_file() or path.stat().st_size > MAX_REGISTRY_BYTES:
             raise ValueError("Missing or excessive rights register")
         raw = path.read_bytes()
-        if len(raw) > MAX_REGISTRY_BYTES:
-            raise ValueError("Missing or excessive rights register")
-        loaded = load_registry(path)
-        if path.read_bytes() != raw or json.loads(raw.decode("utf-8")) != loaded:
-            raise ValueError("Rights register changed during read")
+        document = _load_registry_bytes(raw)
     except (OSError, UnicodeError, ValueError):
         result["evaluation"] = "invalid_registry"
         return result
     result["registry_sha256"] = hashlib.sha256(raw).hexdigest()
-    result["rights_status"] = rights_status_for(
-        source_id, dataset_version=dataset_version,
-        purpose=purpose, register_path=path,
+    result["rights_status"] = _rights_status_from_registry(
+        document, source_id, dataset_version, purpose
     )
-    try:
-        load_registry(path)
-    except (OSError, ValueError):
-        result["registry_sha256"] = None
-        result["rights_status"] = PENDING
-        result["evaluation"] = "invalid_registry"
-        return result
     result["evaluation"] = (
         "reviewed_record" if result["rights_status"] != PENDING
         else "pending_or_unmatched"
@@ -252,15 +270,14 @@ def main(argv=None):
     # fails closed to review_required for library callers; the CLI reports them
     # separately so a broken register is not silent success.
     try:
-        load_registry(args.register)
+        document = load_registry(args.register)
     except (ValueError, OSError) as exc:
         result["rights_status"] = PENDING
         result["error"] = str(exc)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2
-    result["rights_status"] = rights_status_for(
-        args.source_id, dataset_version=args.dataset_version,
-        purpose=args.purpose, register_path=args.register
+    result["rights_status"] = _rights_status_from_registry(
+        document, args.source_id, args.dataset_version, args.purpose
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     if result["rights_status"] in APPROVED_STATUSES:
