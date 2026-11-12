@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install optional NOAA support
@@ -61,6 +61,8 @@ jobs:
               'duplicate_across_files': result['counts']['duplicate_across_files'],
               'stationary_candidates_unvalidated': result['events']['stationary_candidates'],
               'cross_midnight_candidates_unvalidated': result['events']['cross_day_candidates'],
+              'window_censoring_counts_br019': result['events']['censoring'],
+              'analysis_window_blocks': result['analysis_window']['blocks'],
               'gap_splits': result['events']['gap_splits'],
               'identity_conflicts': result['events']['identity_conflicts'],
               'timestamp_conflicts': result['events']['timestamp_conflicts'],

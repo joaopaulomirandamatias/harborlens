@@ -8,8 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install NOAA optional dependency
@@ -52,6 +52,7 @@ jobs:
               "mmsi_with_two_or_more_observations":sum(n>=2 for n in frequencies.values()),
               "max_observations_per_mmsi":max(frequencies.values(), default=0),
               "candidate_count_unvalidated":result["events"]["stationary_candidates"],
+              "window_censoring_counts_br019":result["events"]["censoring"],
               "run_sha256":result["run_id"],
               "rights_status":source["rights_status"]
           }

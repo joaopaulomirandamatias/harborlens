@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from harborlens.rights import PURPOSES, rights_receipt
+
 LAYER = "https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0"
 CATALOG = "https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0"
 HOUSTON = (-95.70, 29.10, -94.20, 30.10)
@@ -163,7 +165,8 @@ def collect(bbox=HOUSTON, max_features=MAX_FEATURES, opener=None):
     return {"type":"FeatureCollection","features":[features[i] for i in ids]},requests
 
 
-def save_polygons(out,bbox=HOUSTON,max_features=MAX_FEATURES,opener=None):
+def save_polygons(out,bbox=HOUSTON,max_features=MAX_FEATURES,opener=None,
+                  rights_register=None,rights_purpose="research"):
     out=Path(out)
     if out.suffix.lower()!=".geojson":
         raise PolygonSourceError("Output must end in .geojson")
@@ -172,6 +175,9 @@ def save_polygons(out,bbox=HOUSTON,max_features=MAX_FEATURES,opener=None):
         raise FileExistsError("Refusing to overwrite existing polygon or sidecar")
     data,urls=collect(bbox,max_features,opener)
     encoded=(json.dumps(data,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
+    rights=rights_receipt("noaa_oceanreports_anchorages",
+                          dataset_version="output-sha256:"+hashlib.sha256(encoded).hexdigest(),
+                          purpose=rights_purpose,register_path=rights_register)
     side={
         "source_agency":"NOAA",
         "service_url":LAYER,
@@ -182,7 +188,8 @@ def save_polygons(out,bbox=HOUSTON,max_features=MAX_FEATURES,opener=None):
         "retrieved_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
         "feature_count":len(data["features"]),
         "output_sha256":hashlib.sha256(encoded).hexdigest(),
-        "rights_status":"review_required",
+        "rights_status":rights["rights_status"],
+        "rights_review":rights,
         "historical_validity":"not_verified",
         "geometry_review_status":"unreviewed",
         "warning":"Current anchorage polygons are reference only, NOT confirmed historical berth/waiting events or navigation boundaries.",
@@ -210,8 +217,12 @@ def main():
     p.add_argument("--bbox",nargs=4,type=float,default=HOUSTON,metavar=("W","S","E","N"))
     p.add_argument("--out",required=True,type=Path)
     p.add_argument("--max-features",type=int,default=MAX_FEATURES)
+    p.add_argument("--rights-register", type=Path, default=None)
+    p.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a=p.parse_args()
-    print(json.dumps(save_polygons(a.out,a.bbox,a.max_features),indent=2))
+    print(json.dumps(save_polygons(a.out,a.bbox,a.max_features,
+                                   rights_register=a.rights_register,
+                                   rights_purpose=a.rights_purpose),indent=2))
 
 if __name__=="__main__":
     main()

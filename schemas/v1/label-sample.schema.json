@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/label-sample.schema.json",
+  "title": "HarborLens labeling-sample manifest (holds the blinding key)",
+  "description": "Seeded stratified sample drawn from one verified run (label-sample-v0.2). Candidate stratum keys are duration_band|censoring|vessel_group|transceiver_class. Negative keys are negative|vessel_group|transceiver_class. Transceiver class is A, B, or absent_or_unknown (missing, blank, or any other value); those units stay in the sample. Per-class coverage is guaranteed when the requested count is at least the number of classes present in the frame. Full cross-cell coverage is not: when the request is smaller than the number of non-empty strata, stratification.all_non_empty_strata_drawn is false. The key maps sample_id to candidate or negative; do not share it with annotators. The annotator sheet does not carry kind, event_id, or transceiver class.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_manifest_sha256",
+    "run_id",
+    "method_version",
+    "parameter_set",
+    "seed",
+    "requested",
+    "frame",
+    "allocation",
+    "stratification",
+    "drawn",
+    "sheet_filename",
+    "sheet_sha256",
+    "key",
+    "rights_status",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "label-sample-v0.2",
+      "description": "v0.2 adds transceiver class as a stratum dimension and the stratification block. v0.1 manifests do not validate; no labeling sheets have been collected against v0.1."
+    },
+    "run_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "method_version": {
+      "const": "stationary-v0.2"
+    },
+    "parameter_set": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{12}$"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives",
+        "min_negative_minutes"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negatives": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_negative_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives",
+        "unparsable_cleaned_rows"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "negatives": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "unparsable_cleaned_rows": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "drawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "negatives"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negatives": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sheet_filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sheet_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "key": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sample_id",
+          "kind",
+          "event_id",
+          "stratum",
+          "transceiver_class"
+        ],
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "pattern": "^S[0-9]{4}$"
+          },
+          "kind": {
+            "enum": [
+              "candidate",
+              "negative"
+            ]
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{18}$"
+          },
+          "stratum": {
+            "type": "string",
+            "pattern": "^(lt_60|60_180|gt_180)\\|(uncensored|censored|unknown)\\|(cargo|tanker|passenger|tug_or_service|other_or_unknown)\\|(A|B|absent_or_unknown)$|^negative\\|(cargo|tanker|passenger|tug_or_service|other_or_unknown)\\|(A|B|absent_or_unknown)$",
+            "description": "Candidate: duration|censoring|vessel_group|transceiver_class. Negative: negative|vessel_group|transceiver_class."
+          },
+          "transceiver_class": {
+            "enum": [
+              "A",
+              "B",
+              "absent_or_unknown"
+            ],
+            "description": "AIS transceiver stratum for this unit. absent_or_unknown means the class was missing, blank, or not A or B. The unit is not dropped."
+          }
+        }
+      }
+    },
+    "stratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Coverage of the drawn sample. Per-class coverage is guaranteed: every transceiver class present in a frame is drawn when the request for that frame is at least as large as the number of those classes. Full cross-cell coverage is separate. all_non_empty_strata_drawn is false when the requested size is smaller than the number of non-empty strata, because some cross-cells are then omitted. Empty strata are omitted from the frame and are not a gap.",
+      "required": [
+        "dimensions",
+        "all_non_empty_strata_drawn",
+        "transceiver_classes"
+      ],
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidates",
+            "negatives"
+          ],
+          "properties": {
+            "candidates": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "string"
+              }
+            },
+            "negatives": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "all_non_empty_strata_drawn": {
+          "type": "boolean",
+          "description": "True only when every non-empty candidate stratum and every non-empty negative stratum received at least one unit. False when the requested size is smaller than the number of non-empty strata, so full cross-cell coverage is impossible. That false value does not drop a transceiver class: when the request is at least the number of classes present in the frame, every such class still appears in transceiver_classes.candidates.drawn or transceiver_classes.negatives.drawn. Empty strata are not listed in the frame and do not make this flag false."
+        },
+        "transceiver_classes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidates",
+            "negatives"
+          ],
+          "properties": {
+            "candidates": {
+              "$ref": "#/$defs/class_coverage"
+            },
+            "negatives": {
+              "$ref": "#/$defs/class_coverage"
+            }
+          }
+        }
+      }
+    },
+    "rights_status": {
+      "const": "review_required"
+    },
+    "warning": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "class_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in_frame",
+        "drawn"
+      ],
+      "properties": {
+        "in_frame": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "A",
+              "B",
+              "absent_or_unknown"
+            ]
+          },
+          "description": "Transceiver classes with at least one unit in the frame. Absent classes are omitted."
+        },
+        "drawn": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "A",
+              "B",
+              "absent_or_unknown"
+            ]
+          },
+          "description": "Transceiver classes that received at least one drawn unit."
+        }
+      }
+    }
+  }
+}

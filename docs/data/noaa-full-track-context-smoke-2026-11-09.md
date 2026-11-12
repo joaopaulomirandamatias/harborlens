@@ -56,4 +56,8 @@ The integration ran in an ephemeral GitHub Actions runner. The workflow will be 
 4. Benchmark end-to-end resource usage (download, extraction, SQLite disk and memory) under multiple data volumes and source records.
 5. Keep issue #7 open while source rights, dated polygon provenance and operational event truth remain unresolved.
 
+## Censoring caveat (added with BR-019)
+
+This run predates the analysis-window censoring flags. Measured on the [2026-11-09 re-run](noaa-real-data-rerun-2026-11-09.md), which reproduced every count in this report: 704 of the 920 candidates touch an edge of the six-hour window, so their durations are lower bounds.
+
 **NOT FOR NAVIGATION. NOT VERIFIED ANCHORAGE, BERTHING, VESSEL WAITING OR PORT CALLS.**

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarborLens independent signed release verification result (SPEC-003)",
+  "description": "A local verification receipt about signed claims and pinned rights only; not AIS ground truth, legal approval, anonymity, source authenticity or navigation proof.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verified",
+    "verification_scope",
+    "source_id",
+    "dataset_version",
+    "purpose",
+    "run_id",
+    "summary_sha256",
+    "release_sha256",
+    "rights_register_sha256",
+    "reviewer_id",
+    "caveat"
+  ],
+  "properties": {
+    "verified": {
+      "const": true
+    },
+    "verification_scope": {
+      "const": "signed_release_and_pinned_rights_only"
+    },
+    "source_id": {
+      "enum": [
+        "noaa_pmel_erddap",
+        "noaa_ocm_ais_daily"
+      ]
+    },
+    "dataset_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "purpose": {
+      "enum": [
+        "public_aggregates",
+        "commercial"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "summary_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "release_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rights_register_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reviewer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{3,64}$"
+    },
+    "caveat": {
+      "type": "string",
+      "minLength": 30
+    }
+  }
+}

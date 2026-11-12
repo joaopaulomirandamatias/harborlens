@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from harborlens.rights import PURPOSES, rights_receipt
+
 LAYER = "https://services7.arcgis.com/n1YM8pTrFmm7L4hs/ArcGIS/rest/services/Docks/FeatureServer/0"
 CATALOG = "https://catalog.data.gov/dataset/docks"
 HOUSTON = (-95.70, 29.10, -94.20, 30.10)
@@ -150,7 +152,8 @@ def collect(bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES, opener=None)
     return geojson, source_requests
 
 
-def save_catalog(output, bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES, opener=None):
+def save_catalog(output, bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES,
+                 opener=None, rights_register=None, rights_purpose="research"):
     output = Path(output)
     if output.suffix.lower() != ".geojson":
         raise FacilityDataError("Output filename must use .geojson")
@@ -161,6 +164,9 @@ def save_catalog(output, bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES,
         raise FileExistsError("Refusing to overwrite existing source metadata")
     geometry, urls = collect(bbox=bbox, page_size=page_size, max_features=max_features, opener=opener)
     raw = (json.dumps(geometry, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    rights = rights_receipt("usace_ntad_navigation_facilities",
+                            dataset_version="output-sha256:" + hashlib.sha256(raw).hexdigest(),
+                            purpose=rights_purpose, register_path=rights_register)
     metadata = {
         "source_agency": "USACE / USDOT BTS NTAD (ArcGIS hosted feature layer)",
         "service_url": LAYER,
@@ -168,7 +174,8 @@ def save_catalog(output, bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES,
         "queries": urls,
         "geometric_type": "Point",
         "output_epsg": 4326,
-        "license_status": "review_required",
+        "license_status": rights["rights_status"],
+        "rights_review": rights,
         "source_date_status": "current service snapshot, not dated historical geometry",
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "feature_count": len(geometry["features"]),
@@ -199,8 +206,13 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--page-size", type=int, default=250)
     parser.add_argument("--max-features", type=int, default=MAX_FEATURES)
+    parser.add_argument("--rights-register", type=Path, default=None)
+    parser.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a = parser.parse_args()
-    print(json.dumps(save_catalog(a.out, bbox=a.bbox, page_size=a.page_size, max_features=a.max_features), indent=2))
+    print(json.dumps(save_catalog(a.out, bbox=a.bbox, page_size=a.page_size,
+                                  max_features=a.max_features,
+                                  rights_register=a.rights_register,
+                                  rights_purpose=a.rights_purpose), indent=2))
 
 
 if __name__ == "__main__":

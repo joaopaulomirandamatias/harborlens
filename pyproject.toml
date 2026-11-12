@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harborlens"
-version = "0.1.0"
+version = "0.2.0.dev7"
 description = "Auditable AIS stationary candidates for U.S. ports"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,8 +13,10 @@ dependencies = []
 
 [project.optional-dependencies]
 noaa = ["zstandard>=0.22"]
-dev = ["pytest>=8", "jsonschema>=4"]
+dev = ["pytest>=8", "jsonschema>=4", "cryptography>=42.0.4"]
+release = ["cryptography>=42.0.4"]
 geo = ["shapely>=2.0,<3"]
+rights = ["jsonschema>=4"]
 
 [project.scripts]
 harborlens = "harborlens.cli:main"
@@ -28,9 +30,18 @@ harborlens-fetch-noaa-anchorages = "harborlens.noaa_anchorages:main"
 harborlens-zone-context = "harborlens.zone_context:main"
 harborlens-track-context = "harborlens.track_context:main"
 harborlens-geometry-vintage = "harborlens.vintage:main"
+harborlens-sensitivity = "harborlens.sensitivity:main"
+harborlens-label-sample = "harborlens.labeling:sample_main"
+harborlens-label-agreement = "harborlens.labeling:agreement_main"
+harborlens-evaluate = "harborlens.evaluation:main"
+harborlens-release-summary = "harborlens.publication:main"
+harborlens-verify-release = "harborlens.release_verify:main"
 harborlens-cfr-anchorage-audit = "harborlens.cfr_anchorages:main"
 harborlens-fr-timeline = "harborlens.fr_timeline:main"
 harborlens-fr-fulltext = "harborlens.fr_fulltext:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+harborlens = ["schemas/v1/*.json"]

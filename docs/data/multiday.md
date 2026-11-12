@@ -21,9 +21,9 @@ For national compressed NOAA archives, first use the existing opt-in daily downl
 - Temporary SQLite stores normalized points, source membership and candidate-group membership, and performs a deterministic sort by MMSI/time.
 - Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
 - The temporary directory is deleted after completion or a failed run.
-- Defaults: at most 7 sources, 1.5 million input rows, 1,024 MiB SQLite scratch, 256 MiB exported files. Exceeding a limit fails rather than silently truncating data.
+- Defaults: at most 7 sources, 6 million input rows, 2,048 MiB SQLite scratch, 1,024 MiB exported files (ceiling 2,048). Exceeding a limit fails rather than silently truncating data. The manifest records the `limits` used and `resources.scratch_peak_bytes`.
 - Output files are never overwritten; rerun to a new output directory for reproducibility.
-- This is bounded-memory by architecture, but real peak RSS and disk utilization are **not benchmarked yet**.
+- Measured on synthetic data ([scale benchmark](scale-benchmark-2026-11-09.md)): 3.92 million rows in 78 s, 47 MiB RSS, 628 MiB scratch peak (about 168 bytes per row). The two-day NOAA run measured 46 MiB RSS; a seven-day real run is pending.
 
 ## Output
 
@@ -33,6 +33,7 @@ Additional event fields:
 - source_files_json: JSON array of local filename@hash-prefix references for observations that contributed to the event.
 - source_count: number of source files contributing to the candidate.
 - crosses_utc_date: whether the observed start/end belong to different UTC dates.
+- left_censoring / right_censoring: whether the candidate touches an analysis-window edge (BR-019). Windows come from each input's verified acquisition sidecar; if any input lacks one, censoring is `unknown`. Inputs without sidecars can share one explicit `--window-start/--window-end`.
 
 Each result is labeled stationary_candidate and unvalidated. Source file SHA-256 proves which local bytes were used; it **does not** authenticate agency origin or grant redistribution rights. All source rights remain review_required.
 
@@ -40,7 +41,7 @@ Each result is labeled stationary_candidate and unvalidated. Source file SHA-256
 
 - An exact point duplicate spanning input files is stored once but retains **both** source references.
 - A gap greater than 15 minutes, conflicting transmitted vessel type, identical timestamp with incompatible position, implausible jump or movement resets the current low-speed episode.
-- A candidate requires at least eight observations, 30 minutes, speed at most 0.5 knots and a maximum radial spread of 1,000 meters around its calculated centroid.
+- A candidate requires at least eight observations, 30 minutes, speed at most 0.5 knots and a maximum radial spread of 1,000 meters around its calculated centroid (BR-003 defaults; configurable with `--max-sog-knots`, `--min-duration-minutes`, `--max-gap-minutes`, `--max-radius-m`, `--min-points`, `--max-jump-knots`). The single-file `harborlens` command uses the same engine and rules (`stationary-v0.2`).
 - The MMSI is a transmitted identifier, not an independently confirmed vessel identity.
 - Counts of gaps, contradictory identity reports, timestamp conflicts and suspicious jumps are diagnostics—not ground-truth classification or an official traffic statistic.
 

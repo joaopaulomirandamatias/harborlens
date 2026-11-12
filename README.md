@@ -4,11 +4,31 @@
 
 HarborLens explores auditable AIS ingest and provisional low-speed stationary candidates in the Houston–Galveston area. A candidate is **not** a verified berth, anchorage, queue, port call, or emissions claim.
 
+## Status at a glance
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Ingestion and provenance (SPEC-001) | Implemented | Synthetic tests; source-pinned NOAA 2024 smokes; 2015–2023 and 2025+ layouts documentary only |
+| Stationary candidates (SPEC-002) | Implemented, unvalidated | One shared engine (`stationary-v0.2`), censoring flags, synthetic 7-day scale benchmark; real two-day smoke |
+| Validation tooling (SPEC-003) | Partial | Labeling protocol, blinded sampler, agreement and evaluation CLIs; **no labels collected, no accuracy measured** |
+| Zones and regulatory sources (SPEC-004) | Partial | USACE points, current NOAA polygons, CFR/Federal Register audits; no reviewed dated polygons |
+| Emissions, API/map, managed service (SPEC-005–007) | Proposed | Not built |
+
+Status per requirement: [functional requirements](docs/requirements/functional.md) and [traceability](docs/requirements/traceability.md).
+
 ```bash
 python -m pip install -e .
 python -m unittest discover -s tests -v
 harborlens --input tests/fixtures/synthetic_ais.csv --out results
 ```
+
+The offline source-rights helper is `python -m harborlens.rights`. Schema checks need the optional extra, not a core dependency:
+
+```bash
+python -m pip install -e '.[rights]'
+```
+
+Without `jsonschema`, the helper exits 2 and does not grant a decision. No checked-in source is approved. See [the rights register](docs/data/rights-register.md).
 
 [Specification-driven process](docs/engineering/spec-driven-development.md) · [Requirements](docs/requirements/functional.md) · [Open-source versus paid scope](docs/product/open-core.md). No real-world AIS accuracy or commercial product is claimed.
 
@@ -29,6 +49,8 @@ A separate local tool can reconstruct provisional low-speed candidate segments a
 ## First real consecutive-day engineering run
 
 An isolated GitHub Actions run successfully processed two authentic NOAA daily archives around UTC midnight. The tool reported 564 unvalidated cross-midnight candidate episodes among 286,696 cleaned points, with roughly 46 MiB process RSS and a 5.4-second multi-day stage. These are software results, not independently confirmed waiting vessels. See [the source-pinned engineering report](docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
+
+A 2026-11-09 re-run on the `stationary-v0.2` engine reproduced those counts, measured analysis-window censoring for the first time (76.5% of candidates in a six-hour window have lower-bound durations, 7.1% over seven days) and processed seven full Houston days: 3.95 million points, 15,937 unvalidated candidates, 741 MiB scratch and under 50 MiB RSS. See [the re-run report](docs/data/noaa-real-data-rerun-2026-11-09.md).
 
 ## Official USACE facility reference points (SPEC-004)
 

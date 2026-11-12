@@ -56,4 +56,8 @@ The historical two-file processing used the source fingerprints above, the tempo
 4. Create independently reviewed positive/negative event reference labels and report classification precision/recall and time errors.
 5. Keep the nationwide archive workflow **manual-only** to avoid uncontrolled data transfer or GitHub Actions consumption.
 
+## Censoring caveat (added with BR-019)
+
+This run predates the analysis-window censoring flags. Measured on the [2026-11-09 re-run](noaa-real-data-rerun-2026-11-09.md) with identical inputs and counts: 864 of the 1,569 candidates (531 left, 558 right, 225 both) touch an edge of the twelve-hour window, so their durations are lower bounds; 705 are uncensored.
+
 **NOT FOR NAVIGATION. NOT AN OFFICIAL PORT PERFORMANCE OR ENVIRONMENTAL INVENTORY.**

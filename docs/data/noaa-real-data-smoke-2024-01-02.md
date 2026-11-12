@@ -55,4 +55,8 @@ That specific ERDDAP query representation was too sparse for within-vessel tempo
 
 The workflow `.github/workflows/noaa-daily-integration.yml` is **manual-only** once merged into the default branch. It performs a substantial national archive download, a full daily scan and ephemeral local processing. It publishes aggregate QA to job logs/summary without uploading raw records. Run it deliberately to limit GitHub Actions usage and network/storage costs.
 
+## Censoring caveat (added with BR-019)
+
+This run predates the analysis-window censoring flags. Measured on the [2026-11-09 re-run](noaa-real-data-rerun-2026-11-09.md) with identical inputs and candidate count: 704 of the 920 candidates (528 left, 566 right, 390 both) touch an edge of the six-hour window, so their durations are lower bounds; only 216 are uncensored.
+
 **NOT FOR NAVIGATION; NOT AN OFFICIAL PORT PERFORMANCE OR EMISSIONS INVENTORY.**

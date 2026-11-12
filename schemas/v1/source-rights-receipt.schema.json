@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarborLens source-rights review receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_id",
+    "dataset_version",
+    "purpose",
+    "registry_sha256",
+    "evaluation",
+    "rights_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{3,100}$"
+    },
+    "dataset_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "purpose": {
+      "enum": [
+        "research",
+        "public_aggregates",
+        "commercial"
+      ]
+    },
+    "registry_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evaluation": {
+      "enum": [
+        "not_supplied",
+        "invalid_registry",
+        "pending_or_unmatched",
+        "reviewed_record"
+      ]
+    },
+    "rights_status": {
+      "enum": [
+        "review_required",
+        "reviewed_public_domain_attribution_required",
+        "reviewed_permitted_with_conditions",
+        "use_restricted"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evaluation": {
+            "const": "not_supplied"
+          }
+        },
+        "required": [
+          "evaluation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "registry_sha256": {
+            "type": "null"
+          },
+          "rights_status": {
+            "const": "review_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evaluation": {
+            "const": "invalid_registry"
+          }
+        },
+        "required": [
+          "evaluation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "review_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evaluation": {
+            "const": "pending_or_unmatched"
+          }
+        },
+        "required": [
+          "evaluation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "review_required"
+          },
+          "registry_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evaluation": {
+            "const": "reviewed_record"
+          }
+        },
+        "required": [
+          "evaluation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "registry_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rights_status": {
+            "enum": [
+              "reviewed_public_domain_attribution_required",
+              "reviewed_permitted_with_conditions",
+              "use_restricted"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

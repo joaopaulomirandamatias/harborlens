@@ -12,8 +12,14 @@ Read and verify paper metadata/full text before formal publication. This is a ta
 | P1 | [Wu et al., port calls by uncertain reasoning (2020)](https://doi.org/10.3390/ijgi9120756) | Explicit uncertainty |
 | P1 | [Chen et al., congestion from AIS (2023)](https://doi.org/10.1016/j.ocecoaman.2023.106836) | Congestion metrics |
 | P1 | [Guo et al., maritime trajectory networks (2024)](https://doi.org/10.1016/j.apor.2024.103924) | Noise treatment and segmentation |
-| P1 | [Yang et al., shipping emissions review (2025)](https://doi.org/10.1016/j.tre.2025.104313) | Methodological and model limits |
-| P1 | [Rhodes et al., queue systems and emissions (2025)](https://doi.org/10.1016/j.marpolbul.2025.118151) | Interventions and attribution |
+| P0 | [Yang et al., shipping emissions review (2025)](https://doi.org/10.1016/j.tre.2025.104313) | Methodological and model limits |
+| P0 | [Xin et al., port congestion from vessel stay behavior, two US ports (2026)](https://doi.org/10.1016/j.jtrangeo.2026.104600) | ML anchoring/berthing baseline outside Houston |
+| P0 | [GHG reduction strategies in maritime ports, review (2025)](https://doi.org/10.1016/j.marpol.2024.106455) | Inventory parameters and multi-port gaps |
+| P1 | [Kim et al., port congestion and lockdown impact from AIS (2025)](https://doi.org/10.1016/j.rtbm.2025.101467) | Waiting/service events across 19 ports (proprietary AIS) |
+| P1 | [Qi et al., spatio-temporal port ship emissions from AIS (2024)](https://doi.org/10.1016/j.oceaneng.2024.118394) | Emission mapping and validation limits |
+| P1 | [Ports and local air pollution and public health, global analysis (2024)](https://doi.org/10.1016/j.scitotenv.2024.170099) | Statistical association, not individual risk or causation |
+| P1 guide | [IMO/GIA Just-in-Time Arrival Guide (2020)](https://www.imo.org/en/mediacentre/pages/whatsnew-1502.aspx) | JIT depends on berth, channel and nautical services, not ETA alone |
+| P0 | [Rhodes et al., queue systems and emissions (2025)](https://doi.org/10.1016/j.marpolbul.2025.118151) | Interventions and attribution |
 | P0 technical guide | [EPA Port Emissions Inventory Guidance (2022)](https://www.epa.gov/state-and-local-transportation/port-emissions-inventory-guidance) | Mode, fuel, power, factors and uncertainty |
 | P1 standard | [DCSA Port Call](https://dcsa.org/standards/port-call) | Future interoperability, not a source of real events |
 
