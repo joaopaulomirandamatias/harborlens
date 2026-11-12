@@ -25,8 +25,8 @@ DAY = datetime(2024, 1, 2)
 def rows():
     """Six vessels: stops of several lengths and types, separated by movement."""
     out = []
-    plans = [("367100001", "70", [60, 200]), ("367100002", "80", [40]), ("367100003", "31", [90, 35]),
-             ("367100004", "60", [300]), ("367100005", "", [45]), ("367100006", "70", [50, 50])]
+    plans = [("199010001", "70", [60, 200]), ("199010002", "80", [40]), ("199010003", "31", [90, 35]),
+             ("199010004", "60", [300]), ("199010005", "", [45]), ("199010006", "70", [50, 50])]
     for n, (mmsi, vtype, stops) in enumerate(plans):
         t = DAY + timedelta(minutes=10 + n)
         lat, lon = 29.4 + n * 0.01, -95.0
@@ -129,11 +129,11 @@ class TransceiverStratumTests(unittest.TestCase):
                 self.assertIn(sample_id, str(caught.exception))
 
     def test_every_non_empty_class_stratum_is_drawn_and_the_sheet_stays_blind(self):
-        rows = (track("367100001", "70", "A", [40, 200], 0)
-                + track("367100002", "80", "Class B", [40], 1)
-                + track("367100003", "31", "B", [90], 2)
-                + track("367100004", "60", "", [45], 3)
-                + track("367100005", "70", "b", [50], 4))
+        rows = (track("199010001", "70", "A", [40, 200], 0)
+                + track("199010002", "80", "Class B", [40], 1)
+                + track("199010003", "31", "B", [90], 2)
+                + track("199010004", "60", "", [45], 3)
+                + track("199010005", "70", "b", [50], 4))
         run_dir = write_classed_run(self.root, rows)
         record = self.draw(run_dir, "sheet.csv", seed=3, candidates=200, negatives=200)
         again = self.draw(run_dir, "again.csv", seed=3, candidates=200, negatives=200)
@@ -167,10 +167,10 @@ class TransceiverStratumTests(unittest.TestCase):
         all_non_empty_strata_drawn is false, and every present class is still drawn
         when the request is at least the number of classes (SPEC-003, FR-013, #65).
         """
-        rows = (track("367100011", "70", "A", [40], 0)
-                + track("367100012", "70", "A", [200], 1)
-                + track("367100013", "80", "B", [40], 2)
-                + track("367100014", "60", "", [90], 3))
+        rows = (track("199010011", "70", "A", [40], 0)
+                + track("199010012", "70", "A", [200], 1)
+                + track("199010013", "80", "B", [40], 2)
+                + track("199010014", "60", "", [90], 3))
         run_dir = write_classed_run(self.root, rows, name="small")
         for seed in range(8):
             with self.subTest(seed=seed):
@@ -188,7 +188,7 @@ class TransceiverStratumTests(unittest.TestCase):
                 self.assertFalse(record["stratification"]["all_non_empty_strata_drawn"])
 
     def test_empty_transceiver_stratum_is_omitted(self):
-        rows = track("367100021", "70", "A", [40, 50], 0) + track("367100022", "80", "A", [60], 1)
+        rows = track("199010021", "70", "A", [40, 50], 0) + track("199010022", "80", "A", [60], 1)
         run_dir = write_classed_run(self.root, rows, name="only_a")
         record = self.draw(run_dir, "only_a.csv", candidates=50, negatives=20)
         for bucket in ("candidates", "negatives"):
@@ -202,8 +202,8 @@ class TransceiverStratumTests(unittest.TestCase):
         self.assertNotIn("absent_or_unknown", tokens)
 
     def test_singleton_stratum_is_drawn_once(self):
-        rows = (track("367100031", "70", "A", [40, 50, 80], 0)
-                + track("367100032", "80", "B", [40], 1))
+        rows = (track("199010031", "70", "A", [40, 50, 80], 0)
+                + track("199010032", "80", "B", [40], 1))
         run_dir = write_classed_run(self.root, rows, name="one_b")
         geo = json.loads((run_dir / "stationary_candidates.geojson").read_text())
         class_b = [f["properties"]["event_id"] for f in geo["features"]
@@ -220,10 +220,10 @@ class TransceiverStratumTests(unittest.TestCase):
         self.assertEqual(drawn[0]["event_id"], class_b[0])
 
     def test_invalid_class_is_kept_in_the_absent_stratum(self):
-        rows = (track("367100041", "70", "A", [40], 0)
-                + track("367100042", "80", "X", [40], 1)
-                + track("367100043", "31", "", [50], 2)
-                + track("367100044", "60", "not-a-class", [45], 3))
+        rows = (track("199010041", "70", "A", [40], 0)
+                + track("199010042", "80", "X", [40], 1)
+                + track("199010043", "31", "", [50], 2)
+                + track("199010044", "60", "not-a-class", [45], 3))
         run_dir = write_classed_run(self.root, rows, name="invalid")
         geo = json.loads((run_dir / "stationary_candidates.geojson").read_text())
         absent_ids = {f["properties"]["event_id"] for f in geo["features"]

@@ -56,9 +56,9 @@ class SingleFileCensoringTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        rows = (stop("367000001", DAY, 60)                              # 00:00-01:00, touches start
-                + stop("367000002", DAY + timedelta(hours=2), 60)       # 02:00-03:00, interior
-                + stop("367000003", DAY + timedelta(hours=5), 60))      # 05:00-06:00, touches end
+        rows = (stop("199000001", DAY, 60)                              # 00:00-01:00, touches start
+                + stop("199000002", DAY + timedelta(hours=2), 60)       # 02:00-03:00, interior
+                + stop("199000003", DAY + timedelta(hours=5), 60))      # 05:00-06:00, touches end
         self.src = write_csv(self.root / "houston.csv", rows)
 
     def tearDown(self):
@@ -68,11 +68,11 @@ class SingleFileCensoringTests(unittest.TestCase):
         manifest = run(self.src, self.root / "out", window_start="2024-01-02T00:00:00Z",
                        window_end="2024-01-02T06:00:00Z")
         events = by_mmsi(self.root / "out")
-        self.assertEqual((events["367000001"]["left_censoring"], events["367000001"]["right_censoring"]),
+        self.assertEqual((events["199000001"]["left_censoring"], events["199000001"]["right_censoring"]),
                          ("censored", "not_censored"))
-        self.assertEqual((events["367000002"]["left_censoring"], events["367000002"]["right_censoring"]),
+        self.assertEqual((events["199000002"]["left_censoring"], events["199000002"]["right_censoring"]),
                          ("not_censored", "not_censored"))
-        self.assertEqual((events["367000003"]["left_censoring"], events["367000003"]["right_censoring"]),
+        self.assertEqual((events["199000003"]["left_censoring"], events["199000003"]["right_censoring"]),
                          ("not_censored", "censored"))
         census = manifest["events"]["censoring"]
         self.assertEqual((census["left_censored"], census["right_censored"], census["uncensored"],
@@ -84,10 +84,10 @@ class SingleFileCensoringTests(unittest.TestCase):
                          {"start_utc": "2024-01-02T00:00:00Z", "end_utc": "2024-01-02T06:00:00Z"})
 
     def test_whole_window_stop_is_censored_on_both_sides(self):
-        src = write_csv(self.root / "long.csv", stop("367000009", DAY, 360))
+        src = write_csv(self.root / "long.csv", stop("199000009", DAY, 360))
         manifest = run(src, self.root / "long-out", window_start="2024-01-02T00:00:00Z",
                        window_end="2024-01-02T06:00:00Z")
-        event = by_mmsi(self.root / "long-out")["367000009"]
+        event = by_mmsi(self.root / "long-out")["199000009"]
         self.assertEqual((event["left_censoring"], event["right_censoring"]), ("censored", "censored"))
         self.assertEqual(manifest["events"]["censoring"]["both_censored"], 1)
 
@@ -117,7 +117,7 @@ class SingleFileCensoringTests(unittest.TestCase):
         declaration = manifest["analysis_window"]["declarations"][0]
         self.assertEqual(declaration["source"], "extraction_sidecar")
         self.assertRegex(declaration["sidecar_sha256"], "^[a-f0-9]{64}$")
-        self.assertEqual(by_mmsi(self.root / "out")["367000001"]["left_censoring"], "censored")
+        self.assertEqual(by_mmsi(self.root / "out")["199000001"]["left_censoring"], "censored")
 
     def test_erddap_sidecar_is_supported(self):
         record = {"dataset": "AIS2024_AIS", "csv_sha256": sha(self.src),
@@ -208,11 +208,11 @@ class MultiDayCensoringTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         evening, morning = DAY + timedelta(hours=18), DAY + timedelta(days=1)
         # Crosses midnight far from both outer edges; one stop touches the final edge.
-        crossing = stop("367000010", DAY + timedelta(hours=23), 120)
+        crossing = stop("199000010", DAY + timedelta(hours=23), 120)
         self.a = write_csv(self.root / "day-1.csv", [r for r in crossing if r[1] < "2024-01-03"]
-                           + stop("367000011", evening, 60))
+                           + stop("199000011", evening, 60))
         self.b = write_csv(self.root / "day-2.csv", [r for r in crossing if r[1] >= "2024-01-03"]
-                           + stop("367000012", morning + timedelta(hours=5), 59))
+                           + stop("199000012", morning + timedelta(hours=5), 59))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -229,25 +229,25 @@ class MultiDayCensoringTests(unittest.TestCase):
         self.assertEqual(window["internal_gaps"], 0)
         self.assertEqual(window["blocks"], [{"start_utc": "2024-01-02T18:00:00Z", "end_utc": "2024-01-03T05:59:59Z"}])
         events = by_mmsi(self.root / "out")
-        self.assertEqual(events["367000010"]["crosses_utc_date"], "True")
-        self.assertEqual((events["367000010"]["left_censoring"], events["367000010"]["right_censoring"]),
+        self.assertEqual(events["199000010"]["crosses_utc_date"], "True")
+        self.assertEqual((events["199000010"]["left_censoring"], events["199000010"]["right_censoring"]),
                          ("not_censored", "not_censored"))
-        self.assertEqual(events["367000011"]["left_censoring"], "censored")
-        self.assertEqual(events["367000012"]["right_censoring"], "censored")
+        self.assertEqual(events["199000011"]["left_censoring"], "censored")
+        self.assertEqual(events["199000012"]["right_censoring"], "censored")
         self.assertEqual(manifest["events"]["censoring"]["uncensored"], 1)
 
     def test_separated_windows_report_internal_gap_and_censor_its_edges(self):
         extraction_sidecar(self.a, "2024-01-02T18:00:00Z", "2024-01-02T23:00:00Z")
         extraction_sidecar(self.b, "2024-01-03T01:00:00Z", "2024-01-03T05:59:59Z")
-        a = write_csv(self.root / "gap-1.csv", stop("367000020", DAY + timedelta(hours=22), 60))
-        b = write_csv(self.root / "gap-2.csv", stop("367000021", DAY + timedelta(days=1, hours=1), 60))
+        a = write_csv(self.root / "gap-1.csv", stop("199000020", DAY + timedelta(hours=22), 60))
+        b = write_csv(self.root / "gap-2.csv", stop("199000021", DAY + timedelta(days=1, hours=1), 60))
         extraction_sidecar(a, "2024-01-02T18:00:00Z", "2024-01-02T23:00:00Z")
         extraction_sidecar(b, "2024-01-03T01:00:00Z", "2024-01-03T05:59:59Z")
         manifest = run_multiday([a, b], self.root / "gap-out")
         self.assertEqual(manifest["analysis_window"]["internal_gaps"], 1)
         events = by_mmsi(self.root / "gap-out")
-        self.assertEqual(events["367000020"]["right_censoring"], "censored")
-        self.assertEqual(events["367000021"]["left_censoring"], "censored")
+        self.assertEqual(events["199000020"]["right_censoring"], "censored")
+        self.assertEqual(events["199000021"]["left_censoring"], "censored")
 
     def test_partial_sidecars_yield_unknown(self):
         extraction_sidecar(self.a, "2024-01-02T18:00:00Z", "2024-01-02T23:59:59Z")
@@ -267,7 +267,7 @@ class MultiDayCensoringTests(unittest.TestCase):
         manifest = run_multiday([self.a, self.b], self.root / "out", window_start="2024-01-02T18:00:00Z",
                                 window_end="2024-01-03T06:00:00Z")
         self.assertEqual(manifest["analysis_window"]["declarations"][0]["input"], "all_inputs")
-        self.assertEqual(by_mmsi(self.root / "out")["367000011"]["left_censoring"], "censored")
+        self.assertEqual(by_mmsi(self.root / "out")["199000011"]["left_censoring"], "censored")
 
     def test_multiday_outputs_satisfy_schemas(self):
         self.sidecars()

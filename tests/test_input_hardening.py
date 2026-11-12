@@ -12,7 +12,7 @@ from harborlens.io_safe import AISInputError, stream_rows, MAX_ZIP_EXPANSION_RAT
 
 
 HEADER = "MMSI,BaseDateTime,LAT,LON,SOG,VesselType,Status\n"
-VALID = "367800001,2024-01-02T00:00:00Z,29.73,-95.16,0.2,70,5\n"
+VALID = "199080001,2024-01-02T00:00:00Z,29.73,-95.16,0.2,70,5\n"
 
 
 class InputHardeningTests(unittest.TestCase):
@@ -30,9 +30,9 @@ class InputHardeningTests(unittest.TestCase):
 
     def test_reject_nan_and_infinite_coordinates_and_sog(self):
         rows = "".join((
-            "367800002,2024-01-02T00:00:00Z,NaN,-95.16,0.2,70,0\n",
-            "367800003,2024-01-02T00:00:00Z,29.73,Infinity,0.2,70,0\n",
-            "367800004,2024-01-02T00:00:00Z,29.73,-95.16,NaN,70,0\n"
+            "199080002,2024-01-02T00:00:00Z,NaN,-95.16,0.2,70,0\n",
+            "199080003,2024-01-02T00:00:00Z,29.73,Infinity,0.2,70,0\n",
+            "199080004,2024-01-02T00:00:00Z,29.73,-95.16,NaN,70,0\n"
         ))
         raw = self.write("nan.csv", HEADER + VALID + rows)
         result = ingest(raw, self.root / "normalized.csv")
@@ -61,7 +61,7 @@ class InputHardeningTests(unittest.TestCase):
             output.write(HEADER + VALID)
         records = list(stream_rows(path))
         self.assertEqual(len(records), 1)
-        self.assertEqual(records[0]["MMSI"], "367800001")
+        self.assertEqual(records[0]["MMSI"], "199080001")
 
     def test_reject_headerless_and_extra_columns(self):
         raw = self.write("bad.csv", "")

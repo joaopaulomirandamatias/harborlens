@@ -36,7 +36,10 @@ def write(path, rows):
 class MmsiCategoryTests(unittest.TestCase):
     def test_itu_prefixes(self):
         cases = {
-            "367123450": "ship", "538001234": "ship", "003669999": "coast_station",
+            # MID 199 is outside 201-775 and mmsi_category returns other (leading digit 1).
+            # MID 200 is also outside that block and still uses a ship prefix.
+            "199012345": "other", "199090001": "other", "200000001": "ship",
+            "003669999": "coast_station",
             "036612345": "group_of_ships", "111366123": "sar_aircraft", "970123456": "ais_sart",
             "972123456": "mob_device", "974123456": "epirb_ais", "982661234": "craft_associated_with_parent_ship",
             "993661234": "aid_to_navigation", "836612345": "handheld_vhf", "000000000": "placeholder",
@@ -63,7 +66,7 @@ class AttributePipelineTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         start = DAY + timedelta(hours=23)
-        rows = (stop_rows("367000101", start, 120)
+        rows = (stop_rows("199000101", start, 120)
                 + stop_rows("993661234", start, 120, length="0", draft="0", tclass="", heading="511", cog="360"))
         self.whole = write(self.root / "whole.csv", rows)
         self.day1 = write(self.root / "d1.csv", [r for r in rows if r[1] < "2024-01-03"])
@@ -74,12 +77,12 @@ class AttributePipelineTests(unittest.TestCase):
 
     def test_noaa_2024_header_cleaned_with_attributes_and_categories(self):
         manifest = run(self.whole, self.root / "out")
-        self.assertEqual(manifest["mmsi_categories"], {"aid_to_navigation": 25, "ship": 25})
+        self.assertEqual(manifest["mmsi_categories"], {"aid_to_navigation": 25, "other": 25})
         with (self.root / "out" / "houston_clean.csv").open(newline="") as handle:
             reader = csv.DictReader(handle)
             self.assertEqual(reader.fieldnames, CLEAN_FIELDS)
             rows = list(reader)
-        ship = next(r for r in rows if r["mmsi"] == "367000101")
+        ship = next(r for r in rows if r["mmsi"] == "199000101")
         aton = next(r for r in rows if r["mmsi"] == "993661234")
         self.assertEqual((ship["length_m"], ship["draft_m"], ship["transceiver_class"]), ("180.0", "9.5", "A"))
         self.assertEqual((aton["heading_deg"], aton["cog_deg"], aton["length_m"]), ("", "", ""))
@@ -95,8 +98,8 @@ class AttributePipelineTests(unittest.TestCase):
         self.assertEqual(records["993661234"]["mmsi_category"], "aid_to_navigation")
         self.assertIsNone(records["993661234"]["length_m"])
         self.assertIsNone(records["993661234"]["transceiver_class"])
-        self.assertEqual((records["367000101"]["length_m"], records["367000101"]["draft_m"],
-                          records["367000101"]["transceiver_class"]), (180.0, 9.5, "A"))
+        self.assertEqual((records["199000101"]["length_m"], records["199000101"]["draft_m"],
+                          records["199000101"]["transceiver_class"]), (180.0, 9.5, "A"))
 
     def test_candidate_attributes_match_across_pipelines(self):
         run(self.whole, self.root / "single")
@@ -104,7 +107,7 @@ class AttributePipelineTests(unittest.TestCase):
         single = read_candidates_csv(self.root / "single" / "stationary_candidates.csv")
         multi = read_candidates_csv(self.root / "multi" / "stationary_candidates.csv")
         self.assertEqual(single, multi)
-        self.assertEqual(manifest["mmsi_categories"], {"aid_to_navigation": 25, "ship": 25})
+        self.assertEqual(manifest["mmsi_categories"], {"aid_to_navigation": 25, "other": 25})
         feature_schema = Draft202012Validator(
             json.loads((SCHEMAS / "multi-day-candidate-feature.schema.json").read_text()))
         for feature in json.loads((self.root / "multi" / "stationary_candidates.geojson").read_text())["features"]:
@@ -115,7 +118,7 @@ class AttributePipelineTests(unittest.TestCase):
         with legacy.open("w", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(["mmsi", "timestamp_utc", "lat", "lon", "sog_knots", "vessel_type", "nav_status"])
-            writer.writerow(["367000101", "2024-01-02T00:00:00Z", 29.5, -95.0, 0.1, "70", "1"])
+            writer.writerow(["199000101", "2024-01-02T00:00:00Z", 29.5, -95.0, 0.1, "70", "1"])
         rows, unparsable = load_cleaned(legacy)
         self.assertEqual(unparsable, 0)
         self.assertIsNone(rows[0][7]["length_m"])

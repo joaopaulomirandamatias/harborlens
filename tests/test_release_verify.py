@@ -341,7 +341,7 @@ class IndependentReleaseVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseVerificationError, "Duplicate keys"):
             self.verify()
         self._write_document()
-        self.summary["raw_ais"] = ["367800001", "-95.20"]
+        self.summary["raw_ais"] = ["199080001", "-95.20"]
         self._write_document()
         with self.assertRaisesRegex(ReleaseVerificationError, "unapproved"):
             self.verify()

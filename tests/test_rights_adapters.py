@@ -21,7 +21,7 @@ from harborlens.usace import save_catalog
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "MMSI,time,Lat,Lon,SOG,VesselType,Status\n"
 UNITS = ",UTC,degrees_north,degrees_east,knots,,\n"
-RECORD = "367800001,2024-06-10T00:00:00Z,29.73,-95.16,0.1,70,5\n"
+RECORD = "199080001,2024-06-10T00:00:00Z,29.73,-95.16,0.1,70,5\n"
 
 
 class FakeResponse(io.BytesIO):

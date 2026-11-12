@@ -46,26 +46,26 @@ def scenario():
     """Observations exercising every split and discard rule, spanning UTC midnight."""
     rows = []
     t = DAY + timedelta(hours=23)
-    rows += [row("367000001", t + timedelta(minutes=5 * i)) for i in range(25)]          # crosses midnight
+    rows += [row("199000001", t + timedelta(minutes=5 * i)) for i in range(25)]          # crosses midnight
     t = DAY + timedelta(hours=20)
-    rows += [row("367000002", t + timedelta(minutes=5 * i)) for i in range(9)]           # 40 min stop
-    rows += [row("367000002", t + timedelta(minutes=80 + 5 * i)) for i in range(9)]      # after a gap
-    rows += [row("367000003", t + timedelta(minutes=5 * i), vessel_type="70" if i < 10 else "80")
+    rows += [row("199000002", t + timedelta(minutes=5 * i)) for i in range(9)]           # 40 min stop
+    rows += [row("199000002", t + timedelta(minutes=80 + 5 * i)) for i in range(9)]      # after a gap
+    rows += [row("199000003", t + timedelta(minutes=5 * i), vessel_type="70" if i < 10 else "80")
              for i in range(20)]                                                         # identity conflict
-    rows += [row("367000004", t + timedelta(minutes=5 * i)) for i in range(10)]
-    rows += [row("367000004", t + timedelta(minutes=46), lat=north(5000))]               # implausible jump
-    rows += [row("367000005", t + timedelta(minutes=5 * i), lat=north(600 * i)) for i in range(10)]  # drift
-    rows += [row("367000006", t + timedelta(minutes=2 * i)) for i in range(10)]          # too short
-    rows += [row("367000007", t + timedelta(minutes=10 * i)) for i in range(5)]          # too few points
-    rows += [row("367000008", t + timedelta(minutes=5 * i)) for i in range(9)]
-    rows += [row("367000008", t + timedelta(minutes=45), lat=north(1900))]               # radius exceeded
-    moving = [row("367000009", t + timedelta(minutes=5 * i), sog=0.6 if i == 10 else 0.1) for i in range(21)]
+    rows += [row("199000004", t + timedelta(minutes=5 * i)) for i in range(10)]
+    rows += [row("199000004", t + timedelta(minutes=46), lat=north(5000))]               # implausible jump
+    rows += [row("199000005", t + timedelta(minutes=5 * i), lat=north(600 * i)) for i in range(10)]  # drift
+    rows += [row("199000006", t + timedelta(minutes=2 * i)) for i in range(10)]          # too short
+    rows += [row("199000007", t + timedelta(minutes=10 * i)) for i in range(5)]          # too few points
+    rows += [row("199000008", t + timedelta(minutes=5 * i)) for i in range(9)]
+    rows += [row("199000008", t + timedelta(minutes=45), lat=north(1900))]               # radius exceeded
+    moving = [row("199000009", t + timedelta(minutes=5 * i), sog=0.6 if i == 10 else 0.1) for i in range(21)]
     rows += moving                                                                       # SOG spike split
     # Same-second fractional timestamps (#38): one candidate expected.
     base = DAY + timedelta(hours=21)
     for i in range(12):
-        rows.append(row("367000010", base + timedelta(minutes=5 * i)))
-        rows.append(row("367000010", base + timedelta(minutes=5 * i, microseconds=500000), lat=north(1)))
+        rows.append(row("199000010", base + timedelta(minutes=5 * i)))
+        rows.append(row("199000010", base + timedelta(minutes=5 * i, microseconds=500000), lat=north(1)))
     return rows
 
 
@@ -120,7 +120,7 @@ class EngineEquivalenceTests(unittest.TestCase):
 
     def test_same_second_fractional_timestamps_keep_one_candidate(self):
         run_multiday([self.day1, self.day2], self.root / "multi")
-        fractional = [e for e in read_events(self.root / "multi") if e["mmsi"] == "367000010"]
+        fractional = [e for e in read_events(self.root / "multi") if e["mmsi"] == "199000010"]
         self.assertEqual(len(fractional), 1)
         self.assertEqual(fractional[0]["point_count"], "24")
 
@@ -148,8 +148,8 @@ class ParameterTests(unittest.TestCase):
         self.assertNotEqual(default["method_parameters"]["parameter_set"],
                             custom["method_parameters"]["parameter_set"])
         self.assertNotEqual(default["run_id"], custom["run_id"])
-        # The 0.6 kn spike no longer splits MMSI 367000009 at max_sog_knots=1.0.
-        spike = [e for e in read_events(self.root / "b") if e["mmsi"] == "367000009"]
+        # The 0.6 kn spike no longer splits MMSI 199000009 at max_sog_knots=1.0.
+        spike = [e for e in read_events(self.root / "b") if e["mmsi"] == "199000009"]
         self.assertEqual(len(spike), 1)
 
     def test_invalid_parameters_are_rejected(self):
@@ -172,9 +172,9 @@ class ParameterTests(unittest.TestCase):
 
     def test_engine_rejects_unsorted_input(self):
         engine = Segmenter(SegmentationParams(), MemoryStore(), lambda r, g: None, WindowCensoring(None, 15))
-        engine.feed("367000001", DAY + timedelta(minutes=10), LAT0, LON0, 0.1)
+        engine.feed("199000001", DAY + timedelta(minutes=10), LAT0, LON0, 0.1)
         with self.assertRaises(AISInputError):
-            engine.feed("367000001", DAY, LAT0, LON0, 0.1)
+            engine.feed("199000001", DAY, LAT0, LON0, 0.1)
 
     def test_cli_threshold_flags(self):
         out = self.root / "cli"
@@ -204,7 +204,7 @@ class TrackContextParameterTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         start = DAY + timedelta(hours=1)
         # SOG 0.8 kn: a candidate only when max_sog_knots >= 0.8.
-        rows = [row("367000020", start + timedelta(minutes=5 * i), sog=0.8) for i in range(10)]
+        rows = [row("199000020", start + timedelta(minutes=5 * i), sog=0.8) for i in range(10)]
         self.src = write_csv(self.root / "in.csv", rows)
         ring = [[LON0 - 0.01, LAT0 - 0.01], [LON0 + 0.01, LAT0 - 0.01], [LON0 + 0.01, LAT0 + 0.01],
                 [LON0 - 0.01, LAT0 + 0.01], [LON0 - 0.01, LAT0 - 0.01]]

@@ -71,7 +71,7 @@ def fake_erddap(req, timeout):
     rows = ["MMSI,time,Lat,Lon,SOG,VesselType,Status",
             ",UTC,degrees_north,degrees_east,knots,,"]
     for i in range(12):
-        mmsi = 367800001 + i
+        mmsi = 199080001 + i
         for minute in range(12):
             rows.append(
                 f"{mmsi},2024-06-10T00:{minute:02d}:00Z,"
@@ -194,7 +194,7 @@ class PublicationGateTests(unittest.TestCase):
         Draft202012Validator(schema).validate(result)
         self.assertEqual(result["summary_sha256"], summary_sha256(result["summary"]))
         exported = self.out.read_text(encoding="utf-8")
-        self.assertNotIn("367800001", exported)
+        self.assertNotIn("199080001", exported)
         self.assertNotIn("2024-06-10T00:", exported)
         self.assertNotIn("-95.2", exported)
         self.assertNotIn("centroid_lon", exported)
@@ -568,7 +568,7 @@ class PublicationGateTests(unittest.TestCase):
         for i in range(12):
             for minute in range(12):
                 records.append(
-                    f"{367800001+i},2024-06-10T00:{minute:02d}:00Z,"
+                    f"{199080001+i},2024-06-10T00:{minute:02d}:00Z,"
                     f"{-95.20+i*.001:.4f},{29.70+i*.001:.4f},0.1,"
                     ",,,,,70,5,,,,,\n"
                 )

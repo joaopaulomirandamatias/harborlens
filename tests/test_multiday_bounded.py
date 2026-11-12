@@ -49,13 +49,11 @@ from harborlens.segmentation import MemoryStore, SegmentationParams, Segmenter
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "synthetic_ais.csv"
-GOLDEN = ROOT / "tests" / "fixtures" / "single_day_0.2.0.dev9"
+GOLDEN = ROOT / "tests" / "fixtures" / "single_day_0.2.0.dev15"
 PROBE = Path(__file__).resolve().parent / "multiday_memory_probe.py"
-# Package 0.2.0.dev9 at 9a9e00bb932058c34184e63491ca01fa710a7253.
-DEV9_RUN_ID = "c8f646f7b6fd49bf0fee224d9d65a92ee9345df26734c6fea753fbf47ad633ee"
 
 HEADER = "MMSI,BaseDateTime,LAT,LON,SOG,VesselType,Status\n"
-MMSI = "367110001"
+MMSI = "199011001"
 DAY = datetime(2024, 1, 2, tzinfo=timezone.utc)
 # Fixed ceilings with margin over Python 3.12 measurements.
 # Traced peak was about 8.2 MiB and grew by about 66 KiB from 1 to 14 days.
@@ -101,7 +99,7 @@ def memory_day(day_index, minutes):
     """One synthetic day. Four fictional MMSIs stay low-speed at fixed points."""
     start = DAY + timedelta(days=day_index)
     rows = []
-    for vessel_i, mmsi in enumerate(("367110001", "367110002", "367110003", "367110004")):
+    for vessel_i, mmsi in enumerate(("199011001", "199011002", "199011003", "199011004")):
         lat = 29.50 + vessel_i * 0.01
         for minute in minutes:
             rows.append(line(start + timedelta(minutes=minute), mmsi=mmsi, lat=lat, lon=-95.20))
@@ -307,7 +305,7 @@ class DayBoundaryTests(unittest.TestCase):
         for index in range(MAX_FILES):
             path = self.root / f"part-{index:02d}.csv"
             when = DAY + timedelta(days=index)
-            write_csv(path, [line(when, mmsi=f"36711{index:04d}")])
+            write_csv(path, [line(when, mmsi=f"199011{index:03d}")])
             paths.append(path)
         manifest = run_multiday(paths, self.root / "sixteen")
         self.assertEqual(manifest["counts"]["written"], MAX_FILES)
@@ -480,7 +478,7 @@ class MultidayCliErrorTests(unittest.TestCase):
         paths = []
         for index in range(MAX_FILES + 1):
             path = self.root / f"part-{index:02d}.csv"
-            write_csv(path, [line(DAY + timedelta(days=index), mmsi=f"36711{index:04d}")])
+            write_csv(path, [line(DAY + timedelta(days=index), mmsi=f"199011{index:03d}")])
             paths.append(str(path))
         code, text, _out = self._exit(["--input", *paths, "--out", str(self.root / "seventeen")])
         self.assertEqual(code, 2)
@@ -584,14 +582,15 @@ class MultidayCliErrorTests(unittest.TestCase):
 
 
 class SingleDayByteIdentityTests(unittest.TestCase):
-    """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev9.
+    """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev15.
 
-    The manifest matches that package except ``input_file``, ``output``,
-    ``run_id`` and ``code_version``. ``run_id`` changes only because it hashes
-    ``harborlens_version``. ``git_commit`` is environment metadata.
+    The manifest matches that package except ``input_file``, ``output`` and
+    ``git_commit``. ``git_commit`` is environment metadata. ``run_id`` hashes
+    ``harborlens_version`` and the fixture digest, so it is pinned to the
+    committed golden.
     """
 
-    def test_single_day_outputs_match_dev9_except_version_fields(self):
+    def test_single_day_outputs_match_dev15_except_path_fields(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             manifest = run(FIXTURE, root / "out")
@@ -599,14 +598,14 @@ class SingleDayByteIdentityTests(unittest.TestCase):
                          "stationary_candidates.geojson"):
                 self.assertEqual((root / "out" / name).read_bytes(), (GOLDEN / name).read_bytes(), name)
             golden = json.loads((GOLDEN / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(golden["run_id"], DEV9_RUN_ID)
-            self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev9")
+            self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev15")
             self.assertEqual(_scrub(manifest), _scrub(golden))
             self.assertEqual(manifest["code_version"]["package_version"], harborlens.__version__)
-            with mock.patch.object(provenance, "__version__", "0.2.0.dev9"):
+            self.assertEqual(manifest["run_id"], golden["run_id"])
+            with mock.patch.object(provenance, "__version__", "0.2.0.dev15"):
                 pinned = run(FIXTURE, root / "pinned")
-            self.assertEqual(pinned["run_id"], DEV9_RUN_ID)
-            self.assertEqual(pinned["code_version"]["package_version"], "0.2.0.dev9")
+            self.assertEqual(pinned["run_id"], golden["run_id"])
+            self.assertEqual(pinned["code_version"]["package_version"], "0.2.0.dev15")
             for name in ("houston_clean.csv", "stationary_candidates.csv",
                          "stationary_candidates.geojson"):
                 self.assertEqual((root / "pinned" / name).read_bytes(), (GOLDEN / name).read_bytes(), name)

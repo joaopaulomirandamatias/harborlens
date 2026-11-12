@@ -11,7 +11,7 @@ from harborlens.io_safe import AISInputError
 
 HEADER = "MMSI,BaseDateTime,LAT,LON,SOG,VesselType,Status\n"
 BASE = datetime(2024, 1, 2, 23, 40, tzinfo=timezone.utc)
-MMSI = "367800001"
+MMSI = "199080001"
 
 def fixture(minutes, vessel_type="70", longitude="-95.16"):
     values = [HEADER]
@@ -81,8 +81,8 @@ class MultiDaySyntheticTests(unittest.TestCase):
     def test_invalid_and_outside_bbox_exclusions(self):
         self.prepare()
         with self.a.open("a") as f:
-            f.write("367800002,2024-01-02T23:50:00Z,NaN,-95.16,0.2,70,0\n")
-            f.write("367800003,2024-01-02T23:50:00Z,40.0,-95.16,0.2,70,0\n")
+            f.write("199080002,2024-01-02T23:50:00Z,NaN,-95.16,0.2,70,0\n")
+            f.write("199080003,2024-01-02T23:50:00Z,40.0,-95.16,0.2,70,0\n")
         result = run_multiday([self.a, self.b], self.out)
         self.assertEqual(result["counts"]["invalid"], 1)
         self.assertEqual(result["counts"]["outside_bbox"], 1)

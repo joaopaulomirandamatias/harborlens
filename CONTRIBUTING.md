@@ -9,5 +9,6 @@ All code, commit messages, GitHub issues and documentation must be written in En
 5. Update JSON Schemas, ADRs, traceability and changelog when behavior or contracts change. Bump the package version (`pyproject.toml`, `src/harborlens/__init__.py`, `CITATION.cff`) for any change that can alter outputs: it is part of every `run_id`.
 6. Do not commit authentic NOAA AIS, licensed data, private terminals' data, secrets, or third-party IP without explicit rights verification.
 7. A reviewer must confirm requirements, tests, license, security, uncertainty claims and documentation before merging.
+8. Synthetic vessel identifiers use unassigned MID 199 and the form `1990xxxxx`. Do not commit a synthetic vessel identifier whose MID is in the assigned range 201–775. Do not mint synthetic identifiers with the prefixes `111`, `970`, `972`, `974`, `98`, `99`, or `0xx`. The fixed legacy-to-199 map is `tests/synthetic_id_map.py`. The guard is `tests/test_synthetic_ids.py`. `mmsi_category` classifies a leading `1` as `other`.
 
 **Definition of Done:** Accepted spec linked, tests pass, outputs reproducible, data provenance and rights documented, and no synthetic-only claim is presented as empirically validated.
