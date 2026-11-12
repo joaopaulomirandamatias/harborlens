@@ -400,9 +400,13 @@ class RightsGateTests(unittest.TestCase):
             load_registry(self.path)
             self.assertEqual(self.status(), PENDING, value)
             self.assertNotIn(self.status(), APPROVED_STATUSES)
+        # .1Z is one fractional digit. CPython 3.10 fromisoformat rejects
+        # that width unless it is padded to six digits first.
         for value in (
             "2026-11-09T12:00:00Z",
             "2026-11-09T12:00:00.1Z",
+            "2026-11-09T00:00:00.12Z",
+            "2026-11-09T12:00:00.123Z",
             "2026-11-09T12:00:00.123456Z",
         ):
             self.assertTrue(_valid_utc_time(value), value)

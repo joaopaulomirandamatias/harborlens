@@ -123,11 +123,20 @@ def _valid_utc_time(value):
     rejected on every supported Python. A shape that is not a real date
     (for example month day 31 in February, or hour 25) matches the schema
     pattern and still returns False here, so it cannot grant a status.
+
+    CPython 3.10 ``fromisoformat`` accepts only the fractional width that
+    ``datetime.isoformat`` emits: none, or exactly six digits. One to five
+    digits are padded with zeros before that call so ``.1Z`` is the same
+    instant on 3.10 and 3.12. More than six digits never reach this call.
     """
     if not isinstance(value, str) or _UTC_TIMESTAMP.fullmatch(value) is None:
         return False
+    body = value[:-1]
+    if "." in body:
+        head, fraction = body.split(".", 1)
+        body = head + "." + fraction.ljust(6, "0")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(body + "+00:00")
     except (TypeError, ValueError):
         return False
     if parsed.tzinfo is None or parsed.utcoffset() is None:
