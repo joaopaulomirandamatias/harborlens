@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from harborlens.rights import (
-    APPROVED_STATUSES, _MISSING_JSONSCHEMA, _NOTICE, _UTF8_BOM_ERROR, main,
+    APPROVED_STATUSES, _DUPLICATE_KEY_ERROR, _MISSING_JSONSCHEMA, _NOTICE,
+    _UNREADABLE_REGISTER, _UTF8_BOM_ERROR, main,
 )
 
 
@@ -222,6 +223,36 @@ class RightsCLITests(unittest.TestCase):
             payload = json.loads(completed.stdout)
             self.assertEqual(payload["error"], _UTF8_BOM_ERROR)
             self.assertEqual(payload["rights_status"], "review_required")
+
+    def test_duplicate_key_and_deep_nesting_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rights.json"
+            text = json.dumps(_reviewed_register())
+            path.write_text(text.replace(
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                '"rights_status": "review_required", '
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                1,
+            ), encoding="utf-8")
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _DUPLICATE_KEY_ERROR)
+            self.assertEqual(result["rights_status"], "review_required")
+            self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
+            path.write_text('{"k":' * 10000 + "1" + "}" * 10000, encoding="utf-8")
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _UNREADABLE_REGISTER)
+            self.assertEqual(result["rights_status"], "review_required")
 
     def test_yaml_exits_2_and_does_not_approve(self):
         with tempfile.TemporaryDirectory() as tmp:

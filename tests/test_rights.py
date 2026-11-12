@@ -10,9 +10,10 @@ from importlib.resources import files
 from unittest.mock import patch
 
 from harborlens.rights import (
-    APPROVED_STATUSES, PENDING, RESTRICTED, _MISSING_JSONSCHEMA,
-    _UTF8_BOM_ERROR, _is_https_url, _valid_utc_time, load_registry,
-    rights_receipt, rights_status_for,
+    APPROVED_STATUSES, PENDING, RESTRICTED, _DUPLICATE_KEY_ERROR,
+    _MISSING_JSONSCHEMA, _UNREADABLE_REGISTER, _UTF8_BOM_ERROR,
+    _is_https_url, _valid_utc_time, load_registry, rights_receipt,
+    rights_status_for,
 )
 
 
@@ -347,6 +348,13 @@ class RightsGateTests(unittest.TestCase):
             "https://exämple.org/terms",
             "https://user@example.org/terms",
             "https://example.org.",
+            "https://example.org:0/terms",
+            "https://example.org:65536/terms",
+            "https://example.org:99999/terms",
+            "https://example.org/terms\x00",
+            "https://example.org/terms\x7f",
+            "https://example.org/terms\x85",
+            "https://example.org/a\\b",
         )
         for url in rejected:
             self.assertFalse(_is_https_url(url), url)
@@ -368,6 +376,67 @@ class RightsGateTests(unittest.TestCase):
         self.assertEqual(
             self.status(), "reviewed_public_domain_attribution_required"
         )
+        for port in (1, 65535):
+            url = f"https://example.org:{port}/terms"
+            self.assertTrue(_is_https_url(url), url)
+            copy = deepcopy(self.data)
+            copy["sources"][0]["terms_url"] = url
+            copy["sources"][0]["evidence_url"] = url
+            self.write(copy)
+            load_registry(self.path)
+            self.assertEqual(
+                self.status(), "reviewed_public_domain_attribution_required", port
+            )
+
+    def test_duplicate_keys_are_a_named_load_error(self):
+        # On e9c72d8d json.loads kept the last duplicate key, so both of
+        # these documents granted. They must not.
+        self.write()
+        approved = json.dumps(self.data)
+        cases = {
+            "rights_status": approved.replace(
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                '"rights_status": "review_required", '
+                '"rights_status": "reviewed_public_domain_attribution_required"',
+                1,
+            ),
+            "decision": approved.replace(
+                '"decision": "reviewed"',
+                '"decision": "pending", "decision": "reviewed"',
+                1,
+            ),
+        }
+        for name, text in cases.items():
+            self.path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "duplicate key"):
+                load_registry(self.path)
+            self.assertEqual(self.status(), PENDING, name)
+            self.assertNotIn(self.status(), APPROVED_STATUSES)
+            receipt = rights_receipt(
+                "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+                purpose="research", register_path=self.path,
+            )
+            self.assertEqual(receipt["evaluation"], "invalid_registry", name)
+            self.assertEqual(receipt["rights_status"], PENDING, name)
+            self.assertIsNone(receipt["registry_sha256"], name)
+        self.assertEqual(_DUPLICATE_KEY_ERROR, "Rights register has a duplicate key")
+
+    def test_deeply_nested_register_is_unreadable(self):
+        # About 1000 objects overflow CPython 3.10. 3.12 needs more.
+        # Either depth must be an unreadable register, never a grant.
+        nested = '{"k":' * 10000 + "1" + "}" * 10000
+        self.path.write_text(nested, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "unreadable"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+        self.assertNotIn(self.status(), APPROVED_STATUSES)
+        receipt = rights_receipt(
+            "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+            purpose="research", register_path=self.path,
+        )
+        self.assertEqual(receipt["evaluation"], "invalid_registry")
+        self.assertEqual(receipt["rights_status"], PENDING)
+        self.assertEqual(_UNREADABLE_REGISTER, "Rights register is unreadable")
 
     def test_reviewed_at_must_be_a_real_utc_timestamp(self):
         self.write()
