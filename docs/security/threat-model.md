@@ -9,7 +9,7 @@
 | MMSI reuse, AIS spoofing | Incorrect vessel identity and event inference | Unvalidated stationary-candidate label only; identity resolution pending |
 | Corrupted archives/results | Failed reproducibility | Input SHA-256; output hashes and immutability pending |
 | Spreadsheet formula injection | Malicious formula execution | Label-sheet text cells whose first character, or first character after leading whitespace, is `=`, `+`, `-`, `@`, tab, or carriage return are prefixed with an apostrophe. Contract columns (identifiers, unsigned integers, finite coordinates, ISO-8601 timestamps, censoring flags, and label enums) are validated and written unchanged. A failed check exits 2 and writes nothing. On read, the apostrophe is removed only from text columns. A leading apostrophe on a contract column is rejected and is not converted (SPEC-003, FR-013, NFR-006) |
-| License or confidentiality breach | Legal and operational harm | No real/proprietary AIS in repo; rights checklist and data segregation required |
+| License or confidentiality breach | Legal and operational harm | No real/proprietary AIS in repo. `tests/test_synthetic_ids.py` rejects a nine-digit token whose first three digits are an assigned MID in tracked text, outside a documented exclusion. Rights checklist and data segregation remain required |
 | Future public API | Unauthorized access or denial of service | No HTTP API deployed; auth, limits, SSRF/security review required |
 | Future multi-tenancy | Cross-customer data leakage | Not implemented; independently verify tenant isolation before any sale |
 

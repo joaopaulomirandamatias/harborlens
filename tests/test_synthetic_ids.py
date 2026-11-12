@@ -1,23 +1,38 @@
 """Guard for synthetic vessel identifiers (SPEC-001, FR-001, FR-002, BR-008, BR-016).
 
 Committed synthetic MMSIs use unassigned MID 199, form ``1990xxxxx``.
-The guard fails when a vessel id's MID is in the assigned range 201-775.
+The guard fails when a nine-digit token's MID is in the assigned range 201-775.
 
-Exclusions, each with the reason the path is not a current vessel id:
+The scan reads every text file ``git ls-files`` tracks, plus untracked files
+that are not gitignored, so a planted negative uses the same path. Paths are
+classified relative to the repository root. A binary file (a NUL byte, or
+bytes that are not UTF-8) is skipped and counted.
+
+A candidate is nine ASCII-or-Unicode digits bounded by a non-digit and not
+preceded by ``.``. A longer digit run does not match. The MID is the first
+three digits. The previous guard did not read digits 2-4 of a leading-0 or
+leading-9 form, and this guard does not either.
+
+The repository scan applies that rule to the raw text. It is not limited to
+an ``mmsi`` column, a ``vessel_id`` column, or a JSON key named ``mmsi``.
+
+Exclusions are file-exact or context-based. Each one has a written reason.
 
 * ``tests/fixtures/single_day_0.2.0.dev9/`` is the package 0.2.0.dev9 golden.
   It is kept as the input of the mapping proof: the proof substitutes legacy
   ids in those bytes and compares them with ``single_day_0.2.0.dev15``.
-  Each of those files is excluded by its exact path. A new file in that directory is scanned. The directory still contains MID 367.
-* ``docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md`` records
-  SHA-256 digests of Federal Register documents. A nine-digit run inside a
-  digest is not a vessel id, and the quoted evidence note is not rewritten.
+  Each of those files is excluded by its exact path. A new file in that
+  directory is scanned. The directory still contains MID 367.
 * ``tests/synthetic_id_map.py`` is the mapping table. Its keys are the retired
-  identifiers. The same identifiers anywhere else still fail the guard.
+  identifiers, including one former Marshall Islands MID. The same identifiers
+  anywhere else still fail the guard.
+* A nine-digit run inside a hexadecimal run of 64 or more characters is a
+  SHA-256 digest or a longer hex blob, not a vessel id. A standalone token
+  in the same file still fails.
 * A nine-digit token is ignored only on a line that sets ``mmap_size``
   (``PRAGMA mmap_size=`` or ``mmap_size =``). In
   ``tests/multiday_memory_probe.py`` that line is a 256 MiB byte count.
-  The same digits in an MMSI column, a ``mmsi`` field, or any other line fail.
+  The same digits in any other line fail.
 
 The byte-identity proof starts from the dev9 goldens, applies
 ``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
@@ -30,11 +45,14 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 from synthetic_id_map import SYNTHETIC_ID_MAP, SYNTHETIC_ID_RULES
 
@@ -46,11 +64,13 @@ MAP_SOURCE = ROOT / "tests" / "synthetic_id_map.py"
 
 ASSIGNED_MID_LOW = 201
 ASSIGNED_MID_HIGH = 775
-# Nine digits bounded by a non-digit. A longer digit run is not one MMSI.
-TOKEN_9 = re.compile(r"(?<!\d)(\d{9})(?!\d)")
+# Nine digits, not part of a longer digit run, and not a decimal fraction.
+# A '.' immediately before the digits is a fractional part and is not a token.
+TOKEN_9 = re.compile(r"(?<![\d.])(\d{9})(?!\d)")
 # An f-string whose literal digit prefix selects an assigned MID has no nine-digit token.
 FSTRING_PREFIX = re.compile(r"""f(?P<quote>['"])(?P<prefix>\d{3,8})\{""")
-HEX_BLOB = re.compile(r"[0-9a-fA-F]{32,}")
+# SHA-256 is 64 hex characters. Longer hex blobs are ignored the same way.
+HEX_BLOB = re.compile(r"[0-9a-fA-F]{64,}")
 FORBIDDEN_PREFIXES = ("111", "970", "972", "974", "98", "99", "0")
 
 # Exact relative path, reason. A directory prefix is not an exclusion.
@@ -80,19 +100,32 @@ EXCLUSIONS = (
         "input beside the other three golden files. It is not a current vessel-id source.",
     ),
     (
-        "docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md",
-        "Federal Register evidence note. Digit runs sit inside SHA-256 digests of "
-        "official documents. They are not MMSI columns or vessel ids, and the "
-        "quoted source note is not rewritten.",
-    ),
-    (
         "tests/synthetic_id_map.py",
         "Mapping table. Legacy identifiers appear only as the keys this change "
-        "retires. Every key is an assigned MID and every value is 1990xxxxx. "
-        "The same legacy identifier outside this file still fails the guard.",
+        "retires, including one former Marshall Islands MID. Every key is an "
+        "assigned MID and every value is 1990xxxxx. The same legacy identifier "
+        "outside this file still fails the guard. The file is excluded by its "
+        "exact path so the proof can keep those keys.",
     ),
 )
 EXCLUSION_PATHS = {path for path, _reason in EXCLUSIONS}
+
+# Context exclusions. These are not path allowlists. The same digits outside
+# the context still fail. Each entry is (name, reason).
+CONTEXT_EXCLUSIONS = (
+    (
+        "hex-run-64-or-longer",
+        "A nine-digit run inside a hexadecimal run of 64 or more characters "
+        "is a SHA-256 digest or a longer hex blob, not a vessel identifier. "
+        "A standalone nine-digit token in the same file still fails.",
+    ),
+    (
+        "mmap-size-assignment",
+        "A nine-digit token on a line that assigns mmap_size is a byte count. "
+        "In tests/multiday_memory_probe.py that value is 256 MiB. The same "
+        "digits on any other line, in an MMSI column, or in a JSON value fail.",
+    ),
+)
 
 # Files harborlens-verify hashes, and the cleaned CSV the release recount reads.
 VERIFY_ARTIFACTS = (
@@ -116,7 +149,11 @@ def _assigned_nine(value):
 
 
 def csv_mmsi_hits(text):
-    """Nine-digit assigned-MID values in a column named MMSI."""
+    """Nine-digit assigned-MID values in a column named MMSI.
+
+    The repository scan does not use this helper. It calls ``text_hits`` on
+    the raw file, so a ``vessel_id`` column is visible there.
+    """
     hits = []
     try:
         rows = csv.reader(io.StringIO(text))
@@ -139,7 +176,11 @@ def csv_mmsi_hits(text):
 
 
 def json_mmsi_hits(text):
-    """Nine-digit assigned-MID values of a key named mmsi."""
+    """Nine-digit assigned-MID values of a key named mmsi.
+
+    The repository scan does not use this helper. ``text_hits`` sees every
+    JSON key and value.
+    """
     try:
         document = json.loads(text)
     except json.JSONDecodeError:
@@ -178,15 +219,18 @@ def _line_containing(text, offset):
     return text[start:end]
 
 
-def python_source_hits(text):
-    """Assigned-MID vessel-id tokens in Python or other source text.
+def text_hits(text):
+    """Assigned-MID tokens in any text.
 
-    A nine-digit token inside a hex digest of 32 or more characters is not a
-    vessel id. A token on a line that assigns ``mmap_size`` is a byte count
-    (``PRAGMA mmap_size=`` in ``tests/multiday_memory_probe.py``), not an
-    allowlisted number: the same digits on any other line are a hit. An
-    f-string prefix whose first three digits are an assigned MID is a hit
-    even when the format field completes the nine digits at runtime.
+    The MID is the first three digits. A leading-0 or leading-9 form does not
+    move the MID to digits 2-4; the previous guard did not do that.
+
+    A nine-digit token inside a hex run of 64 or more characters is not a
+    vessel id (``hex-run-64-or-longer``). A token on a line that assigns
+    ``mmap_size`` is a byte count (``mmap-size-assignment``). The same digits
+    outside that context are a hit. An f-string prefix whose first three
+    digits are an assigned MID is a hit even when the format field completes
+    the nine digits at runtime.
     """
     hits = []
     for match in TOKEN_9.finditer(text):
@@ -204,58 +248,107 @@ def python_source_hits(text):
     return hits
 
 
-def source_hits(text, kind):
-    """Dispatch one text blob. ``kind`` is csv, json, or python."""
-    if kind == "csv":
-        return csv_mmsi_hits(text)
-    if kind == "json":
-        return json_mmsi_hits(text)
-    if kind == "python":
-        return python_source_hits(text)
-    raise ValueError(kind)
+def python_source_hits(text):
+    """Earlier name for ``text_hits``. The repository scan calls ``text_hits``."""
+    return text_hits(text)
+
+
+def relative_posix(path, root=ROOT):
+    """Path relative to the repository root, with ``/`` separators.
+
+    ``Path.parts[0]`` on an absolute path is ``/``. Classification uses this
+    string, not the absolute parts.
+    """
+    return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
 
 
 def path_is_excluded(path, root=ROOT):
     """True only when the relative path is one exact exclusion entry."""
-    relative = Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
-    return relative in EXCLUSION_PATHS
+    return relative_posix(path, root) in EXCLUSION_PATHS
+
+
+class GitUnavailable(RuntimeError):
+    """``git ls-files`` could not be run.
+
+    The coverage test calls ``skipTest`` with this message when the
+    environment variable ``CI`` is not the string ``true``. When ``CI`` is
+    ``true`` that test fails instead of skipping.
+    """
+
+
+def _git_ls_files(root, others=False):
+    """Tracked paths, or untracked paths that are not gitignored.
+
+    Paths are relative to ``root``. ``git`` is invoked with ``-C`` so the
+    result does not depend on the process working directory.
+    """
+    command = ["git", "-C", str(root), "ls-files", "-z"]
+    if others:
+        command.extend(["--others", "--exclude-standard"])
+    try:
+        listed = subprocess.check_output(command, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        raise GitUnavailable("git executable was not found") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        message = detail or f"git ls-files exited {exc.returncode}"
+        raise GitUnavailable(message) from exc
+    return [item.decode("utf-8") for item in listed.split(b"\0") if item]
+
+
+def read_tracked_text(path):
+    """Return decoded text, or None when the file is binary.
+
+    Binary means a NUL byte is present, or the bytes are not UTF-8. The
+    caller counts None and does not search it for tokens.
+    """
+    data = Path(path).read_bytes()
+    if b"\0" in data:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def extension_key(relative):
+    """Lowercase suffix, or ``<none>`` when the tracked name has no suffix."""
+    suffix = Path(relative).suffix.lower()
+    return suffix if suffix else "<none>"
 
 
 def scan_repository(root=ROOT):
-    """Scan fixture tables and Python sources under ``tests/`` and ``tools/``.
+    """Scan every tracked text file, plus untracked files git does not ignore.
 
-    Returns ``(hits, visited_python)``. ``hits`` are ``(relative path, token)``.
-    ``visited_python`` is every ``.py`` file the walk read under ``tests/`` or
-    ``tools/`` after the exact exclusions. Classification uses
-    ``path.relative_to(root).parts[0]``, because ``path.parts[0]`` is ``/``
-    when ``root`` is absolute.
+    ``git ls-files`` supplies the tracked set. ``git ls-files --others
+    --exclude-standard`` adds a file a test just wrote, so a planted negative
+    uses this function. File-exact exclusions are skipped before the read.
+    A binary file is skipped and recorded under ``binaries``.
+
+    Returns ``(hits, coverage)``. ``hits`` are ``(relative path, token)``.
+    ``coverage`` has ``visited`` (text files searched), ``binaries``, and
+    ``tracked``. Every path is relative to ``root``.
     """
     root = Path(root)
+    tracked = _git_ls_files(root)
+    extras = _git_ls_files(root, others=True)
     hits = []
     visited = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or ".git" in path.parts:
-            continue
-        relative_path = path.resolve().relative_to(root.resolve())
-        relative = relative_path.as_posix()
+    binaries = []
+    for relative in dict.fromkeys([*tracked, *extras]):
         if relative in EXCLUSION_PATHS:
             continue
-        suffix = path.suffix.lower()
-        top = relative_path.parts[0]
-        if suffix == ".csv":
-            kind = "csv"
-        elif suffix in {".json", ".geojson"}:
-            kind = "json"
-        elif suffix == ".py" and top in {"tests", "tools"}:
-            kind = "python"
-        else:
+        path = root / relative
+        if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8")
-        if kind == "python":
-            visited.append(relative)
-        for hit in source_hits(text, kind):
+        text = read_tracked_text(path)
+        if text is None:
+            binaries.append(relative)
+            continue
+        visited.append(relative)
+        for hit in text_hits(text):
             hits.append((relative, hit))
-    return hits, visited
+    return hits, {"visited": visited, "binaries": binaries, "tracked": tracked}
 
 
 def substitute_legacy_ids(data, mapping=None):
@@ -631,19 +724,63 @@ class MappingTableTests(unittest.TestCase):
     def test_exclusions_record_a_reason(self):
         for path, reason in EXCLUSIONS:
             self.assertTrue(path.strip())
+            self.assertTrue((ROOT / path).is_file(), path)
             self.assertGreater(len(reason.split()), 8, path)
+        for name, reason in CONTEXT_EXCLUSIONS:
+            self.assertTrue(name.strip())
+            self.assertGreater(len(reason.split()), 8, name)
+
+
+class TokenRuleTests(unittest.TestCase):
+    """Nine-digit boundaries. The MID is the first three digits only."""
+
+    def test_ten_digit_run_does_not_fire(self):
+        ten = "367" + "123456" + "7"
+        self.assertEqual(len(ten), 10)
+        self.assertEqual(text_hits(ten), [])
+        self.assertEqual(text_hits(f"id {ten} next"), [])
+        bare = "367" + "123456"
+        self.assertEqual(text_hits(bare), [bare])
+        self.assertEqual(text_hits(f"{ten} {bare}"), [bare])
+
+    def test_decimal_fraction_does_not_fire(self):
+        self.assertEqual(text_hits("29.123456789"), [])
+        planted = "367" + "123456"
+        self.assertEqual(text_hits("29." + planted), [])
+        self.assertEqual(text_hits("lat 29.123456789 lon"), [])
+        self.assertEqual(text_hits(planted + ".12"), [planted])
+        self.assertEqual(text_hits("29.123456789 " + planted), [planted])
+
+    def test_leading_zero_and_leading_nine_do_not_use_digits_2_to_4(self):
+        group = "0" + "367" + "12345"
+        leading_nine = "9" + "367" + "12345"
+        self.assertEqual(len(group), 9)
+        self.assertEqual(len(leading_nine), 9)
+        self.assertEqual(text_hits(group), [])
+        self.assertEqual(text_hits(leading_nine), [])
+
+    def test_hex_run_of_64_is_ignored_and_a_shorter_run_is_not(self):
+        planted = "367" + "123456"
+        digest = ("ab" * 20) + planted + ("cd" * 15)
+        self.assertGreaterEqual(len(digest), 64)
+        self.assertEqual(text_hits(digest), [])
+        self.assertEqual(text_hits(digest.upper()), [])
+        self.assertEqual(text_hits(digest + "\n" + planted + "\n"), [planted])
+        short = ("ab" * 27) + planted
+        self.assertEqual(len(short), 63)
+        self.assertEqual(text_hits(short), [planted])
 
 
 class GuardScanTests(unittest.TestCase):
     def test_repository_has_no_assigned_mid_outside_the_exclusions(self):
-        hits, _visited = scan_repository()
+        hits, coverage = scan_repository()
         self.assertEqual(hits, [])
+        self.assertGreater(len(coverage["visited"]), 0)
 
     def test_dev9_golden_would_fail_without_its_exclusion(self):
         hits = []
         for path in sorted(DEV9.iterdir()):
-            kind = "csv" if path.suffix == ".csv" else "json"
-            hits.extend(source_hits(path.read_text(encoding="utf-8"), kind))
+            hits.extend(text_hits(path.read_text(encoding="utf-8")))
         legacy_fixture = str(next(rule[0] for rule in SYNTHETIC_ID_RULES if rule[2] == 199080001))
         self.assertIn(legacy_fixture, hits)
         self.assertTrue(path_is_excluded(DEV9 / "houston_clean.csv"))
@@ -671,57 +808,190 @@ class GuardScanTests(unittest.TestCase):
         self.assertEqual(json_mmsi_hits(json.dumps({"mmsi": token})), [token])
         self.assertEqual(json_mmsi_hits(json.dumps({"properties": {"mmsi": token}})), [token])
 
-    def test_federal_register_digit_run_is_inside_a_sha256_not_a_vessel_id(self):
+    def test_hex_digest_is_ignored_and_a_standalone_mmsi_in_the_same_file_fails(self):
         text = FR_EVIDENCE.read_text(encoding="utf-8")
+        self.assertFalse(path_is_excluded(FR_EVIDENCE))
         self.assertNotIn("mmsi", text.lower())
-        self.assertIsNone(re.search(r"(?i)^mmsi,", text, flags=re.MULTILINE))
         raw_hits = []
         for match in TOKEN_9.finditer(text):
             token = match.group(1)
-            if mid_is_assigned(token[:3]) and _inside_hex_blob(text, match.start(), match.end()):
+            if mid_is_assigned(token[:3]):
+                self.assertTrue(_inside_hex_blob(text, match.start(), match.end()), token)
                 raw_hits.append(token)
         self.assertTrue(raw_hits)
-        self.assertEqual(python_source_hits(text), [])
-        self.assertTrue(path_is_excluded(FR_EVIDENCE))
-        fr_key = "docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md"
-        self.assertIn("SHA-256", dict(EXCLUSIONS)[fr_key])
+        self.assertEqual(text_hits(text), [])
+        planted = "367" + "123456"
+        combined = text + "\n" + planted + "\n"
+        self.assertEqual(text_hits(combined), [planted])
+        extra = ROOT / "docs" / "data" / "_qa_hex_and_standalone.md"
+        relative = extra.relative_to(ROOT).as_posix()
+        extra.write_text(combined, encoding="utf-8")
+        try:
+            hits, coverage = scan_repository()
+            self.assertIn(relative, coverage["visited"])
+            self.assertEqual(
+                [item for item in hits if item[0] == relative],
+                [(relative, planted)],
+            )
+        finally:
+            extra.unlink(missing_ok=True)
+        self.assertIn("SHA-256", dict(CONTEXT_EXCLUSIONS)["hex-run-64-or-longer"])
+
+    def test_retired_marshall_islands_id_is_redacted_outside_the_map(self):
+        retired = "538" + "001234"
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        trace = (ROOT / "docs" / "requirements" / "traceability.md").read_text(encoding="utf-8")
+        phrase = "former Marshall Islands-MID synthetic ID"
+        self.assertNotIn(retired, changelog)
+        self.assertNotIn(retired, trace)
+        self.assertIn(phrase, changelog)
+        self.assertIn(phrase, trace)
+        self.assertIn(retired, MAP_SOURCE.read_text(encoding="utf-8"))
+        self.assertTrue(path_is_excluded(MAP_SOURCE))
 
 
-def tracked_python_under_tests_and_tools():
-    """Tracked ``.py`` files under ``tests/`` and ``tools/``, minus exclusions.
+def assert_tracked_coverage(test, coverage):
+    """Visited text files equal tracked files minus binaries minus exclusions.
 
-    Independent of the scanner walk: ``git ls-files`` lists the index.
+    Paths are relative to the repository root. Untracked planted files are
+    scanned by the same function and are not part of this total.
     """
-    listed = subprocess.check_output(
-        ["git", "-C", str(ROOT), "ls-files", "-z"],
+    tracked = coverage["tracked"]
+    tracked_set = set(tracked)
+    test.assertTrue(EXCLUSION_PATHS <= tracked_set)
+    visited_tracked = [path for path in coverage["visited"] if path in tracked_set]
+    binaries_tracked = [path for path in coverage["binaries"] if path in tracked_set]
+    test.assertFalse(set(visited_tracked) & EXCLUSION_PATHS)
+    test.assertFalse(set(binaries_tracked) & EXCLUSION_PATHS)
+    test.assertFalse(set(visited_tracked) & set(binaries_tracked))
+    by_ext = Counter(extension_key(path) for path in visited_tracked)
+    total = sum(by_ext.values())
+    expected = len(tracked) - len(binaries_tracked) - len(EXCLUSION_PATHS)
+    detail = ", ".join(f"{key}={by_ext[key]}" for key in sorted(by_ext))
+    test.assertGreater(total, 0, detail)
+    test.assertEqual(total, expected, detail)
+    test.assertEqual(
+        len(visited_tracked) + len(binaries_tracked) + len(EXCLUSION_PATHS),
+        len(tracked),
+        detail,
     )
-    paths = [item.decode("utf-8") for item in listed.split(b"\0") if item]
-    return sorted(
-        path for path in paths
-        if path.endswith(".py")
-        and (path.startswith("tests/") or path.startswith("tools/"))
-        and path not in EXCLUSION_PATHS
-    )
+    for path in coverage["visited"]:
+        test.assertFalse(path.startswith("/"), path)
+        test.assertNotIn("\\", path)
+    tops = {path.split("/", 1)[0] for path in visited_tracked}
+    for name in ("src", "docs", "schemas", "specs", "tests", "tools"):
+        test.assertIn(name, tops, sorted(tops))
+    for suffix in (
+        ".py", ".md", ".json", ".csv", ".geojson", ".yml", ".yaml",
+        ".toml", ".cff", ".sh", "<none>",
+    ):
+        test.assertGreater(by_ext[suffix], 0, detail)
+    return by_ext
+
+
+def run_coverage_check(test):
+    """Run the coverage meta-test.
+
+    When git cannot be run, skip unless the environment variable ``CI`` is
+    the string ``true``. In that case the test fails.
+    """
+    try:
+        _hits, coverage = scan_repository()
+    except GitUnavailable as exc:
+        reason = f"git is unavailable: {exc}"
+        if os.environ.get("CI") == "true":
+            test.fail(reason)
+        test.skipTest(reason)
+    return assert_tracked_coverage(test, coverage)
 
 
 class GuardCoverageTests(unittest.TestCase):
-    """The repository scan must walk the real ``tests/`` and ``tools/`` trees."""
+    """The repository scan must cover every tracked text file."""
 
-    def test_visited_python_files_match_git_ls_files(self):
-        _hits, visited = scan_repository()
-        expected = tracked_python_under_tests_and_tools()
-        self.assertGreater(len(visited), 0)
-        self.assertEqual(sorted(visited), expected)
+    def test_visited_text_files_equal_git_ls_files_minus_binaries_and_exclusions(self):
+        run_coverage_check(self)
+
+    def test_missing_git_skips_outside_ci_and_fails_when_ci_is_true(self):
+        def boom(*_args, **_kwargs):
+            raise GitUnavailable("git executable was not found")
+
+        module = __import__(__name__)
+        with mock.patch.dict(os.environ, {"CI": "false"}):
+            with mock.patch.object(module, "scan_repository", side_effect=boom):
+                with self.assertRaises(unittest.SkipTest) as skipped:
+                    run_coverage_check(self)
+        self.assertIn("git is unavailable", str(skipped.exception))
+        self.assertIn("git executable was not found", str(skipped.exception))
+
+        with mock.patch.dict(os.environ, {"CI": "true"}):
+            with mock.patch.object(module, "scan_repository", side_effect=boom):
+                with self.assertRaises(AssertionError) as failed:
+                    run_coverage_check(self)
+        self.assertIn("git is unavailable", str(failed.exception))
+        self.assertIn("git executable was not found", str(failed.exception))
+
+    def test_paths_are_classified_from_the_repository_root(self):
+        absolute = (ROOT / "src" / "harborlens" / "ais.py").resolve()
+        self.assertNotEqual(absolute.parts[0], "src")
+        self.assertTrue(relative_posix(absolute).startswith("src/"))
+
+    def _assert_planted(self, relative, text, planted):
+        path = ROOT / relative
+        self.assertFalse(path.exists(), relative)
+        path.write_text(text, encoding="utf-8")
+        try:
+            hits, coverage = scan_repository()
+            self.assertIn(relative, coverage["visited"])
+            self.assertEqual(
+                [item for item in hits if item[0] == relative],
+                [(relative, planted)],
+            )
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_planted_assigned_mid_inside_tests_is_reported(self):
         planted = "367" + "123456"
-        extra = ROOT / "tests" / "_qa_planted_assigned_mid.py"
+        self._assert_planted(
+            "tests/_qa_planted_assigned_mid.py",
+            f'mmsi = "{planted}"\n',
+            planted,
+        )
+
+    def test_planted_markdown_line_outside_tests_is_reported(self):
+        planted = "367" + "123456"
+        ten = planted + "7"
+        text = (
+            f"A ten-digit run {ten} does not match.\n"
+            "A decimal fraction 29.123456789 does not match.\n"
+            f"A decimal fraction 29.{planted} does not match.\n"
+            f"A prose identifier {planted} matches.\n"
+        )
+        self._assert_planted("docs/_qa_planted_assigned_mid.md", text, planted)
+
+    def test_planted_csv_vessel_id_column_is_reported(self):
+        planted = "367" + "123456"
+        table = f"vessel_id,lat\n{planted},29.73\n"
+        self.assertEqual(csv_mmsi_hits(table), [])
+        self.assertEqual(text_hits(table), [planted])
+        self._assert_planted("tests/_qa_planted_vessel_id.csv", table, planted)
+
+    def test_planted_json_value_outside_an_mmsi_key_is_reported(self):
+        planted = "367" + "123456"
+        body = json.dumps({"note": planted})
+        self.assertEqual(json_mmsi_hits(body), [])
+        self.assertEqual(text_hits(body), [planted])
+        self._assert_planted("schemas/_qa_planted_value.json", body, planted)
+
+    def test_binary_file_is_skipped_and_counted(self):
+        planted = "367" + "123456"
+        extra = ROOT / "tests" / "_qa_binary_with_mmsi.bin"
         relative = extra.relative_to(ROOT).as_posix()
-        extra.write_text(f'mmsi = "{planted}"\n', encoding="utf-8")
+        extra.write_bytes(planted.encode("ascii") + b"\0" + planted.encode("ascii"))
         try:
-            hits, visited = scan_repository()
-            self.assertIn(relative, visited)
-            self.assertIn((relative, planted), hits)
+            hits, coverage = scan_repository()
+            self.assertIn(relative, coverage["binaries"])
+            self.assertNotIn(relative, coverage["visited"])
+            self.assertFalse(any(path == relative for path, _token in hits))
         finally:
             extra.unlink(missing_ok=True)
 
@@ -740,8 +1010,8 @@ class GuardCoverageTests(unittest.TestCase):
             self.assertTrue(path_is_excluded(DEV9 / name), name)
         extra.write_text(f'mmsi = "{planted}"\n', encoding="utf-8")
         try:
-            hits, visited = scan_repository()
-            self.assertIn(relative, visited)
+            hits, coverage = scan_repository()
+            self.assertIn(relative, coverage["visited"])
             self.assertIn((relative, planted), hits)
         finally:
             extra.unlink(missing_ok=True)
