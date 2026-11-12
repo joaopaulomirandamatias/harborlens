@@ -101,3 +101,9 @@
 - [x] On read, remove that apostrophe only from text columns. A leading apostrophe on a contract column is rejected and is not converted. Round-trip, trigger, whitespace, negative-coordinate, and exit-2 tests are in `tests/test_label_sheet_csv.py`.
 - [x] Replace the evaluation `warning` so agreement at any evidence level, including L3, is not validated performance while `validation_status` is `unvalidated`. The caveat strings stay as they are (SPEC-003, FR-014, NFR-020).
 - [x] Keep single-day cleaned CSV, candidate CSV, and candidate GeoJSON byte-identical to `0.2.0.dev15` (`4cd39864…`, `69989a5c…`, `0e3127c8…`). The synthetic fixture label sheet has no trigger text and stays byte-identical. Package `0.2.0.dev16`. Refs #85 (stays open). Refs #86 (stays open). Refs #9 (stays open).
+
+## Shared CSV formula hygiene
+
+- [x] Move neutralization into `src/harborlens/csv_safe.py`. Triggers include fullwidth forms and U+FEFF / U+200B before a trigger. The writer matches `^'*<ignorable>*<trigger>`. The reader removes exactly one apostrophe only for `^'+<ignorable>*<trigger>`. The previously accepted ambiguity is resolved. Package `0.2.0.dev17`. Refs #90 (stays open). Refs #85 (stays open).
+- [x] Apply the neutralizer to cleaned AIS text cells and stationary-candidate CSV text cells. Leave numeric columns, contract identifiers, `source_files_json`, and GeoJSON unprefixed. The release recount uses the reader and still counts raw MMSI values. `harborlens-verify-release` does not open the CSV.
+- [x] Tell annotators to import the sheet as text and re-validate it. A contract cell that comes back as a trigger without the apostrophe, and that fails its contract, exits 2 with no output.

@@ -23,7 +23,7 @@ from harborlens.ais import run
 from harborlens.evaluation import ADJUDICATED_FIELDS, _read_labels, evaluate, main as evaluate_main
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
-    WARNING, _read_sheet, agreement, draw_sample, neutralize_text_cell, read_csv_cell,
+    WARNING, _read_sheet, agreement, agreement_main, draw_sample, neutralize_text_cell, read_csv_cell,
     recover_text_cell, render_label_sheet, sample_main,
 )
 
@@ -156,12 +156,94 @@ class NeutralizerTests(unittest.TestCase):
             self.assertEqual(recovered["S0001"]["notes"], "=cmd")
 
     def test_apostrophe_that_is_not_a_prefix_is_kept(self):
-        """A leading apostrophe is removed only when the remainder is a trigger."""
+        """'=cmd on disk is the neutralized form of =cmd. 'hello is not a trigger."""
         self.assertEqual(recover_text_cell("'hello"), "'hello")
         self.assertEqual(recover_text_cell("'=cmd"), "=cmd")
         self.assertEqual(neutralize_text_cell("hello"), "hello")
         self.assertEqual(neutralize_text_cell("=cmd"), "'=cmd")
         self.assertEqual(neutralize_text_cell("J1"), "J1")
+        # A raw value that already starts with an apostrophe is not the same cell.
+        # The writer adds one more apostrophe. The reader removes exactly one.
+        self.assertEqual(neutralize_text_cell("'=cmd"), "''=cmd")
+        self.assertEqual(recover_text_cell("''=cmd"), "'=cmd")
+
+    def test_apostrophe_rule_fullwidth_and_invisible_prefixes_round_trip(self):
+        """Writer and reader are the real sheet path. Dropping a trigger fails a case."""
+        cases = (
+            ("plain apostrophe", "'abc", "'abc"),
+            ("apostrophe then trigger", "'=x", "''=x"),
+            ("two apostrophes then trigger", "''=x", "'''=x"),
+            ("equals", "=x", "'=x"),
+            ("bom then equals", "\ufeff=1+1", "'\ufeff=1+1"),
+            ("zwsp then at", "\u200b@SUM", "'\u200b@SUM"),
+            ("fullwidth equals", "\uff1dcmd", "'\uff1dcmd"),
+            ("fullwidth plus", "\uff0bcmd", "'\uff0bcmd"),
+            ("fullwidth minus", "\uff0dcmd", "'\uff0dcmd"),
+            ("fullwidth at", "\uff20cmd", "'\uff20cmd"),
+            ("nbsp then plus", "\u00a0+1", "'\u00a0+1"),
+        )
+        rows = [
+            trigger_row(index, text, "A1")
+            for index, (_, text, _disk) in enumerate(cases, 1)
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            sheet = write_rendered(Path(folder) / "sheet.csv", rows)
+            with sheet.open(newline="", encoding="utf-8") as handle:
+                raw = list(csv.DictReader(handle))
+            _who, labels = _read_sheet(sheet)
+            self.assertEqual(_who, "A1")
+            for (name, text, disk), raw_row in zip(cases, raw):
+                with self.subTest(trigger=name):
+                    self.assertEqual(raw_row["notes"], disk)
+                    self.assertEqual(raw_row["vessel_type_mode"], disk)
+                    sid = raw_row["sample_id"]
+                    self.assertEqual(labels[sid]["notes"], text)
+                    self.assertEqual(labels[sid]["vessel_type_mode"], text)
+                    self.assertEqual(raw_row["centroid_lon"], "-95.1")
+                    self.assertFalse(raw_row["centroid_lon"].startswith("'"))
+
+    def test_excel_stripped_contract_cell_is_refused_with_exit_2_and_no_output(self):
+        """A contract cell that returns as a formula, with no apostrophe, is refused."""
+        stripped = (
+            ("centroid_lon", "=1+1"),
+            ("centroid_lat", "\uff1d29.7"),
+            ("mmsi", "@199010001"),
+            ("sample_id", "\ufeff=S0001"),
+            ("label", "=SUM(A1)"),
+            ("start_utc", "\t2024-01-02T00:00:00Z"),
+        )
+        for field, raw in stripped:
+            with self.subTest(field=field):
+                with self.assertRaises(AISInputError) as caught:
+                    read_csv_cell(field, raw)
+                message = str(caught.exception)
+                self.assertIn("formula trigger", message)
+                self.assertIn("not converted", message)
+                self.assertIn(field, message)
+        # A signed coordinate is a trigger character and a valid contract.
+        self.assertEqual(read_csv_cell("centroid_lon", "-95.1"), "-95.1")
+        self.assertEqual(read_csv_cell("centroid_lat", "+29.7"), "+29.7")
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first = write_rendered(root / "a.csv", [base_row(annotator_id="A1")])
+            second = write_rendered(root / "b.csv", [base_row(annotator_id="A2")])
+            text = first.read_text(encoding="utf-8").replace(",-95.1,29.7,", ",=1+1,29.7,", 1)
+            tampered = root / "tampered.csv"
+            tampered.write_text(text, encoding="utf-8")
+            out = root / "agreement.json"
+            stderr = io.StringIO()
+            argv = ["harborlens-label-agreement", "--sheets", str(tampered), str(second),
+                    "--out", str(out)]
+            with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as caught:
+                    agreement_main()
+            self.assertEqual(caught.exception.code, 2)
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertIn("formula trigger", stderr.getvalue())
+            self.assertIn("centroid_lon", stderr.getvalue())
+            self.assertFalse(out.exists())
+            self.assertFalse(out.with_name(out.name + ".partial").exists())
 
     def test_negative_and_positive_coordinates_are_not_prefixed(self):
         text = render_label_sheet([
@@ -374,7 +456,11 @@ class NeutralizerTests(unittest.TestCase):
                 self.assertNotIn("'", row["start_utc"])
             filled = []
             for row in raw:
-                filled.append({**row, "annotator_id": "A1", "label": "unknown", "confidence": "low",
+                # The sheet already stores the prefixed cell. The writer takes the
+                # logical value, so recover it before rendering the completed sheet.
+                filled.append({**row,
+                               "vessel_type_mode": recover_text_cell(row["vessel_type_mode"]),
+                               "annotator_id": "A1", "label": "unknown", "confidence": "low",
                                "evidence_level": "L2", "evidence_sources": "ais_track",
                                "fragment_of_longer_stop": "unknown", "duration_judgement": "not_assessable",
                                "notes": "=note"})

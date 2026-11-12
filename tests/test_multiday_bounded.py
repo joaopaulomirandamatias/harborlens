@@ -595,11 +595,12 @@ ARTIFACT_SHA256 = {
 class SingleDayByteIdentityTests(unittest.TestCase):
     """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev15.
 
-    Package 0.2.0.dev16 changes ``run_id`` because that digest includes
+    Package 0.2.0.dev17 changes ``run_id`` because that digest includes
     ``harborlens_version``. The three pipeline artifacts stay byte-identical,
-    including the cleaned CSV the release recount reads. A run pinned to
-    ``0.2.0.dev15`` still reproduces the golden ``run_id``. ``git_commit`` is
-    environment metadata.
+    including the cleaned CSV the release recount reads. The fixture has no
+    formula trigger, so the CSV neutralizer does not change a cell. A run
+    pinned to ``0.2.0.dev15`` still reproduces the golden ``run_id``.
+    ``git_commit`` is environment metadata.
     """
 
     def test_single_day_outputs_match_dev15_except_path_fields(self):
@@ -614,7 +615,7 @@ class SingleDayByteIdentityTests(unittest.TestCase):
             self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev15")
             self.assertEqual(_scrub(manifest), _scrub(golden))
             self.assertEqual(manifest["code_version"]["package_version"], harborlens.__version__)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev16")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev17")
             self.assertNotEqual(manifest["run_id"], golden["run_id"])
             with mock.patch.object(provenance, "__version__", "0.2.0.dev15"):
                 pinned = run(FIXTURE, root / "pinned")

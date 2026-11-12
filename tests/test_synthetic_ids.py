@@ -1090,9 +1090,9 @@ class GoldenSubstitutionProofTests(unittest.TestCase):
         live_manifest = json.loads(live["manifest.json"])
         golden_manifest = json.loads((DEV15 / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(live_manifest["code_version"]["package_version"], package_version_text())
-        self.assertEqual(live_manifest["code_version"]["package_version"], "0.2.0.dev16")
+        self.assertEqual(live_manifest["code_version"]["package_version"], "0.2.0.dev17")
         self.assertNotEqual(live_manifest["run_id"], golden_manifest["run_id"])
-        golden_manifest["code_version"]["package_version"] = "0.2.0.dev16"
+        golden_manifest["code_version"]["package_version"] = "0.2.0.dev17"
         golden_manifest["run_id"] = live_manifest["run_id"]
         self.assertEqual(live_manifest, golden_manifest)
 

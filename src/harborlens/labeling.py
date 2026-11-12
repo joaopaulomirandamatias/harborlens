@@ -12,18 +12,21 @@ expert review of AIS, not independent ground truth. Nothing here upgrades a
 candidate to a berth, anchorage, wait or port call. See
 docs/research/labeling-protocol.md.
 
-Spreadsheet formula neutralization (SPEC-003, FR-013, NFR-006). The label
-sheet is the only CSV this path writes. The sampling key is JSON
-(``<sheet>.sampling.json``), not a CSV. ``harborlens-label-agreement`` reads
-sheets and writes JSON. ``harborlens-evaluate`` reads an adjudicated CSV and
-writes JSON; it does not write a CSV.
+Spreadsheet formula neutralization (SPEC-003, FR-013, NFR-006) uses
+``harborlens.csv_safe``. The label sheet is the CSV this path writes. The
+sampling key is JSON (``<sheet>.sampling.json``), not a CSV.
+``harborlens-label-agreement`` reads sheets and writes JSON.
+``harborlens-evaluate`` reads an adjudicated CSV and writes JSON; it does
+not write a CSV. Cleaned AIS and stationary-candidate CSVs use the same
+neutralizer.
 
-A text cell is prefixed with one ASCII apostrophe (``'``) when its first
-character is ``=``, ``+``, ``-``, ``@``, tab, or carriage return, or when the
-first character after leading Unicode whitespace is one of those triggers.
-A field that contains a comma, quote, carriage return, or line feed is quoted,
-including on Python 3.10, whose ``csv.writer`` would otherwise leave a
-carriage return bare when the row ends in ``\\n``.
+A text cell is prefixed with one ASCII apostrophe (``'``) when it matches
+``^'*<ignorable>*<trigger>``. Triggers are ``=``, ``+``, ``-``, ``@``, tab,
+carriage return, and the fullwidth forms U+FF1D, U+FF0B, U+FF0D, and U+FF20.
+Ignorable characters before the trigger are Unicode whitespace, U+FEFF, and
+U+200B. A field that contains a comma, quote, carriage return, or line feed
+is quoted, including on Python 3.10, whose ``csv.writer`` would otherwise
+leave a carriage return bare when the row ends in ``\\n``.
 ``vessel_type_mode``, ``annotator_id``, ``evidence_sources``, ``notes``, and
 ``adjudicator_id`` are text. Contract columns are never prefixed:
 ``sample_id`` (``S`` and four digits), ``mmsi`` and ``observed_points``
@@ -34,14 +37,18 @@ with ``Z`` or ``±HH:MM``), censoring flags, the annotation enums, and
 raises ``AISInputError`` before any sheet, ``.partial``, or sampling manifest
 is created. The CLI exits 2.
 
-On read, ``read_csv_cell`` removes that apostrophe only from a text column,
-and only when the remainder itself matches the trigger rule, so the logical
-value is recovered. A text value that already began with an apostrophe
-followed by a trigger is indistinguishable from a neutralized cell and is
-returned without that apostrophe. An apostrophe that is not a neutralization
-prefix is kept. A leading apostrophe on a contract column raises
-``AISInputError``. The characters are not removed and the cell is not
-converted to a number, timestamp, or enum.
+On read, ``read_csv_cell`` removes exactly one leading apostrophe from a text
+column, and only when the cell matches ``^'+<ignorable>*<trigger>``. A raw
+value that already began with an apostrophe is written with one more
+apostrophe, so the round trip keeps it. ``'abc`` is unchanged. The
+``0.2.0.dev16`` ambiguity (a leading apostrophe plus a trigger was
+indistinguishable from a neutralized cell) is resolved. A leading apostrophe
+on a contract column raises ``AISInputError``. A contract column that comes
+back carrying a trigger without that apostrophe, and that fails its contract,
+also raises ``AISInputError`` (the case where a spreadsheet dropped the
+prefix). The characters are not removed and the cell is not converted to a
+number, timestamp, or enum. Edit the sheet with the column imported as text,
+then re-validate it with this reader.
 """
 from __future__ import annotations
 
@@ -59,6 +66,9 @@ from pathlib import Path
 
 from harborlens.ais import load_cleaned, parse_time, sha256
 from harborlens.censoring import CENSORED, NOT_CENSORED, UNKNOWN, WindowCensoring
+from harborlens.csv_safe import (
+    matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
+)
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
@@ -87,11 +97,6 @@ MAX_SAMPLE = 1000
 WARNING = ("Blinded labeling sample of unvalidated AIS intervals. Keep sheets with MMSIs out of the public "
            "repository until data rights are reviewed. Labels are L2 expert review unless an independent "
            "operational record is cited (L3).")
-# ASCII apostrophe. Spreadsheet applications treat a cell that begins with this
-# character as text, so a formula trigger is not evaluated.
-NEUTRALIZATION_PREFIX = "'"
-# First character, or first character after leading whitespace, that forces the prefix.
-FORMULA_TRIGGERS = frozenset("=+-@\t\r")
 # Free text. Neutralized on write. The reader may remove one neutralization prefix.
 TEXT_COLUMNS = frozenset({
     "vessel_type_mode", "annotator_id", "evidence_sources", "notes", "adjudicator_id",
@@ -133,66 +138,42 @@ def _cell_text(value):
     return str(value)
 
 
-def starts_with_formula_trigger(text):
-    """True when ``text`` would be evaluated as a formula in a spreadsheet.
-
-    The first character is ``=``, ``+``, ``-``, ``@``, tab, or carriage return,
-    or the first character that remains after leading Unicode whitespace is one
-    of those triggers. ``str.lstrip`` defines that whitespace.
-    """
-    if not text:
+def _contract_accepts(field, text):
+    """True when ``text`` satisfies the column contract. A formula is not accepted."""
+    try:
+        _require_contract(field, text, allow_blank=False)
+    except AISInputError:
         return False
-    if text[0] in FORMULA_TRIGGERS:
-        return True
-    visible = text.lstrip()
-    return bool(visible) and visible[0] in FORMULA_TRIGGERS
-
-
-def neutralize_text_cell(value):
-    """Prefix one ASCII apostrophe when ``value`` is a formula trigger.
-
-    Contract columns must not be passed here. A negative coordinate such as
-    ``-95.1`` is a number, and this function is not applied to it. An empty
-    cell is unchanged. A cell that does not match the trigger rule is returned
-    unchanged, including a cell whose first character is already an apostrophe.
-    """
-    text = _cell_text(value)
-    if starts_with_formula_trigger(text):
-        return NEUTRALIZATION_PREFIX + text
-    return text
-
-
-def recover_text_cell(value):
-    """Recover the logical text after :func:`neutralize_text_cell`.
-
-    One leading apostrophe is removed only when the remainder matches
-    :func:`starts_with_formula_trigger`. That is the neutralization prefix.
-    An apostrophe followed by ordinary text is kept. A logical value that
-    already began with an apostrophe and a trigger is indistinguishable from
-    a neutralized cell and is returned without that apostrophe.
-    """
-    text = _cell_text(value)
-    if text.startswith(NEUTRALIZATION_PREFIX) and starts_with_formula_trigger(text[1:]):
-        return text[1:]
-    return text
+    return True
 
 
 def read_csv_cell(field, raw):
     """Logical value of one labeling or adjudicated CSV cell.
 
     Text columns use :func:`recover_text_cell`. Contract columns are returned
-    unchanged. A leading apostrophe on a contract column raises
-    ``AISInputError`` and is not stripped, parsed, or converted.
+    unchanged when they satisfy their contract. A leading apostrophe on a
+    contract column raises ``AISInputError`` and is not stripped, parsed, or
+    converted. A contract cell that matches the writer trigger rule and fails
+    its contract raises ``AISInputError`` as well. That is the spreadsheet
+    case: the protective apostrophe was dropped and the cell came back as a
+    formula. A signed coordinate such as ``-95.1`` matches the trigger
+    character ``-`` and still satisfies the finite-decimal contract, so it is
+    kept.
     """
     text = _cell_text(raw)
     if field in TEXT_COLUMNS:
         return recover_text_cell(text)
     if field not in CONTRACT_COLUMNS:
         raise AISInputError(f"{field} is not a label-sheet column")
-    if text.startswith(NEUTRALIZATION_PREFIX):
+    if text.startswith("'"):
         raise AISInputError(
             f"{field} {text!r} has a leading apostrophe. "
             "Contract columns are not unquoted and are not converted."
+        )
+    if matches_formula_pattern(text) and not _contract_accepts(field, text):
+        raise AISInputError(
+            f"{field} {text!r} carries a formula trigger without the neutralization apostrophe. "
+            "Contract columns are not evaluated and are not converted."
         )
     return text
 
@@ -262,12 +243,10 @@ def _quote_csv_field(value):
     line ending is ``\\n``. Python 3.12 does. A carriage return is also a
     formula trigger, so the sheet has to quote that field on both interpreters
     or the row splits. Cells with none of those characters stay unquoted, which
-    is what the current synthetic sheet already does.
+    is what the current synthetic sheet already does. The quoting rule lives
+    in ``harborlens.csv_safe.quote_csv_field``.
     """
-    text = value if isinstance(value, str) else str(value)
-    if any(character in text for character in ",\"\r\n"):
-        return '"' + text.replace('"', '""') + '"'
-    return text
+    return quote_csv_field(value)
 
 
 def render_label_sheet(rows):
@@ -661,7 +640,9 @@ def _read_sheet(path):
     """Read one annotator's completed sheet and validate every annotation field.
 
     Text columns are recovered with ``read_csv_cell``. A leading apostrophe
-    on a contract column is an error and is not converted.
+    on a contract column is an error and is not converted. A contract cell
+    that carries a formula trigger without that apostrophe, and that fails
+    its contract, is the same kind of error.
     """
     path = Path(path)
     with path.open(newline="", encoding="utf-8") as handle:
