@@ -185,6 +185,45 @@ class RightsAdapterTests(unittest.TestCase):
                                    rights_register=self.register)
         self.assertEqual(mismatch["rights_status"], "review_required")
 
+    def test_official_register_does_not_grant_adapter_rights(self):
+        official = ROOT / "docs/data/rights-register.json"
+        granted = {
+            "reviewed_public_domain_attribution_required",
+            "reviewed_permitted_with_conditions",
+        }
+        fixture = ROOT / "tests/fixtures/synthetic_ais.csv"
+        archive = self.root / "ais-2024-01-02.csv.zst"
+        archive.write_bytes(zstandard.ZstdCompressor().compress(fixture.read_bytes()))
+        calls = (
+            lambda purpose: fetch_subset(
+                "2024-06-10T00:00:00Z", "2024-06-10T01:00:00Z",
+                (-95.7, 29.1, -94.2, 30.1),
+                self.root / f"erddap-{purpose}.csv",
+                opener=erddap_mock, rights_register=official,
+                rights_purpose=purpose,
+            ),
+            lambda purpose: save_catalog(
+                self.root / f"usace-{purpose}.geojson", opener=usace_mock,
+                rights_register=official, rights_purpose=purpose,
+            ),
+            lambda purpose: save_polygons(
+                self.root / f"noaa-{purpose}.geojson", opener=noaa_polygon_mock,
+                rights_register=official, rights_purpose=purpose,
+            ),
+            lambda purpose: extract_archive(
+                archive, self.root / f"archive-{purpose}.csv",
+                "2024-01-02T00:00:00Z", "2024-01-02T00:59:00Z",
+                rights_register=official, rights_purpose=purpose,
+            ),
+        )
+        for purpose in ("research", "public_aggregates", "commercial"):
+            for call in calls:
+                sidecar = call(purpose)
+                status = sidecar.get("rights_status", sidecar.get("license_status"))
+                self.assertEqual(status, "review_required", purpose)
+                self.assertEqual(sidecar["rights_review"]["rights_status"], "review_required")
+                self.assertNotIn(status, granted)
+
 
 if __name__ == "__main__":
     unittest.main()

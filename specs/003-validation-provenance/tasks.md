@@ -4,7 +4,7 @@
 
 - [ ] Ingest and checksum authorized NOAA sample
 - [x] Output-hash and local-verification implementation (merged in #18)
-- [ ] Independently confirm source rights and dataset provenance before distribution
+- [ ] Independently confirm source rights and dataset provenance before distribution. Partial inventory only (`docs/data/rights-register.json`, schema `source-rights-register`, `python -m harborlens.rights`): no source approved. Optional adapter receipts are listed below and do not approve a source. Refs #42 (stays open)
 - [ ] Create annotation guide and >=100 pilot samples with negatives
 - [ ] Implement metrics and confidence intervals
 - [ ] Cross-validate independent period/port with permission
@@ -21,6 +21,7 @@
 
 - [x] Labeling protocol, label taxonomy and evidence levels (`docs/research/labeling-protocol.md`)
 - [x] Seeded, blinded, stratified sampler with negatives and sampling manifest; agreement report; schemas and synthetic tests (`tests/test_labeling.py`)
+- [x] Transceiver class stratum (`A`, `B`, `absent_or_unknown`) on `harborlens-label-sample`, schema `label-sample-v0.2`, synthetic positive/negative/boundary tests (`tests/test_labeling.py`, issue #65 code slice). Pilot annotation is still open.
 - [ ] Draw the first pilot sample (≥100 units) from a source-pinned NOAA run, kept outside the public repository
 - [ ] Two independent annotators label it; adjudicate disagreements; publish aggregate agreement only
 - [ ] Evaluator against labels (#9)
