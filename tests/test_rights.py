@@ -376,10 +376,16 @@ class RightsGateTests(unittest.TestCase):
             "Z",
             "2026-11-09Z",
             "2026-11-09T12:00:00Z ",
+            "2026-11-09T12:00:00Z\n",
             "2026-11-09t12:00:00Z",
             "2026-11-09 12:00:00Z",
             "2026-11-09T12:00:00.1234567Z",
-            "2026-11-09T12:00:00+00:00",
+            "2026-11-09T12:00:00z",
+            "2026-11-09T12:00:00+01:00",
+            "2026-11-09T12:00:00-00:00",
+            "2026-11-09T12:00:00+00:00:00",
+            "２０２６-11-09T12:00:00Z",
+            "2026-11-09T12:00:00.\u0661Z",
         )
         for value in shape_rejected:
             self.assertFalse(_valid_utc_time(value), value)
@@ -391,8 +397,18 @@ class RightsGateTests(unittest.TestCase):
             self.assertEqual(self.status(), PENDING, value)
             self.assertNotIn(self.status(), APPROVED_STATUSES)
         # The schema pattern is a shape. These match it and are still denied
-        # because they are not real UTC timestamps.
-        for value in ("2026-02-31T12:00:00Z", "2026-11-09T25:00:00Z", "2026-11-09T12:00:60Z"):
+        # because datetime() rejects the calendar fields. Hour 24 and a
+        # non-leap 29 February are in that set. Leap day 2024 is not.
+        for value in (
+            "2026-02-31T12:00:00Z",
+            "2026-02-29T12:00:00Z",
+            "2026-02-29T12:00:00+00:00",
+            "2026-11-09T24:00:00Z",
+            "2026-11-09T24:00:00+00:00",
+            "2026-11-09T25:00:00Z",
+            "2026-11-09T12:60:00Z",
+            "2026-11-09T12:00:60Z",
+        ):
             self.assertFalse(_valid_utc_time(value), value)
             copy = deepcopy(self.data)
             copy["sources"][0]["reviewed_at_utc"] = value
@@ -400,14 +416,20 @@ class RightsGateTests(unittest.TestCase):
             load_registry(self.path)
             self.assertEqual(self.status(), PENDING, value)
             self.assertNotIn(self.status(), APPROVED_STATUSES)
-        # .1Z is one fractional digit. CPython 3.10 fromisoformat rejects
-        # that width unless it is padded to six digits first.
+        # Accepted fractions are none, or 1 to 6 ASCII digits, with Z or
+        # +00:00. The fields are parsed directly, so 1 digit and 3 digits
+        # grant on Python 3.10 and 3.12.
         for value in (
             "2026-11-09T12:00:00Z",
+            "2026-11-09T12:00:00+00:00",
             "2026-11-09T12:00:00.1Z",
-            "2026-11-09T00:00:00.12Z",
+            "2026-11-09T12:00:00.1+00:00",
             "2026-11-09T12:00:00.123Z",
+            "2026-11-09T12:00:00.123+00:00",
             "2026-11-09T12:00:00.123456Z",
+            "2026-11-09T12:00:00.123456+00:00",
+            "2024-02-29T00:00:00Z",
+            "2024-02-29T23:59:59+00:00",
         ):
             self.assertTrue(_valid_utc_time(value), value)
             copy = deepcopy(self.data)
@@ -417,6 +439,9 @@ class RightsGateTests(unittest.TestCase):
             self.assertEqual(
                 self.status(), "reviewed_public_domain_attribution_required", value
             )
+        import inspect
+        from harborlens import rights as rights_mod
+        self.assertNotIn("fromisoformat", inspect.getsource(rights_mod._valid_utc_time))
 
 
 if __name__ == "__main__":

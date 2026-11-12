@@ -102,6 +102,14 @@ class RightsRegistrySchemaTests(unittest.TestCase):
         for stamp in ("not-a-dateZ", "2026-11-09Z", "2026-11-09t12:00:00Z", "Z"):
             row["reviewed_at_utc"] = stamp
             self.assertFalse(validator.is_valid(self.registry), stamp)
+        row["reviewed_at_utc"] = "2026-11-09T12:00:00+00:00"
+        self.assertTrue(validator.is_valid(self.registry))
+        row["reviewed_at_utc"] = "2026-11-09T12:00:00.1Z"
+        self.assertTrue(validator.is_valid(self.registry))
+        row["reviewed_at_utc"] = "2026-11-09T12:00:00.123+00:00"
+        self.assertTrue(validator.is_valid(self.registry))
+        row["reviewed_at_utc"] = "2026-11-09T12:00:00+01:00"
+        self.assertFalse(validator.is_valid(self.registry))
         row["reviewed_at_utc"] = "2026-11-09T12:00:00Z"
         row["terms_url"] = "https://example.org/terms "
         self.assertFalse(validator.is_valid(self.registry))

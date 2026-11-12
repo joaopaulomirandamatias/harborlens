@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -32,12 +32,15 @@ _HTTPS_URL_PATTERN = (
     r"^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]"
     r"(?::[0-9]{1,5})?(?:[/?#]\S*)?(?![\s\S])"
 )
-# A real UTC timestamp, not a string that merely ends in Z. Fractional
-# seconds stop at six digits. Date-only values, a space separator, and a
-# lowercase "t" do not match.
+# ASCII digits only. No fraction, or 1 to 6 fractional digits. Suffix is
+# Z or +00:00. ``(?![\s\S])`` is the end of the string; ``$`` would still
+# match before a trailing newline. This is the same string as the schema.
 _UTC_TIMESTAMP_PATTERN = (
-    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-    r"(?:\.[0-9]{1,6})?Z(?![\s\S])"
+    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})"
+    r"T([0-9]{2}):([0-9]{2}):([0-9]{2})"
+    r"(?:\.([0-9]{1,6}))?"
+    r"(?:Z|\+00:00)"
+    r"(?![\s\S])"
 )
 _HTTPS_URL = re.compile(_HTTPS_URL_PATTERN)
 _UTC_TIMESTAMP = re.compile(_UTC_TIMESTAMP_PATTERN)
@@ -118,30 +121,32 @@ def _validate_registry_schema(data):
 def _valid_utc_time(value):
     """True for a schema-shaped UTC timestamp that is a real calendar time.
 
-    The shape matches ``_UTC_TIMESTAMP_PATTERN``. A string that only ends in
-    ``Z``, a date-only value, a space separator, and a lowercase ``t`` are
-    rejected on every supported Python. A shape that is not a real date
-    (for example month day 31 in February, or hour 25) matches the schema
-    pattern and still returns False here, so it cannot grant a status.
-
-    CPython 3.10 ``fromisoformat`` accepts only the fractional width that
-    ``datetime.isoformat`` emits: none, or exactly six digits. One to five
-    digits are padded with zeros before that call so ``.1Z`` is the same
-    instant on 3.10 and 3.12. More than six digits never reach this call.
+    Accepted shape, on Python 3.10 and 3.12 alike: ASCII
+    ``YYYY-MM-DDTHH:MM:SS`` with no fraction or with 1 to 6 fractional
+    digits, then ``Z`` or ``+00:00``. Seven or more fractional digits, any
+    other offset, a lowercase ``z`` or ``t``, a space separator, and
+    non-ASCII digits do not match. The clock is built with ``datetime``
+    from those captured fields. The fraction is padded to six digits.
+    ``datetime`` rejects an impossible calendar value (31 February, 29
+    February in a non-leap year, hour 24, minute 60, second 60), so that
+    value stays unapproved. This function does not call the ISO parser.
     """
-    if not isinstance(value, str) or _UTC_TIMESTAMP.fullmatch(value) is None:
+    if not isinstance(value, str):
         return False
-    body = value[:-1]
-    if "." in body:
-        head, fraction = body.split(".", 1)
-        body = head + "." + fraction.ljust(6, "0")
+    match = _UTC_TIMESTAMP.fullmatch(value)
+    if match is None:
+        return False
+    year, month, day, hour, minute, second, fraction = match.groups()
+    microsecond = int(fraction.ljust(6, "0")) if fraction is not None else 0
     try:
-        parsed = datetime.fromisoformat(body + "+00:00")
-    except (TypeError, ValueError):
+        parsed = datetime(
+            int(year), int(month), int(day),
+            int(hour), int(minute), int(second),
+            microsecond, tzinfo=timezone.utc,
+        )
+    except ValueError:
         return False
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        return False
-    return parsed.utcoffset().total_seconds() == 0
+    return parsed.tzinfo is timezone.utc and parsed.utcoffset().total_seconds() == 0
 
 
 def _load_registry_bytes(raw):

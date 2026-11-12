@@ -86,7 +86,7 @@
 ## Rights-register parsing and sidecar schemas
 
 - [x] Name a UTF-8 BOM as a load error and do not treat that file as an approved status (SPEC-003, FR-010, NFR-013, BR-015, BR-016). YAML, case and whitespace variants, and whitespace-only evidence fail closed.
-- [x] Align `reviewed_at_utc` in `source-rights-register.schema.json` with `_valid_utc_time`: a UTC timestamp shape, not a string that only ends in `Z`. A non-calendar shape stays `review_required`.
+- [x] Align `reviewed_at_utc` in `source-rights-register.schema.json` with `_valid_utc_time`: ASCII `YYYY-MM-DDTHH:MM:SS` with no fraction or 1 to 6 digits, then `Z` or `+00:00`. The clock is built from the captured fields. A non-calendar shape stays `review_required`.
 - [x] Reject trailing whitespace, IPv6 literals, and raw IDN hostnames in the schema pattern and the parser. Punycode stays accepted. Document that restriction.
 - [x] Record the rights register as its own FR-010 row in `docs/requirements/traceability.md` and document `source-rights-register` in `schemas/README.md`.
 - [x] Publish `erddap-ais-source` and `noaa-archive-extract-source` schemas, including optional `rights_review`, and keep the checked-in register at `review_required` for every adapter (NFR-010). Those schemas stay unpackaged.
