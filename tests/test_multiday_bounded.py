@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import inspect
 import io
 import json
 import os
@@ -28,7 +29,7 @@ from unittest import mock
 
 import harborlens
 import harborlens.provenance as provenance
-from harborlens.ais import run
+from harborlens.ais import header_alias, run
 from harborlens.censoring import WindowCensoring
 from harborlens.io_safe import AISInputError
 from harborlens.multiday import (
@@ -352,7 +353,6 @@ class WorkingSetScalingTests(unittest.TestCase):
                 self.assertEqual(payload["schema_version"], "multi-day-1.1")
                 self.assertEqual(payload["memory_bound"], memory_bound_record(live_soft_heap_enforced()))
                 self.assertFalse(payload["memory_bound"]["grows_with_input_rows"])
-                self.assertIsNotNone(payload["sqlite_mapped_rss_bytes"])
                 with (out / "stationary_candidates.csv").open(newline="") as handle:
                     candidates = list(csv.DictReader(handle))
                 self.assertEqual(len(candidates), 4)
@@ -380,7 +380,6 @@ class WorkingSetScalingTests(unittest.TestCase):
             for item in measured:
                 self.assertLessEqual(item["traced_peak_bytes"], TRACED_PEAK_CEILING, detail)
                 self.assertLessEqual(item["rss_bytes"], RSS_CEILING, detail)
-                self.assertLessEqual(item["sqlite_mapped_rss_bytes"], MAPPED_RSS_CEILING, detail)
             self.assertLessEqual(traced_growth, TRACED_GROWTH_CEILING, detail)
             self.assertLessEqual(rss_growth, RSS_GROWTH_CEILING, detail)
             scratches = [by_days[days]["scratch_peak_bytes"] for days in DAY_COUNTS]
@@ -392,6 +391,18 @@ class WorkingSetScalingTests(unittest.TestCase):
             # Keep the table in the failure output and in a successful assertion message
             # only when something is wrong. Print it for the PR measurement log.
             print("\nMULTIDAY_MEMORY_TABLE " + detail)
+            if not Path("/proc/self/smaps").is_file():
+                self.skipTest(
+                    "/proc/self/smaps is absent, so sqlite_mapped_rss_bytes cannot be "
+                    "measured (for example on macOS). Linux CI still fails when smaps "
+                    "exists and the probe returns None."
+                )
+            for item in measured:
+                self.assertIsNotNone(
+                    item["sqlite_mapped_rss_bytes"],
+                    "smaps exists but the probe returned None: " + detail,
+                )
+                self.assertLessEqual(item["sqlite_mapped_rss_bytes"], MAPPED_RSS_CEILING, detail)
 
     def test_mutated_pin_maps_the_scratch_file(self):
         """256 MiB cache, soft heap 0, mmap on, and temp_store MEMORY fails the measurement.
@@ -400,7 +411,14 @@ class WorkingSetScalingTests(unittest.TestCase):
         runs the same 14-day synthetic fixture with that pin removed and
         requires the resident mapping to exceed the ceiling. RSS growth at
         this size stays inside 16 MiB, which is why RSS alone does not bite.
+        Without ``/proc/self/smaps`` the mapping cannot be read, so the check
+        skips. On Linux, a ``None`` probe result still fails.
         """
+        if not Path("/proc/self/smaps").is_file():
+            self.skipTest(
+                "/proc/self/smaps is absent, so a removed mmap pin cannot be measured "
+                "(for example on macOS). This check still runs on Linux."
+            )
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             minutes = range(0, 24 * 60, 4)
@@ -425,6 +443,10 @@ class WorkingSetScalingTests(unittest.TestCase):
             })
             print("\nMUTATED_PIN_MAPPING " + detail)
             self.assertGreater(payload["scratch_file_bytes"], MAPPED_RSS_CEILING, detail)
+            self.assertIsNotNone(
+                payload["sqlite_mapped_rss_bytes"],
+                "smaps exists but the probe returned None: " + detail,
+            )
             self.assertGreater(payload["sqlite_mapped_rss_bytes"], MAPPED_RSS_CEILING, detail)
             self.assertEqual(payload["written"], ROWS_PER_DAY * 14)
 
@@ -483,6 +505,82 @@ class MultidayCliErrorTests(unittest.TestCase):
         self.assertNotIn("Traceback", text)
         self.assertIn("already exist", text)
         self.assertEqual({path.name: path.read_bytes() for path in out.iterdir()}, before)
+
+    def test_unreadable_input_exits_2_without_traceback(self):
+        first = self.root / "day-a.csv"
+        second = self.root / "day-b.csv"
+        write_csv(first, [line(DAY)])
+        write_csv(second, [line(DAY + timedelta(days=1))])
+        out = self.root / "blocked"
+        real_open = Path.open
+
+        def opening(self_path, mode="r", *args, **kwargs):
+            if mode == "rb" and self_path.resolve() == first.resolve():
+                raise PermissionError("denied")
+            return real_open(self_path, mode, *args, **kwargs)
+
+        stderr = io.StringIO()
+        argv = ["harborlens-multiday", "--input", str(first), str(second), "--out", str(out)]
+        with mock.patch.object(Path, "open", opening), mock.patch.object(sys, "argv", argv), \
+                contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                main()
+        self.assertEqual(caught.exception.code, 2)
+        text = stderr.getvalue()
+        self.assertNotIn("Traceback", text)
+        self.assertIn("cannot be accessed", text)
+        self.assertFalse(out.exists())
+
+    def test_malformed_header_exits_2_without_traceback(self):
+        bad = self.root / "bad.csv"
+        good = self.root / "good.csv"
+        bad.write_text("foo,bar\n1,2\n", encoding="utf-8")
+        write_csv(good, [line(DAY + timedelta(days=1))])
+        out = self.root / "header"
+        code, text, _out = self._exit(["--input", str(bad), str(good), "--out", str(out)])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("Missing", text)
+        self.assertFalse(out.exists())
+        with self.assertRaises(AISInputError):
+            header_alias(["foo", "bar"], "mmsi")
+        main_source = inspect.getsource(main)
+        self.assertNotIn("except ValueError", main_source)
+        self.assertNotIn("except (ValueError", main_source)
+
+    def test_row_cap_and_empty_file_leave_no_output_directory(self):
+        first = self.root / "day-a.csv"
+        second = self.root / "day-b.csv"
+        write_csv(first, [line(DAY), line(DAY + timedelta(minutes=1))])
+        write_csv(second, [line(DAY + timedelta(days=1))])
+        capped = self.root / "capped"
+        code, text, _out = self._exit([
+            "--input", str(first), str(second), "--out", str(capped), "--max-points", "1",
+        ])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("exceed cap", text)
+        self.assertFalse(capped.exists())
+
+        empty = self.root / "empty.csv"
+        empty.write_bytes(b"")
+        blank = self.root / "blank-out"
+        code, text, _out = self._exit(["--input", str(first), str(empty), "--out", str(blank)])
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("empty", text)
+        self.assertFalse(blank.exists())
+
+        header_only = self.root / "header-only.csv"
+        header_only.write_text(HEADER, encoding="utf-8")
+        observations = self.root / "no-rows"
+        code, text, _out = self._exit(
+            ["--input", str(first), str(header_only), "--out", str(observations)]
+        )
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("no AIS observations", text)
+        self.assertFalse(observations.exists())
 
 
 class SingleDayByteIdentityTests(unittest.TestCase):

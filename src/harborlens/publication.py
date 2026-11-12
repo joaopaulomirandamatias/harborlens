@@ -21,6 +21,7 @@ from pathlib import Path
 from harborlens.provenance import checksum, digests_equal, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
+from harborlens.timeparse import parse_review_utc
 
 MAX_DOCUMENT_BYTES = 1024 * 1024
 # Same 256 MiB output ceiling as archive extraction (MAX_OUTPUT_MIB) and
@@ -178,16 +179,23 @@ def _recount_cleaned(path):
 
 
 def _review_moment(reviewed_at):
-    """Parse an RFC3339 UTC date-time. Date-only values are a validation failure."""
-    if (not isinstance(reviewed_at, str) or not reviewed_at.endswith("Z")
-            or "T" not in reviewed_at.upper()):
-        raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time")
+    """Parse a release-review UTC timestamp. Date-only values are a validation failure.
+
+    The accepted grammar is narrower than the rights register: ASCII
+    ``YYYY-MM-DDTHH:MM:SS`` with no fraction or 1 to 6 fractional digits,
+    then ``Z`` only. ``+00:00`` is rejected. The clock is built from the
+    captured fields, so Python 3.10 and 3.12 agree. Seven fractional
+    digits, a comma fraction, another offset, a non-ASCII digit, and an
+    impossible calendar time (including hour 24) are denied.
+    """
     try:
-        moment = datetime.fromisoformat(reviewed_at[:-1] + "+00:00")
+        moment = parse_review_utc(reviewed_at)
     except ValueError as exc:
-        raise ReleaseDenied("Invalid review timestamp") from exc
-    if (not isinstance(moment, datetime) or moment.tzinfo is None
-            or moment.utcoffset() != timedelta(0)):
+        message = str(exc)
+        if message == "Invalid review timestamp":
+            raise ReleaseDenied("Invalid review timestamp") from exc
+        raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time") from exc
+    if moment.utcoffset() != timedelta(0):
         raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time")
     return moment
 

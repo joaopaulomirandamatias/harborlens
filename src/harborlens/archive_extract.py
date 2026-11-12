@@ -14,10 +14,10 @@ import json
 import math
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
 from harborlens.ais import BBOX_HOUSTON, header_alias, parse_time, sha256
+from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 from harborlens.io_safe import LimitedReader, MAX_COMPRESSED_BYTES, AISInputError, _open_text_stream
 from harborlens.vintages import header_style, vintage_for
 from harborlens.rights import PURPOSES, rights_receipt
@@ -31,13 +31,17 @@ DEFAULT_OUTPUT_MIB = 128
 
 
 def utc(value):
+    """Parse an extraction bound. Uppercase ``T``, required ``Z`` or ``±HH:MM``, no strip.
+
+    The fraction is absent or 1 to 6 digits. A non-UTC offset is converted
+    to UTC. A space separator and a naive clock are rejected.
+    """
     try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (AttributeError, ValueError) as exc:
+        return parse_explicit_utc(value)
+    except ExplicitOffsetRequired as exc:
+        raise AISInputError("UTC time with offset or Z required") from exc
+    except (TypeError, ValueError) as exc:
         raise AISInputError("Use an ISO8601 date/time with timezone") from exc
-    if dt.tzinfo is None:
-        raise AISInputError("UTC time with offset or Z required")
-    return dt.astimezone(timezone.utc)
 
 
 def _csv_row_bytes(row):
@@ -197,8 +201,9 @@ def main():
     p = argparse.ArgumentParser(description="Extract Houston observations from a local daily NOAA AIS archive")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
-    p.add_argument("--start", required=True)
-    p.add_argument("--end", required=True)
+    p.add_argument("--start", required=True,
+                   help="YYYY-MM-DDTHH:MM:SSZ or ±HH:MM; 0-6 fraction digits; no surrounding space")
+    p.add_argument("--end", required=True, help="Same grammar as --start")
     p.add_argument("--bbox", type=float, nargs=4, default=BBOX_HOUSTON)
     p.add_argument("--max-rows", type=int, default=MAX_MATCHING_ROWS)
     p.add_argument("--max-output-mib", type=int, default=DEFAULT_OUTPUT_MIB)

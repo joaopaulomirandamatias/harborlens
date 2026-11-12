@@ -82,6 +82,7 @@
 - [x] Package those three schemas in the wheel and sdist. Load them with `importlib.resources` only. Refuse any other name. A schema next to the package is not consulted. The GovInfo LSA schema stays unpackaged.
 - [x] Deny a release summary whose `rights_status` is missing, `None`, not a string, or outside the approved-status allowlist (`ReleaseDenied`, CLI exit 2, nothing written). Absolute paths, backslashes, percent-encoding, uppercase names, NUL bytes, `..` segments, and trailing whitespace are refused by the schema loader before any filesystem read. CLI review-window edges use a frozen clock: exactly 30 days old and exactly 5 minutes ahead are accepted; one second outside either edge is rejected.
 - [ ] Institution-controlled reviewer key custody, a real source-rights approval, and a streaming recount for a cleaned CSV above the fixed 256 MiB ceiling remain external. This list does not add a streaming reader. Refs #70 (stays open). Refs #42 (stays open).
+- [x] Parse release-review `reviewed_at_utc` as ASCII `YYYY-MM-DDTHH:MM:SS` with no fraction or 1 to 6 fractional digits, then `Z` only. `+00:00` stays rejected. Python 3.10 and 3.12 agree (`tests/test_timeparse.py`, FR-010, NFR-003, NFR-004). Refs #78 (stays open).
 
 ## Rights-register parsing and sidecar schemas
 

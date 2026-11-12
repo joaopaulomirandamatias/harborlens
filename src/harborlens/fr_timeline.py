@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.request import Request, urlopen
 
+from harborlens.timeparse import parse_calendar_date
+
 API = "https://www.federalregister.gov/api/v1/documents.json"
 MAX_PAGES = 10
 MAX_RECORDS = 300
@@ -27,10 +29,14 @@ class FederalRegisterAuditError(ValueError):
 
 
 def _date(value):
+    """Accept ASCII ``YYYY-MM-DD`` only.
+
+    An ISO week date such as ``2024-W01-1`` is ten characters and is a real
+    day on Python 3.11+, so a length check is not the grammar. ``YYYYMMDD``
+    is also rejected. 29 February is accepted only in a leap year.
+    """
     try:
-        if not isinstance(value, str) or len(value) != 10:
-            raise ValueError("invalid date string")
-        return date.fromisoformat(value)
+        return parse_calendar_date(value)
     except ValueError as exc:
         raise FederalRegisterAuditError("Date must be YYYY-MM-DD") from exc
 
@@ -190,8 +196,9 @@ def save_scan(out, start="2023-07-01", end="2024-01-02", opener=None):
 
 def main():
     p = argparse.ArgumentParser(description="Screen official FR 33 CFR Part 110 publication index; no legal conclusions")
-    p.add_argument("--start", default="2023-07-01")
-    p.add_argument("--end", default="2024-01-02")
+    p.add_argument("--start", default="2023-07-01",
+                   help="YYYY-MM-DD calendar date; week dates and YYYYMMDD are rejected")
+    p.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
     result = save_scan(a.out, a.start, a.end)

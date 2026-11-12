@@ -388,67 +388,79 @@ def run_multiday(
         params = SegmentationParams(max_sog, min_duration_minutes, max_gap_minutes,
                                     max_radius_m, min_points, max_jump_knots)
     out = Path(out).resolve()
+    created_out = not out.exists()
     out.mkdir(parents=True, exist_ok=True)
     files = _output_files(out)
-    if any(path in paths or path.exists() for path in files.values()):
-        raise FileExistsError("Output files already exist or would overwrite a source")
+    try:
+        if any(path in paths or path.exists() for path in files.values()):
+            raise FileExistsError("Output files already exist or would overwrite a source")
 
-    # Use a private ephemeral scratch directory; never commit or upload AIS.
-    with tempfile.TemporaryDirectory(prefix="harborlens-scratch-") as folder:
-        db_path = Path(folder) / "ais.sqlite3"
-        db = _make_db(db_path, max_scratch_mib)
-        meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
-        try:
-            counts, source_items, (first, last) = _load_files(
-                db, paths, tuple(bbox), max_points, meter
-            )
-            db.commit()
-            censoring = _resolve_windows(paths, source_items, window_start, window_end,
-                                         params.max_gap_minutes)
-            censoring.check_observed(first, last)
-            diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
-            db.commit()
-            meter.check()
-            diagnostics["censoring"] = censoring.event_summary()
-            mmsi_categories = diagnostics.pop("mmsi_categories")
-            diagnostics["warning"] = ("Only unvalidated stationary candidates, "
-                                      "not confirmed berths or waiting vessels.")
-            identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
-                        "bbox": list(bbox), "method": params.manifest(),
-                        "harborlens_version": __version__}
-            if censoring.known:
-                identity["analysis_window"] = censoring.run_id_component()
-            enforced = soft_heap_limit_enforced(db)
-            result = {
-                "mode": "multi_day_historical", "schema_version": MULTIDAY_SCHEMA_VERSION,
-                "input_files": source_items, "bbox_lon_lat": list(bbox),
-                "counts": counts, "events": diagnostics,
-                "method_parameters": params.manifest(), "source_rights_status": "review_required",
-                "code_version": code_version(),
-                "analysis_window": censoring.summary(observed_range(first, last)),
-                "mmsi_categories": mmsi_categories,
-                "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
-                           "max_export_mib": max_export_mib},
-                "resources": {"scratch_peak_bytes": meter.peak_bytes,
-                              "scratch_measurement": "sampled at commits; includes rollback journal",
-                              "memory_bound": memory_bound_record(enforced)},
-                "run_id": hashlib.sha256(
-                    json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-                ).hexdigest(),
-                "artifacts": {
-                    name: {"sha256": checksum(path), "size_bytes": path.stat().st_size}
-                    for name, path in files.items() if name != "manifest.json"
-                },
-                "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
-            }
-            files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
-            return result
-        except Exception:
-            for target in files.values():
-                target.unlink(missing_ok=True)
-            raise
-        finally:
-            db.close()
+        # Use a private ephemeral scratch directory; never commit or upload AIS.
+        with tempfile.TemporaryDirectory(prefix="harborlens-scratch-") as folder:
+            db_path = Path(folder) / "ais.sqlite3"
+            db = _make_db(db_path, max_scratch_mib)
+            meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
+            try:
+                counts, source_items, (first, last) = _load_files(
+                    db, paths, tuple(bbox), max_points, meter
+                )
+                db.commit()
+                censoring = _resolve_windows(paths, source_items, window_start, window_end,
+                                             params.max_gap_minutes)
+                censoring.check_observed(first, last)
+                diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+                db.commit()
+                meter.check()
+                diagnostics["censoring"] = censoring.event_summary()
+                mmsi_categories = diagnostics.pop("mmsi_categories")
+                diagnostics["warning"] = ("Only unvalidated stationary candidates, "
+                                          "not confirmed berths or waiting vessels.")
+                identity = {"source_hashes": sorted(x["sha256"] for x in source_items),
+                            "bbox": list(bbox), "method": params.manifest(),
+                            "harborlens_version": __version__}
+                if censoring.known:
+                    identity["analysis_window"] = censoring.run_id_component()
+                enforced = soft_heap_limit_enforced(db)
+                result = {
+                    "mode": "multi_day_historical", "schema_version": MULTIDAY_SCHEMA_VERSION,
+                    "input_files": source_items, "bbox_lon_lat": list(bbox),
+                    "counts": counts, "events": diagnostics,
+                    "method_parameters": params.manifest(), "source_rights_status": "review_required",
+                    "code_version": code_version(),
+                    "analysis_window": censoring.summary(observed_range(first, last)),
+                    "mmsi_categories": mmsi_categories,
+                    "limits": {"max_points": max_points, "max_scratch_mib": max_scratch_mib,
+                               "max_export_mib": max_export_mib},
+                    "resources": {"scratch_peak_bytes": meter.peak_bytes,
+                                  "scratch_measurement": "sampled at commits; includes rollback journal",
+                                  "memory_bound": memory_bound_record(enforced)},
+                    "run_id": hashlib.sha256(
+                        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest(),
+                    "artifacts": {
+                        name: {"sha256": checksum(path), "size_bytes": path.stat().st_size}
+                        for name, path in files.items() if name != "manifest.json"
+                    },
+                    "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
+                }
+                files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                return result
+            except Exception:
+                for target in files.values():
+                    target.unlink(missing_ok=True)
+                raise
+            finally:
+                db.close()
+    except Exception:
+        # A failure during the load (unreadable file, bad header, row cap,
+        # header-only file) used to leave the directory mkdir created.
+        # Parent directories created with parents=True are left in place.
+        if created_out:
+            try:
+                out.rmdir()
+            except OSError:
+                pass
+        raise
 
 
 class _SQLiteGroupStore:
@@ -556,9 +568,10 @@ def main(argv=None):
     parser.add_argument("--max-scratch-mib", type=int, default=MAX_SCRATCH_MIB)
     parser.add_argument("--max-export-mib", type=int, default=DEFAULT_EXPORT_MIB)
     parser.add_argument("--window-start", default=None,
-                        help="One analysis window covering all inputs (ISO 8601 with Z); "
-                             "only when inputs have no acquisition sidecars")
-    parser.add_argument("--window-end", default=None)
+                        help="One window for every input: YYYY-MM-DDTHH:MM:SSZ or ±HH:MM, "
+                             "0-6 fraction digits; only when inputs have no acquisition sidecars")
+    parser.add_argument("--window-end", default=None,
+                        help="Matching window end; same grammar as --window-start")
     add_threshold_arguments(parser)
     args = parser.parse_args(argv)
     try:

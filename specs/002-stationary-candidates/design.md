@@ -83,3 +83,9 @@ A later slice can keep one read and drop the resident copy of the whole file:
 6. Leave `harborlens-verify-release` as it is: `verification_scope=signed_release_and_pinned_rights_only`. It does not hold the CSV. A signed count above the 100/10 floors remains undetectable there until a separate decision says the verifier must stream the file too.
 
 Peak memory of that recount is one chunk, one partial line, and the MMSI set, independent of file length. The 256 MiB ceiling can then become a fail-closed guard on a hostile stream only if a later change still wants one, or it can be retired once the streamed path has its own tests. That choice belongs to the #70 slice. This change does not make it.
+
+## Input errors, empty output directory, and mapped RSS (issue #77 items 3 and 4)
+
+`sha256` turns `OSError`, including `PermissionError`, into `AISInputError`. `header_alias` raises `AISInputError` for a missing required column. `harborlens-multiday` already catches `AISInputError` and exits 2 with no traceback. It does not catch a bare `ValueError`. A bad row timestamp stays a per-row `ValueError` and is counted invalid. The command creates the output directory before the load. If that directory did not already exist and the run fails, the empty directory is removed. An existing directory, and parent directories created with `parents=True`, stay. The mapped-RSS assertions skip when `/proc/self/smaps` is absent and fail on Linux when that file exists and the probe returns None. The ordered scan still parses timestamps this module wrote. Those strings have no fraction, or six fractional digits, then `Z`.
+
+Analysis-window bounds parsed by `censoring.parse_utc` use uppercase `T`, `HH:MM:SS`, no fraction or 1 to 6 fractional digits, and `Z` or `±HH:MM`. A non-UTC offset is converted to UTC. ASCII whitespace around the value is ignored. A naive clock is rejected. Refs #77 (stays open). Refs #78 (stays open).

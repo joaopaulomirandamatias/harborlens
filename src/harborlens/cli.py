@@ -13,9 +13,11 @@ def main():
     p.add_argument("--max-rows", type=int, default=None)
     p.add_argument("--source-url", default=None, help="Unverified user-declared dataset URL")
     p.add_argument("--window-start", default=None,
-                   help="Analysis window start (ISO 8601 with Z); default: verified acquisition sidecar")
+                   help="Window start: YYYY-MM-DDTHH:MM:SSZ or ±HH:MM, 0-6 fraction digits; "
+                        "default: verified acquisition sidecar")
     p.add_argument("--window-end", default=None,
-                   help="Analysis window end (ISO 8601 with Z); default: verified acquisition sidecar")
+                   help="Window end: YYYY-MM-DDTHH:MM:SSZ or ±HH:MM, 0-6 fraction digits; "
+                        "default: verified acquisition sidecar")
     add_threshold_arguments(p)
     a = p.parse_args()
     print(json.dumps(run(Path(a.input),Path(a.out),tuple(a.bbox),a.max_rows,a.source_url,

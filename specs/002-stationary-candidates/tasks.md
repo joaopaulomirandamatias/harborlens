@@ -48,5 +48,8 @@
 - [x] Record `soft_heap_limit_enforced` from `PRAGMA compile_options` (`ENABLE_MEMORY_MANAGEMENT`). Claim the 8 MiB soft heap as a bound only when that field is true. The enforced pin is cache 8192 KiB, mmap off, and `temp_store=FILE`. Refs #77 (stays open).
 - [x] Assert the scratch file's resident mapping stays ≤ 1 MiB. The same 14-day synthetic fixture with a 256 MiB cache, soft heap 0, mmap on, and `temp_store=MEMORY` exceeds that ceiling. Manifests are `multi-day-1.1`. A `multi-day-1.0` manifest without `memory_bound` is rejected. A wrong file count and an existing output exit 2 with no traceback.
 - [x] Show single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` are byte-identical to package `0.2.0.dev9` (`tests/fixtures/single_day_0.2.0.dev9/`). Manifest differs in package version and `run_id` only.
-- [ ] Stream the release-path recount past 256 MiB. Proposal only, in the SPEC-002 design. `publication.py` and `release_verify.py` are unchanged. Refs #70 (stays open).
+- [ ] Stream the release-path recount past 256 MiB. Proposal only, in the SPEC-002 design. The 256 MiB recount is unchanged. Refs #70 (stays open).
+- [x] Report an unreadable multi-day input and a missing required column as `AISInputError` so the CLI exits 2 with no traceback. Remove an output directory this command created when that run fails and the directory is empty (`tests/test_multiday_bounded.py`). Refs #77 (stays open).
+- [x] Skip the mapped-RSS assertions when `/proc/self/smaps` is absent, and fail them on Linux when smaps exists and the probe returns None. Refs #77 (stays open).
+- [ ] Rename `fixed-sqlite-heap-v1` / `sqlite_soft_heap_bytes`, and assert live PRAGMAs in the memory probe, wait for a later schema bump. Refs #77 (stays open).
 - [ ] Measure this working set on another authorized seasonal NOAA sample. The 2026-11-09 seven-day run predates the soft-heap pin.
