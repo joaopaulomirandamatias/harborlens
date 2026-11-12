@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: release summary rights_status is an allowlist)
+- `harborlens-release-summary` denies a staged summary whose `rights_status` is missing, `None`, not a string, or outside `APPROVED_STATUSES` (`reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions`). The denial is `ReleaseDenied` and the CLI exits 2 with no traceback and no file. A missing status no longer skips the `conditions_reviewed` requirement. Package version stays `0.2.0.dev9`. Successful release documents are unchanged. Refs #70 (stays open).
+
+### Changed (SPEC-003: release-review tolerance, one summary evaluation, packaged schemas)
+- Package version `0.2.0.dev9` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. The installed wheel and sdist now contain `public-summary.schema.json`, `publication-review.schema.json`, and `release-verification-result.schema.json` under `harborlens/schemas/v1/`. `read_packaged_release_schema` loads those names with `importlib.resources` only. Any other name is refused. The GovInfo LSA schema stays unpackaged.
+- Ordinary `harborlens` manifests stay byte-identical to `0.2.0.dev8` except `code_version.package_version` and `run_id`. `run_id` is the SHA-256 of settings that include `harborlens_version`, so that digest changes with the version string and no other main-gate field changes. The LSA report's `harborlens_version` is the same version string. A successful release document gains no fields; its `run_id` changes only when the manifest was produced by this version. Runs from `0.2.0.dev8` and `0.2.0.dev9` are not directly comparable. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #70 (stays open). Refs #42 (stays open).
+
+### Added (SPEC-003: documented review clock and single release evaluation)
+- `reviewed_at_utc` is documented as an RFC3339 UTC date-time accepted from 30 days before the checker clock through 5 minutes after it, inclusive. The 5 minutes are a fixed clock-skew allowance (`REVIEW_FUTURE_TOLERANCE`), not a configuration knob. `harborlens-release-summary` and `harborlens-verify-release` share `review_timestamp_is_current`. CLI help states the same window.
+- `harborlens-release-summary` calls `prepare_summary` once per invocation, including one `rights_receipt`, and stages that summary. It does not build the summary again. README and `schemas/README.md` name the release CLIs and the three packaged schemas.
+- The 256 MiB cleaned-CSV recount ceiling stays fixed. This change does not add a streaming reader. Refs #70 (stays open).
+
 ### Changed (SPEC-004: version the GovInfo LSA comparison artifact)
 - Package version `0.2.0.dev8` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. The LSA comparison is a new artifact with its own schema, so the version identifies the code that generated it. The report requires `harborlens_version`, copied from `harborlens.__version__`.
 - Ordinary AIS manifests change because `run_id` hashes `harborlens_version` and `code_version.package_version` records it. Runs from `0.2.0.dev7` and `0.2.0.dev8` are not directly comparable. No source rights are granted. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #7 (stays open).

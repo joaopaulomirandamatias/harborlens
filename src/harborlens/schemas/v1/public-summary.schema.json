@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarborLens locally staged, non-operational aggregate release",
+  "description": "Only bounded, coarse summary fields; no individual AIS, MMSI identifiers, positions, timestamps or event records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "summary_sha256",
+    "release_review"
+  ],
+  "properties": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "research_status",
+        "purpose",
+        "method_version",
+        "run_id",
+        "run_manifest_sha256",
+        "acquisition_sha256",
+        "source_id",
+        "dataset_version",
+        "rights_registry_sha256",
+        "rights_status",
+        "counts",
+        "warning"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "public-summary-v0.1"
+        },
+        "research_status": {
+          "const": "unvalidated_stationary_candidates"
+        },
+        "purpose": {
+          "enum": [
+            "public_aggregates",
+            "commercial"
+          ]
+        },
+        "method_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "run_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acquisition_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_id": {
+          "enum": [
+            "noaa_pmel_erddap",
+            "noaa_ocm_ais_daily"
+          ]
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "rights_registry_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "rights_status": {
+          "enum": [
+            "reviewed_public_domain_attribution_required",
+            "reviewed_permitted_with_conditions"
+          ]
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observations_scanned",
+            "observations_retained",
+            "unique_mmsi_groups",
+            "unvalidated_stationary_candidates"
+          ],
+          "properties": {
+            "observations_scanned": {
+              "type": "integer",
+              "minimum": 100
+            },
+            "observations_retained": {
+              "type": "integer",
+              "minimum": 100
+            },
+            "unique_mmsi_groups": {
+              "type": "integer",
+              "minimum": 10
+            },
+            "unvalidated_stationary_candidates": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "warning": {
+          "type": "string",
+          "minLength": 10
+        }
+      }
+    },
+    "summary_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "release_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision",
+        "summary_sha256",
+        "purpose",
+        "reviewer_id",
+        "reviewed_at_utc",
+        "privacy_reviewed",
+        "source_rights_reviewed",
+        "scientific_limitations_reviewed",
+        "conditions_reviewed",
+        "signature_algorithm",
+        "public_key_sha256",
+        "signature_b64"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision": {
+          "const": "approved"
+        },
+        "summary_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "purpose": {
+          "enum": [
+            "public_aggregates",
+            "commercial"
+          ]
+        },
+        "reviewer_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]{3,64}$"
+        },
+        "reviewed_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "privacy_reviewed": {
+          "const": true
+        },
+        "source_rights_reviewed": {
+          "const": true
+        },
+        "scientific_limitations_reviewed": {
+          "const": true
+        },
+        "conditions_reviewed": {
+          "type": "boolean"
+        },
+        "signature_algorithm": {
+          "const": "Ed25519"
+        },
+        "public_key_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "signature_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
+        }
+      }
+    }
+  }
+}

@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harborlens.provenance import digests_equal
@@ -23,6 +22,8 @@ from harborlens.publication import (
     MIN_VESSELS,
     ReleaseDenied,
     _review_moment,
+    _utcnow,
+    review_timestamp_is_current,
     summary_sha256,
 )
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
@@ -190,9 +191,9 @@ def _validate_review(review, summary, digest, expected_reviewer_id, *,
         raise ReleaseVerificationError(
             "Review timestamp must be an RFC3339 UTC date-time"
         ) from exc
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     try:
-        fresh = now - timedelta(days=30) <= reviewed <= now + timedelta(minutes=5)
+        fresh = review_timestamp_is_current(reviewed, now)
     except TypeError as exc:
         raise ReleaseVerificationError(
             "Review timestamp must be an RFC3339 UTC date-time"
@@ -277,7 +278,12 @@ def verify_release(
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Independently verify a signed aggregate-only release (no AIS needed)"
+        description=(
+            "Independently verify a signed aggregate-only release (no AIS needed). "
+            "reviewed_at_utc must be an RFC3339 UTC date-time no older than "
+            "30 days and at most 5 minutes ahead of this clock. The 5 minutes "
+            "are a fixed clock-skew allowance."
+        )
     )
     parser.add_argument("--release", required=True, type=Path)
     parser.add_argument("--rights-register", required=True, type=Path)

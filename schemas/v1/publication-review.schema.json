@@ -42,7 +42,8 @@
     },
     "reviewed_at_utc": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "RFC3339 UTC date-time. harborlens-release-summary and harborlens-verify-release accept it only when it is not older than 30 days and not more than 5 minutes ahead of the checker clock. The 5 minutes are a fixed clock-skew allowance, not a configuration knob. A date-only value is rejected."
     },
     "privacy_reviewed": {
       "const": true

@@ -26,3 +26,5 @@ jobs:
         run: harborlens --input tests/fixtures/synthetic_ais.csv --out results
       - name: Wheel install outside the checkout
         run: bash tools/check_rights_wheel_install.sh
+      - name: Release schemas in the wheel and sdist
+        run: bash tools/check_release_schema_wheel_install.sh

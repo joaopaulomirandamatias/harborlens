@@ -73,3 +73,12 @@
 - [x] Boundary tests for a stale manifest hash, stale counts at the 100-observation and 10-group boundaries, one open, and the size ceiling at exact size and one byte over. Recount tests that do not need a signature are not gated on `cryptography`.
 - [x] Compare pinned digests, hashes, fingerprints and parameter-set pins with `hmac.compare_digest` on normalized lowercase hex or equal-typed bytes. A mismatched digest exits 2.
 - [x] Document that `harborlens-verify-release` does not recount the cleaned CSV. Refs #70 (stays open). Refs #71 (stays open). Refs #42 (stays open).
+
+## Release-summary residuals: tolerance, single evaluation, docs, packaged schemas
+
+- [x] Document the fixed 5-minute future clock-skew allowance and the 30-day maximum age for `reviewed_at_utc` in the CLI help, CLI docs, and SPEC-003. The allowance is not a configuration knob (SPEC-003, FR-010, BR-015, BR-016).
+- [x] `harborlens-release-summary` calls `prepare_summary` / `rights_receipt` once and stages that summary. Synthetic call-count test on the dry-run and staging paths.
+- [x] README and `schemas/README.md` name `harborlens-release-summary`, `harborlens-verify-release`, and the public-summary, publication-review, and release-verification-result schemas.
+- [x] Package those three schemas in the wheel and sdist. Load them with `importlib.resources` only. Refuse any other name. A schema next to the package is not consulted. The GovInfo LSA schema stays unpackaged.
+- [x] Deny a release summary whose `rights_status` is missing, `None`, not a string, or outside the approved-status allowlist (`ReleaseDenied`, CLI exit 2, nothing written). Absolute paths, backslashes, percent-encoding, uppercase names, NUL bytes, `..` segments, and trailing whitespace are refused by the schema loader before any filesystem read. CLI review-window edges use a frozen clock: exactly 30 days old and exactly 5 minutes ahead are accepted; one second outside either edge is rejected.
+- [ ] Institution-controlled reviewer key custody, a real source-rights approval, and a streaming recount for a cleaned CSV above the fixed 256 MiB ceiling remain external. This list does not add a streaming reader. Refs #70 (stays open). Refs #42 (stays open).

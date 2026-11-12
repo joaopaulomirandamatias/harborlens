@@ -1,2 +1,2 @@
 """HarborLens research library; not for navigation."""
-__version__ = "0.2.0.dev8"
+__version__ = "0.2.0.dev9"

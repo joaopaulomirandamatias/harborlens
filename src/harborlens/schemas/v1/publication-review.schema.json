@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manually reviewed HarborLens aggregate release approval",
+  "description": "Cryptographically signed, reviewer-pinned SHA-256 and purpose assertions; not proof of upstream data rights. The Ed25519 message is the domain separator line harborlens.publication-review.v1, a newline, then the canonical JSON of every field except signature_b64 (sorted keys, compact separators, ASCII escaping, non-finite numbers rejected, trailing newline). A signature that omits that separator is invalid.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "summary_sha256",
+    "purpose",
+    "reviewer_id",
+    "reviewed_at_utc",
+    "privacy_reviewed",
+    "source_rights_reviewed",
+    "scientific_limitations_reviewed",
+    "conditions_reviewed",
+    "signature_algorithm",
+    "public_key_sha256",
+    "signature_b64"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "decision": {
+      "const": "approved"
+    },
+    "summary_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "purpose": {
+      "enum": [
+        "public_aggregates",
+        "commercial"
+      ]
+    },
+    "reviewer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{3,64}$"
+    },
+    "reviewed_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 UTC date-time. harborlens-release-summary and harborlens-verify-release accept it only when it is not older than 30 days and not more than 5 minutes ahead of the checker clock. The 5 minutes are a fixed clock-skew allowance, not a configuration knob. A date-only value is rejected."
+    },
+    "privacy_reviewed": {
+      "const": true
+    },
+    "source_rights_reviewed": {
+      "const": true
+    },
+    "scientific_limitations_reviewed": {
+      "const": true
+    },
+    "conditions_reviewed": {
+      "type": "boolean"
+    },
+    "signature_algorithm": {
+      "const": "Ed25519"
+    },
+    "public_key_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signature_b64": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{86}==$"
+    }
+  }
+}
