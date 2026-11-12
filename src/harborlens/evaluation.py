@@ -127,6 +127,7 @@ def evaluate(run_dir, sampling, labels_path, out):
     if plan.get("run_manifest_sha256") != sha256(manifest_path) or plan.get("parameter_set") != params.parameter_set:
         raise AISInputError("Sampling manifest was not drawn from this run")
     key = {k["sample_id"]: k for k in plan["key"]}
+    schema_version = plan.get("schema_version")
     labels = _read_labels(labels_path, set(key))
     geo = json.loads((run_dir / "stationary_candidates.geojson").read_text(encoding="utf-8"))
     candidates = {f["properties"]["event_id"]: f["properties"] for f in geo["features"]}
@@ -134,6 +135,8 @@ def evaluate(run_dir, sampling, labels_path, out):
     excluded = Counter()
     rows = []
     for sid, unit in sorted(key.items()):
+        # Parse before exclusion so a damaged key cannot become a vessel-group cohort.
+        parsed = parse_stratum(unit.get("stratum"), schema_version, sid)
         row = labels.get(sid)
         if row is None:
             excluded["unlabeled"] += 1
@@ -156,7 +159,7 @@ def evaluate(run_dir, sampling, labels_path, out):
         rows.append({"sample_id": sid, "kind": unit["kind"], "stratum": stratum, "outcome": outcome,
                      "label": row["label"], "evidence_level": row["evidence_level"], "props": props,
                      "censoring": censoring,
-                     "vessel_group": parse_stratum(stratum)["vessel_group"], "label_row": row})
+                     "vessel_group": parsed["vessel_group"], "label_row": row})
 
     def metrics(selected):
         counts = Counter(r["outcome"] for r in selected)

@@ -31,10 +31,13 @@ from harborlens.io_safe import AISInputError
 from harborlens.provenance import verify_manifest
 from harborlens.segmentation import SegmentationParams
 
+SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
 AGREEMENT_SCHEMA = "label-agreement-v0.1"
 # Closed stratum tokens. Anything other than A or B is absent_or_unknown and stays in the sample.
 TRANSCEIVER_STRATA = ("A", "B", "absent_or_unknown")
+# Canonical vessel groups returned by vessel_group(). The evaluator accepts only these.
+VESSEL_GROUPS = ("cargo", "tanker", "passenger", "tug_or_service", "other_or_unknown")
 LABELS = ("at_berth", "at_anchor", "other_stationary", "maneuvering", "transit", "mixed", "unknown")
 COLLAPSED = {"at_berth": "stationary", "at_anchor": "stationary", "other_stationary": "stationary",
              "maneuvering": "moving", "transit": "moving", "mixed": "mixed", "unknown": "unknown"}
@@ -58,7 +61,11 @@ def _iso(value):
 
 
 def vessel_group(code):
-    """Coarse AIS ship-type group used only for stratification."""
+    """Coarse AIS ship-type group used only for stratification.
+
+    Every return value is a member of ``VESSEL_GROUPS``, which is the set the
+    evaluator accepts.
+    """
     try:
         value = int(float(code))
     except (TypeError, ValueError):
@@ -85,30 +92,62 @@ def transceiver_stratum(value):
     return text if text in ("A", "B") else "absent_or_unknown"
 
 
-def parse_stratum(key):
-    """Named components of a stratum key.
+def parse_stratum(key, schema_version, sample_id=None):
+    """Named components of a stratum key for an explicit sampling-manifest schema.
 
-    v0.2 candidates are ``duration|censoring|vessel_group|transceiver_class`` and
-    negatives are ``negative|vessel_group|transceiver_class``. v0.1 keys omit the
-    class component; ``transceiver_class`` is then None. The vessel group is never
-    the final component of a v0.2 key (the evaluator reads it by position).
+    ``label-sample-v0.2`` candidates are ``duration|censoring|vessel_group|transceiver_class``
+    and negatives are ``negative|vessel_group|transceiver_class``. ``label-sample-v0.1``
+    keys omit the class and are accepted only when ``schema_version`` is exactly that
+    string. Field count is not used to guess the version. A damaged key raises
+    ``AISInputError`` and names ``sample_id`` when one was supplied.
     """
+    where = f"{sample_id}: " if sample_id else ""
+
+    def reject(reason):
+        raise AISInputError(f"{where}{reason}")
+
+    if schema_version not in (SAMPLE_SCHEMA_V01, SAMPLE_SCHEMA):
+        reject("sampling manifest schema_version "
+               f"{schema_version!r} is missing or not a supported label-sample schema")
+    if not isinstance(key, str) or not key or any(part == "" for part in key.split("|")):
+        reject(f"stratum {key!r} is not a {schema_version} key")
     parts = key.split("|")
-    if not parts or parts[0] == "":
-        raise ValueError(f"Invalid stratum key: {key!r}")
-    if parts[0] == "negative":
-        if len(parts) == 3:
-            return {"kind": "negative", "vessel_group": parts[1], "transceiver_class": parts[2]}
-        if len(parts) == 2:
-            return {"kind": "negative", "vessel_group": parts[1], "transceiver_class": None}
-        raise ValueError(f"Invalid negative stratum key: {key!r}")
-    if len(parts) == 4:
-        return {"kind": "candidate", "duration_band": parts[0], "censoring": parts[1],
-                "vessel_group": parts[2], "transceiver_class": parts[3]}
-    if len(parts) == 3:
-        return {"kind": "candidate", "duration_band": parts[0], "censoring": parts[1],
-                "vessel_group": parts[2], "transceiver_class": None}
-    raise ValueError(f"Invalid candidate stratum key: {key!r}")
+    negative = parts[0] == "negative"
+    if schema_version == SAMPLE_SCHEMA:
+        if negative:
+            if len(parts) != 3:
+                reject(f"stratum {key!r} is not a label-sample-v0.2 negative key "
+                       "(negative|vessel_group|transceiver_class)")
+            vessel, tclass = parts[1], parts[2]
+            kind, duration, censoring = "negative", None, None
+        else:
+            if len(parts) != 4:
+                reject(f"stratum {key!r} is not a label-sample-v0.2 candidate key "
+                       "(duration|censoring|vessel_group|transceiver_class)")
+            duration, censoring, vessel, tclass = parts
+            kind = "candidate"
+        if tclass not in TRANSCEIVER_STRATA:
+            reject(f"transceiver_class {tclass!r} is not one of {', '.join(TRANSCEIVER_STRATA)}")
+    else:
+        if negative:
+            if len(parts) != 2:
+                reject(f"stratum {key!r} is not a label-sample-v0.1 negative key "
+                       "(negative|vessel_group)")
+            vessel, tclass = parts[1], None
+            kind, duration, censoring = "negative", None, None
+        else:
+            if len(parts) != 3:
+                reject(f"stratum {key!r} is not a label-sample-v0.1 candidate key "
+                       "(duration|censoring|vessel_group)")
+            duration, censoring, vessel = parts
+            kind, tclass = "candidate", None
+    if vessel not in VESSEL_GROUPS:
+        reject(f"vessel_group {vessel!r} is not one of {', '.join(VESSEL_GROUPS)}")
+    parsed = {"kind": kind, "vessel_group": vessel, "transceiver_class": tclass}
+    if kind == "candidate":
+        parsed["duration_band"] = duration
+        parsed["censoring"] = censoring
+    return parsed
 
 
 def duration_band(minutes):
@@ -258,7 +297,7 @@ def _class_list(group, allocation, drawn_only):
             continue
         if drawn_only and not allocation.get(key):
             continue
-        found.add(parse_stratum(key)["transceiver_class"])
+        found.add(parse_stratum(key, SAMPLE_SCHEMA)["transceiver_class"])
     return [name for name in TRANSCEIVER_STRATA if name in found]
 
 
@@ -325,7 +364,8 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
 
     allocation = {}
     for group, wanted in ((strata, candidates), (negative_strata, negatives)):
-        plan = _allocate(group, wanted, rng, cover=lambda key: parse_stratum(key)["transceiver_class"])
+        plan = _allocate(group, wanted, rng,
+                         cover=lambda key: parse_stratum(key, SAMPLE_SCHEMA)["transceiver_class"])
         allocation.update(plan)
         for key, count in plan.items():
             units.extend(rng.sample(group[key], count))

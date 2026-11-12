@@ -12,8 +12,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 from harborlens.ais import run
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
-    ANNOTATION_FIELDS, SHEET_FIELDS, TRANSCEIVER_STRATA, _allocate, agreement, cohen_kappa,
-    draw_sample, parse_stratum, transceiver_stratum,
+    ANNOTATION_FIELDS, SAMPLE_SCHEMA, SAMPLE_SCHEMA_V01, SHEET_FIELDS, TRANSCEIVER_STRATA,
+    VESSEL_GROUPS, _allocate, agreement, cohen_kappa, draw_sample, parse_stratum,
+    transceiver_stratum, vessel_group,
 )
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas" / "v1"
@@ -95,16 +96,37 @@ class TransceiverStratumTests(unittest.TestCase):
         self.assertEqual(mapped, ["A", "A", "A", "B", "B", "B",
                                   "absent_or_unknown", "absent_or_unknown", "absent_or_unknown",
                                   "absent_or_unknown", "absent_or_unknown", "absent_or_unknown"])
-        self.assertEqual(parse_stratum("gt_180|censored|cargo|B"),
+        self.assertEqual(parse_stratum("gt_180|censored|cargo|B", SAMPLE_SCHEMA),
                          {"kind": "candidate", "duration_band": "gt_180", "censoring": "censored",
                           "vessel_group": "cargo", "transceiver_class": "B"})
-        self.assertEqual(parse_stratum("negative|tanker|absent_or_unknown")["transceiver_class"],
+        self.assertEqual(parse_stratum("negative|tanker|absent_or_unknown", SAMPLE_SCHEMA)["transceiver_class"],
                          "absent_or_unknown")
-        # v0.1 keys have no class component and still name the vessel group.
-        self.assertEqual(parse_stratum("lt_60|uncensored|cargo")["vessel_group"], "cargo")
-        self.assertIsNone(parse_stratum("negative|cargo")["transceiver_class"])
-        with self.assertRaises(ValueError):
-            parse_stratum("not-a-stratum")
+        produced = {vessel_group(code) for code in ("70", "80", "60", "31", "", "nope", None)}
+        self.assertEqual(produced, set(VESSEL_GROUPS))
+
+    def test_v01_stratum_is_accepted_only_with_explicit_schema_version(self):
+        parsed = parse_stratum("lt_60|uncensored|tug_or_service", SAMPLE_SCHEMA_V01, "S0001")
+        self.assertEqual(parsed["vessel_group"], "tug_or_service")
+        self.assertIsNone(parsed["transceiver_class"])
+        self.assertEqual(parse_stratum("negative|cargo", SAMPLE_SCHEMA_V01, "S0002")["vessel_group"], "cargo")
+
+    def test_damaged_stratum_raises_for_the_sample_id(self):
+        cases = (
+            ("v0.2 three-part key ending in A", "lt_60|uncensored|A", SAMPLE_SCHEMA, "S0101"),
+            ("v0.2 five-part key", "lt_60|uncensored|cargo|A|extra", SAMPLE_SCHEMA, "S0102"),
+            ("unknown vessel group", "lt_60|uncensored|ferry|A", SAMPLE_SCHEMA, "S0103"),
+            ("unknown class", "lt_60|uncensored|cargo|class_unknown", SAMPLE_SCHEMA, "S0104"),
+            ("missing schema_version", "lt_60|uncensored|cargo|A", None, "S0105"),
+            ("unknown schema_version", "lt_60|uncensored|cargo|A", "label-sample-v0.9", "S0106"),
+            ("v0.1 key under v0.2", "lt_60|uncensored|cargo", SAMPLE_SCHEMA, "S0107"),
+            ("v0.2 key under v0.1", "lt_60|uncensored|cargo|A", SAMPLE_SCHEMA_V01, "S0108"),
+            ("v0.1 unknown vessel group", "lt_60|uncensored|ferry", SAMPLE_SCHEMA_V01, "S0109"),
+        )
+        for name, key, schema, sample_id in cases:
+            with self.subTest(name=name):
+                with self.assertRaises(AISInputError) as caught:
+                    parse_stratum(key, schema, sample_id)
+                self.assertIn(sample_id, str(caught.exception))
 
     def test_every_non_empty_class_stratum_is_drawn_and_the_sheet_stays_blind(self):
         rows = (track("367100001", "70", "A", [40, 200], 0)
@@ -123,7 +145,7 @@ class TransceiverStratumTests(unittest.TestCase):
         drawn = {row["stratum"] for row in record["key"]}
         self.assertEqual(drawn, set(frame))
         for row in record["key"]:
-            self.assertEqual(row["transceiver_class"], parse_stratum(row["stratum"])["transceiver_class"])
+            self.assertEqual(row["transceiver_class"], parse_stratum(row["stratum"], SAMPLE_SCHEMA)["transceiver_class"])
             self.assertIn(row["transceiver_class"], TRANSCEIVER_STRATA)
         classes = record["stratification"]["transceiver_classes"]
         self.assertEqual(classes["candidates"]["in_frame"], ["A", "B", "absent_or_unknown"])
@@ -174,7 +196,7 @@ class TransceiverStratumTests(unittest.TestCase):
             drawn = set(record["stratification"]["transceiver_classes"][bucket]["drawn"])
             self.assertEqual(present, {"A"})
             self.assertEqual(drawn, {"A"})
-        tokens = {parse_stratum(key)["transceiver_class"] for key in record["allocation"]}
+        tokens = {parse_stratum(key, SAMPLE_SCHEMA)["transceiver_class"] for key in record["allocation"]}
         self.assertEqual(tokens, {"A"})
         self.assertNotIn("B", tokens)
         self.assertNotIn("absent_or_unknown", tokens)
@@ -189,7 +211,7 @@ class TransceiverStratumTests(unittest.TestCase):
         self.assertEqual(len(class_b), 1)
         record = self.draw(run_dir, "one_b.csv", candidates=100, negatives=0)
         b_keys = [key for key, count in record["frame"]["candidates"].items()
-                  if parse_stratum(key)["transceiver_class"] == "B"]
+                  if parse_stratum(key, SAMPLE_SCHEMA)["transceiver_class"] == "B"]
         self.assertEqual(len(b_keys), 1)
         self.assertEqual(record["frame"]["candidates"][b_keys[0]], 1)
         self.assertEqual(record["allocation"][b_keys[0]], 1)
@@ -285,9 +307,9 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(record["drawn"]["candidates"], sum(record["frame"]["candidates"].values()))
         strata = {k["stratum"] for k in record["key"]}
         self.assertTrue(any(s.startswith("gt_180") for s in strata))
-        self.assertTrue(any(parse_stratum(s)["vessel_group"] == "tug_or_service" for s in strata))
+        self.assertTrue(any(parse_stratum(s, SAMPLE_SCHEMA)["vessel_group"] == "tug_or_service" for s in strata))
         # This fixture has no transceiver column, so every unit is the absent/unknown stratum.
-        self.assertEqual({parse_stratum(s)["transceiver_class"] for s in strata}, {"absent_or_unknown"})
+        self.assertEqual({parse_stratum(s, SAMPLE_SCHEMA)["transceiver_class"] for s in strata}, {"absent_or_unknown"})
         self.assertTrue(record["stratification"]["all_non_empty_strata_drawn"])
 
     def test_negatives_are_moving_and_do_not_overlap_candidates(self):

@@ -172,6 +172,19 @@ class EvaluatorTests(unittest.TestCase):
             evaluate(self.run_dir, self.sampling, good, self.root / "exists.json")
         self.assertIsNotNone(other)
 
+    def test_damaged_v02_key_is_not_reported_as_a_vessel_group(self):
+        plan = json.loads(self.sampling.read_text())
+        unit = next(item for item in plan["key"] if item["kind"] == "candidate")
+        unit["stratum"] = "lt_60|uncensored|A"
+        damaged = self.root / "damaged.sampling.json"
+        damaged.write_text(json.dumps(plan))
+        labels = self.write_labels(lambda item: {"label": "at_berth"} if item["kind"] == "candidate" else {"label": "transit"},
+                                   name="damaged-labels.csv")
+        with self.assertRaises(AISInputError) as caught:
+            evaluate(self.run_dir, damaged, labels, self.root / "damaged-eval.json")
+        self.assertIn(unit["sample_id"], str(caught.exception))
+        self.assertFalse((self.root / "damaged-eval.json").exists())
+
     def test_adjudicated_rows_satisfy_schema(self):
         path = self.write_labels(lambda u: {"label": "unknown"})
         validator = Draft202012Validator(json.loads((SCHEMAS / "adjudicated-label.schema.json").read_text()),
