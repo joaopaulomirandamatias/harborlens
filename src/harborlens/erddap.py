@@ -18,6 +18,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from harborlens.rights import PURPOSES, rights_receipt
+from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 BASE = "https://data.pmel.noaa.gov/pmel/erddap/tabledap/AIS2024_AIS.csv"
 INFO = "https://data.pmel.noaa.gov/pmel/erddap/info/AIS2024_AIS/index.html"
@@ -30,13 +31,17 @@ class AcquisitionError(ValueError):
 
 
 def utc(value: str) -> datetime:
+    """Parse a query bound. Uppercase ``T``, required ``Z`` or ``±HH:MM``, no strip.
+
+    The fraction is absent or 1 to 6 digits. A non-UTC offset is converted
+    to UTC. A space separator and a naive clock are rejected.
+    """
     try:
-        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (TypeError, AttributeError, ValueError) as exc:
+        return parse_explicit_utc(value)
+    except ExplicitOffsetRequired as exc:
+        raise AcquisitionError("Datetime requires timezone offset or Z") from exc
+    except (TypeError, ValueError) as exc:
         raise AcquisitionError("Invalid ISO8601 UTC datetime") from exc
-    if result.tzinfo is None:
-        raise AcquisitionError("Datetime requires timezone offset or Z")
-    return result.astimezone(timezone.utc)
 
 
 def build_url(start: str, end: str, bbox=HOUSTON) -> str:
@@ -154,8 +159,10 @@ def fetch_subset(start, end, bbox, output, max_mib=8, opener=None,
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch a bounded historical NOAA PMEL AIS2024 subset")
-    parser.add_argument("--start", required=True)
-    parser.add_argument("--end", required=True)
+    parser.add_argument("--start", required=True,
+                        help="YYYY-MM-DDTHH:MM:SSZ or ±HH:MM; 0-6 fraction digits; no surrounding space")
+    parser.add_argument("--end", required=True,
+                        help="Same grammar as --start, and later than --start within 2024")
     parser.add_argument("--bbox", nargs=4, type=float, default=HOUSTON, metavar=("W", "S", "E", "N"))
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--max-mib", type=int, default=8)

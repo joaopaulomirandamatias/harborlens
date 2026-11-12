@@ -12,11 +12,12 @@ import hashlib
 import json
 import os
 import re
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from harborlens.provenance import checksum, digests_equal
+from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 MAX_POLYGON_MIB = 32
 MAX_JSON_BYTES = 128 * 1024
@@ -42,15 +43,20 @@ def _small_json(path):
 
 
 def _aware_time(value):
+    """Parse a study bound. Uppercase ``T``, required ``Z`` or ``±HH:MM``, no strip.
+
+    The fraction is absent or 1 to 6 digits. A non-UTC offset is converted
+    to UTC. ``_calendar_date`` is a separate, narrower ``YYYY-MM-DD`` check
+    and is unchanged.
+    """
     if not isinstance(value, str):
         raise VintageAuditError("Timestamp must be a string with UTC offset")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parse_explicit_utc(value)
+    except ExplicitOffsetRequired as exc:
+        raise VintageAuditError("Time must specify an explicit UTC offset") from exc
     except ValueError as exc:
         raise VintageAuditError("Invalid ISO 8601 timestamp") from exc
-    if parsed.tzinfo is None:
-        raise VintageAuditError("Time must specify an explicit UTC offset")
-    return parsed.astimezone(timezone.utc)
 
 
 def _calendar_date(value, name):
@@ -180,8 +186,10 @@ def main():
     parser.add_argument("--polygons", type=Path, required=True)
     parser.add_argument("--source-receipt", type=Path)
     parser.add_argument("--enc-evidence", type=Path, help="Optional unverified, user-supplied ENC documentary record")
-    parser.add_argument("--start", required=True, help="Study start in ISO 8601 UTC")
-    parser.add_argument("--end", required=True, help="Study end in ISO 8601 UTC")
+    parser.add_argument("--start", required=True,
+                        help="Study start: YYYY-MM-DDTHH:MM:SSZ or ±HH:MM; 0-6 fraction digits; no surrounding space")
+    parser.add_argument("--end", required=True,
+                        help="Study end; same grammar as --start")
     parser.add_argument("--out", type=Path, required=True)
     a = parser.parse_args()
     print(json.dumps(audit_vintage(a.polygons, a.out, a.start, a.end, a.source_receipt, a.enc_evidence), indent=2))

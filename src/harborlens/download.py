@@ -1,21 +1,28 @@
 """Optional download of official nationwide daily NOAA archives; opt-in only."""
 import argparse
 import hashlib
-from datetime import date
 from pathlib import Path
 from urllib.request import Request,urlopen
 
 from harborlens.io_safe import AISInputError
+from harborlens.timeparse import parse_calendar_date
 from harborlens.vintages import vintage_for
+
+def _day(value):
+    """Accept ASCII ``YYYY-MM-DD`` only. Week dates and ``YYYYMMDD`` are refused."""
+    try:
+        return parse_calendar_date(value)
+    except ValueError as exc:
+        raise AISInputError("Date must be YYYY-MM-DD") from exc
 
 def main():
     p=argparse.ArgumentParser(description="Experimental NOAA AIS daily downloader")
-    p.add_argument("--date",required=True,help="YYYY-MM-DD")
+    p.add_argument("--date",required=True,help="YYYY-MM-DD calendar date; not a week date or YYYYMMDD")
     p.add_argument("--directory",default="data")
     p.add_argument("--max-mib",type=int,default=1024)
     a=p.parse_args()
-    d=date.fromisoformat(a.date)
     try:
+        d=_day(a.date)
         vintage=vintage_for(d)
     except AISInputError as exc:
         p.error(str(exc))

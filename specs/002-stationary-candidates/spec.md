@@ -28,6 +28,9 @@ FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019
 14. **Given** synthetic inputs of 1, 3, 7, and 14 days; **when** the fixed pin is in force; **then** the resident mapping of the scratch database stays within the ceiling in the design. **Given** the same 14-day input with a 256 MiB cache, soft heap 0, mmap on, and `temp_store=MEMORY`; **when** that measurement runs; **then** the resident mapping exceeds the ceiling.
 15. **Given** fewer than 2 files, more than 16 files, or an output directory that already contains the exports; **when** `harborlens-multiday` is invoked; **then** it writes a short message to stderr and exits 2, with no traceback and without replacing existing outputs.
 16. **Given** a `multi-day-1.0` manifest without `memory_bound`; **when** it is checked against `schemas/v1/multi-day-run.schema.json`; **then** it is rejected and is not treated as `multi-day-1.1`.
+17. **Given** an unreadable input or a header missing a required column; **when** `harborlens-multiday` runs; **then** it exits 2 with a short stderr line and no traceback. A directory this command created for that failed run is removed when it is empty. An output directory that already existed is left in place.
+18. **Given** a host without `/proc/self/smaps`; **when** the mapped-RSS checks run; **then** they skip. **Given** Linux where that file exists and the probe returns None; **when** those checks run; **then** they fail.
+19. **Given** `--window-start` and `--window-end`; **when** the window is parsed; **then** Python 3.10 and 3.12 both require uppercase `T`, `HH:MM:SS`, no fraction or 1 to 6 fractional digits, and `Z` or `±HH:MM`. A non-UTC offset is converted to UTC. A naive clock and a space separator are rejected. ASCII whitespace around the value is ignored.
 
 ## Non-goals and safety
 

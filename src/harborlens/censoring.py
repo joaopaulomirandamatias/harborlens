@@ -18,6 +18,7 @@ from pathlib import Path
 
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import digests_equal
+from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 RULE_VERSION = "window-edge-v1"
 CENSORED = "censored"
@@ -35,14 +36,20 @@ def _iso(value: datetime) -> str:
 
 
 def parse_utc(value, name="time") -> datetime:
-    """Parse an ISO 8601 instant that carries an explicit UTC offset or Z."""
+    """Parse an ISO 8601 instant that carries an explicit UTC offset or Z.
+
+    Leading and trailing ASCII whitespace is ignored. The separator is
+    uppercase ``T``. The fraction is absent or 1 to 6 digits. ``Z`` and
+    ``±HH:MM`` are accepted, and a non-UTC offset is converted to UTC.
+    A space separator, a naive clock, and a date-only value are rejected.
+    """
+    text = value.strip(" \t\n\r\f\v") if isinstance(value, str) else value
     try:
-        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
-    except ValueError as exc:
+        return parse_explicit_utc(text)
+    except ExplicitOffsetRequired as exc:
+        raise AnalysisWindowError(f"{name} must include a UTC offset or Z") from exc
+    except (TypeError, ValueError) as exc:
         raise AnalysisWindowError(f"Invalid ISO 8601 {name}: {value!r}") from exc
-    if parsed.tzinfo is None:
-        raise AnalysisWindowError(f"{name} must include a UTC offset or Z")
-    return parsed.astimezone(timezone.utc)
 
 
 def _window(start, end, source, **extra):

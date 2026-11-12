@@ -11,9 +11,9 @@ import io
 import json
 import math
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 from harborlens.io_safe import stream_rows, AISInputError
+from harborlens.timeparse import parse_observation_time
 from harborlens.provenance import add_provenance
 from harborlens.censoring import (
     WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
@@ -54,21 +54,30 @@ def header_alias(header, name, required=True):
         if candidate.lower() in indexed:
             return indexed[candidate.lower()]
     if required:
-        raise ValueError(f"Missing {name} in CSV columns: {header}")
+        raise AISInputError(f"Missing {name} in CSV columns: {header}")
     return None
 
 def sha256(path):
     h=hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda:source.read(8*1024*1024),b""):
-            h.update(block)
+    try:
+        with path.open("rb") as source:
+            for block in iter(lambda:source.read(8*1024*1024),b""):
+                h.update(block)
+    except OSError as exc:
+        raise AISInputError("Input file cannot be accessed") from exc
     return h.hexdigest()
 
 def parse_time(value):
-    t=datetime.fromisoformat(str(value).strip().replace("Z","+00:00").replace(" ","T"))
-    if t.tzinfo is None:
-        t=t.replace(tzinfo=timezone.utc)  # NOAA BaseDateTime convention
-    return t.astimezone(timezone.utc)
+    """Parse a NOAA-style AIS timestamp as aware UTC.
+
+    Naive ``YYYY-MM-DDTHH:MM:SS`` and the same form with one space instead
+    of ``T`` are UTC. ``Z``, ``+00:00``, and other ``±HH:MM`` offsets are
+    accepted; a non-UTC offset is converted to UTC. The fraction is absent
+    or 1 to 6 digits. See ``harborlens.timeparse.parse_observation_time``.
+    A bad value is a per-row ``ValueError`` so ingestion can count it as
+    invalid. It is not an ``AISInputError``.
+    """
+    return parse_observation_time(value)
 
 def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
     if max_rows is not None and max_rows < 0:

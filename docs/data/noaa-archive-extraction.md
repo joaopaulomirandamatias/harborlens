@@ -14,6 +14,8 @@ harborlens --input data/houston-2024-01-02.csv --out results/houston-2024-01-02
 harborlens-verify --manifest results/houston-2024-01-02/manifest.json
 ~~~
 
+`--date` is a real ASCII `YYYY-MM-DD` calendar date. A week date and `YYYYMMDD` are rejected on Python 3.10 and 3.12, and the command exits 2 before it opens a network connection. `--start` and `--end` are `YYYY-MM-DDTHH:MM:SS` with `Z` or `±HH:MM` and no fraction or 1 to 6 fractional digits.
+
 The extractor scans the **complete daily file** and fails rather than silently truncating if the row or output size cap is reached. Compressed source size is limited to 512 MiB and decompression to 8 GiB. The output includes a sidecar with source and selected CSV hashes, bbox/time selection and QA counters. No raw authentic AIS data will be committed, uploaded as CI artifacts or embedded in job logs.
 
 The bbox is a Houston research rectangle, not an official port/anchorage geometry. A single day is insufficient to characterize annual waiting patterns, and a stationary candidate is not equivalent to berth occupancy, queueing or validated port calls.

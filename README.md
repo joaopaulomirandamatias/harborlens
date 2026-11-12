@@ -34,7 +34,7 @@ Without `jsonschema`, the helper exits 2 and does not grant a decision. No check
 
 `harborlens-release-summary` stages a coarse allowlisted count summary only after the current purpose-specific rights decision and a signed human review of that exact summary. `harborlens-verify-release` re-checks the staged file without reading AIS. Neither command approves a source. A stationary candidate in the underlying run is not a berth, anchorage, wait, port call, or accuracy claim. The checked-in rights register keeps every source at `review_required`, so this gate denies a real release.
 
-`reviewed_at_utc` must be an RFC3339 UTC date-time. It is accepted only when it is not older than 30 days and not more than 5 minutes ahead of the checker clock. Those 5 minutes are a fixed clock-skew allowance, not a configuration knob. A date-only value is rejected.
+`reviewed_at_utc` must be ASCII `YYYY-MM-DDTHH:MM:SS` with no fraction or 1 to 6 fractional digits, then `Z`. `+00:00` is rejected. The parser builds that clock from the matched fields, so Python 3.10 and 3.12 agree. It is accepted only when it is not older than 30 days and not more than 5 minutes ahead of the checker clock. Those 5 minutes are a fixed clock-skew allowance, not a configuration knob. A date-only value is rejected.
 
 The contracts are [public-summary](schemas/v1/public-summary.schema.json), [publication-review](schemas/v1/publication-review.schema.json), and [release-verification-result](schemas/v1/release-verification-result.schema.json). The same bytes ship in the wheel and sdist under `harborlens/schemas/v1/` and load with `importlib.resources` (`read_packaged_release_schema`). See [the publication gate](docs/data/aggregate-publication-gate.md) and [schemas/README.md](schemas/README.md).
 

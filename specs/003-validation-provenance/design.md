@@ -65,4 +65,8 @@ The command rejects duplicate JSON keys and unknown fields, checks numerical con
 
 ## Recount past 256 MiB (proposal only)
 
-The 256 MiB single-buffer recount is unchanged. A streamed recount (incremental SHA-256 and a streamed row/MMSI recount over that same read, with a capped MMSI set) is proposed in the SPEC-002 design. `publication.py` and `release_verify.py` are not modified by that note. Refs #70 (stays open).
+The 256 MiB single-buffer recount is unchanged. A streamed recount (incremental SHA-256 and a streamed row/MMSI recount over that same read, with a capped MMSI set) is proposed in the SPEC-002 design. That note does not change the recount. Refs #70 (stays open).
+
+## Release-review clock (NFR-003, NFR-004, FR-010)
+
+`_review_moment` accepts ASCII `YYYY-MM-DDTHH:MM:SS` with no fraction or 1 to 6 fractional digits, then `Z` only. `+00:00` is rejected. The rights register still allows `Z` or `+00:00`. The clock is built from the captured fields, so Python 3.10 and 3.12 agree. Seven fractional digits are denied rather than truncated. A comma fraction, another offset, a non-ASCII digit, hour 24, and a date-only value are denied. A canonical `Z` timestamp with no fraction, or with six fractional digits, is the same instant as before. `harborlens-verify-release` uses the same function. The 30-day and 5-minute window is unchanged. Evidence: `tests/test_timeparse.py`. Package `0.2.0.dev13`. Refs #78 (stays open).

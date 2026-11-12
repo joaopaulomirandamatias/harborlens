@@ -15,6 +15,7 @@ FR-011..012, FR-015; BR-007..011
 1. **Given** USACE facility coordinate without verified polygon; **when** the classifier is invoked; **then** it refuses to assert a verified berth.
 2. **Given** dated valid geofence and candidate trajectory; **when** classification is requested; **then** it records zone version, evidence and confidence alongside any unknown/conflict.
 3. **Given** coverage gaps or outside verified geometry; **when** classification runs; **then** unknown is emitted rather than a default berth or anchor state.
+4. **Given** a Federal Register window date or a geometry-vintage study timestamp on Python 3.10 or 3.12; **when** it is parsed; **then** the date is a real ASCII `YYYY-MM-DD` (week dates and `YYYYMMDD` rejected; 29 February only in a leap year) and the study timestamp is `YYYY-MM-DDTHH:MM:SS` with `Z` or `±HH:MM` and no fraction or 1 to 6 fractional digits. A non-UTC offset is converted to UTC. A naive study timestamp is rejected. This does not approve a berth, anchorage, wait, or port call.
 
 ## Non-goals and safety
 

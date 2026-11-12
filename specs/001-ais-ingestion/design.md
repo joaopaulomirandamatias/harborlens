@@ -20,3 +20,7 @@ Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible 
 ## SPEC-001 input protection (proposed change)
 
 Bounded readers check compressed bytes, ZIP entries, expansion ratio, decompressed data cap, header shape, malformed rows and finite numeric payloads. These are defensive CLI controls, not a secure user-upload service. Test synthetic adversarial examples first. Large real-data stress and streaming-memory benchmarks remain outstanding.
+
+## Timestamp and download-date grammar (NFR-003, NFR-004, FR-002)
+
+`ais.parse_time` and `harborlens-download-noaa --date` do not call `fromisoformat`. Observation timestamps are ASCII `YYYY-MM-DD`, then `T` or one space, then `HH:MM:SS`, with no fraction or 1 to 6 fractional digits. A missing offset is UTC. `Z` and `±HH:MM` are accepted, and a non-UTC offset is converted to UTC. `--date` is a real `YYYY-MM-DD` calendar date only. Week dates and `YYYYMMDD` are rejected, and a rejected date exits 2 before any network call. Evidence: `tests/test_timeparse.py`. Package `0.2.0.dev13`.
