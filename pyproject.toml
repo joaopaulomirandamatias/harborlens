@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harborlens"
-version = "0.2.0.dev4"
+version = "0.2.0.dev5"
 description = "Auditable AIS stationary candidates for U.S. ports"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,8 +13,8 @@ dependencies = []
 
 [project.optional-dependencies]
 noaa = ["zstandard>=0.22"]
-dev = ["pytest>=8", "jsonschema>=4", "cryptography>=42"]
-release = ["cryptography>=42"]
+dev = ["pytest>=8", "jsonschema>=4", "cryptography>=42.0.4"]
+release = ["cryptography>=42.0.4"]
 geo = ["shapely>=2.0,<3"]
 rights = ["jsonschema>=4"]
 
