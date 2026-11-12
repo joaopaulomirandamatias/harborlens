@@ -7,6 +7,7 @@ coordinates, timestamps, MMSI, event IDs or arbitrary input text are exported.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -99,8 +100,53 @@ def _source_context(sidecar):
 
 
 def _canonical(value):
-    return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-            + "\n").encode("ascii")
+    """ASCII canonical JSON. Non-finite numbers are rejected, never hashed."""
+    try:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=True, allow_nan=False)
+    except ValueError as exc:
+        raise ReleaseDenied("Release document contains a non-finite number") from exc
+    return (encoded + "\n").encode("ascii")
+
+
+def _recount_cleaned(path):
+    """Count retained rows and distinct MMSI groups in verified cleaned AIS.
+
+    Suppression floors use these figures. Manifest copies that disagree are denied.
+    """
+    observations = 0
+    groups = set()
+    try:
+        with Path(path).open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames or "mmsi" not in reader.fieldnames:
+                raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
+            for row in reader:
+                mmsi = row.get("mmsi")
+                if not isinstance(mmsi, str) or mmsi == "":
+                    raise ReleaseDenied("Verified cleaned AIS cannot be recounted")
+                observations += 1
+                groups.add(mmsi)
+    except ReleaseDenied:
+        raise
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise ReleaseDenied("Verified cleaned AIS cannot be recounted") from exc
+    return observations, len(groups)
+
+
+def _review_moment(reviewed_at):
+    """Parse an RFC3339 UTC date-time. Date-only values are a validation failure."""
+    if (not isinstance(reviewed_at, str) or not reviewed_at.endswith("Z")
+            or "T" not in reviewed_at.upper()):
+        raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time")
+    try:
+        moment = datetime.fromisoformat(reviewed_at[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ReleaseDenied("Invalid review timestamp") from exc
+    if (not isinstance(moment, datetime) or moment.tzinfo is None
+            or moment.utcoffset() != timedelta(0)):
+        raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time")
+    return moment
 
 
 def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates"):
@@ -135,8 +181,17 @@ def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates")
     written = _int_nonnegative(counts.get("written"), "written")
     vessels = _int_nonnegative(events.get("vessels"), "vessels")
     candidates = _int_nonnegative(events.get("stationary_candidates"), "stationary_candidates")
-    if (total < MIN_OBSERVATIONS or written < MIN_OBSERVATIONS
-            or vessels < MIN_VESSELS or written > total or candidates > written):
+    # verify_manifest has already checked this file's SHA-256 against the manifest.
+    retained, mmsi_groups = _recount_cleaned(run_dir / "houston_clean.csv")
+    if written != retained or vessels != mmsi_groups:
+        raise ReleaseDenied(
+            "Manifest counts do not match the verified cleaned AIS recount "
+            f"(retained observations {retained} vs manifest written {written}; "
+            f"MMSI groups {mmsi_groups} vs manifest vessels {vessels})"
+        )
+    if (total < MIN_OBSERVATIONS or retained < MIN_OBSERVATIONS
+            or mmsi_groups < MIN_VESSELS or retained > total
+            or candidates > retained):
         raise ReleaseDenied("Aggregate count/suppression gate is not satisfied")
     params = manifest.get("method_parameters")
     if not isinstance(params, dict) or not isinstance(params.get("method_version"), str):
@@ -171,8 +226,8 @@ def prepare_summary(run_dir, source_file, registry, purpose="public_aggregates")
         "rights_status": current["rights_status"],
         "counts": {
             "observations_scanned": total,
-            "observations_retained": written,
-            "unique_mmsi_groups": vessels,
+            "observations_retained": retained,
+            "unique_mmsi_groups": mmsi_groups,
             "unvalidated_stationary_candidates": candidates,
         },
         "warning": CAUTION,
@@ -206,15 +261,13 @@ def _validate_review(path, expected_sha, purpose, needs_conditions, *,
     conditions = review.get("conditions_reviewed")
     if type(conditions) is not bool or (needs_conditions and not conditions):
         raise ReleaseDenied("License-specific conditions lack recorded human review")
-    reviewed_at = review.get("reviewed_at_utc")
-    if not isinstance(reviewed_at, str) or not reviewed_at.endswith("Z"):
-        raise ReleaseDenied("Review timestamp must be RFC3339 UTC")
-    try:
-        moment = datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ReleaseDenied("Invalid review timestamp") from exc
+    moment = _review_moment(review.get("reviewed_at_utc"))
     now = datetime.now(timezone.utc)
-    if not now - timedelta(days=30) <= moment <= now + timedelta(minutes=5):
+    try:
+        fresh = now - timedelta(days=30) <= moment <= now + timedelta(minutes=5)
+    except TypeError as exc:
+        raise ReleaseDenied("Review timestamp must be an RFC3339 UTC date-time") from exc
+    if not fresh:
         raise ReleaseDenied("Publication review is stale or in the future")
     try:
         verify_review_signature(

@@ -49,3 +49,11 @@
 - [x] Add Ed25519 release approval verification, pinned SPKI fingerprint and expected reviewer ID; deny unsigned/mismatched claims (pending PR independent review and CI).
 - [x] Add synthetic positive/negative cryptographic regression tests and updated JSON Schemas, CLI and signing documentation.
 - [ ] Establish institution-controlled reviewer key custody, trust-root distribution, rotation and independent source-rights verification before real publication.
+
+## Release-summary recount and signed-review format
+
+- [x] Recount retained observations and MMSI groups from verified `houston_clean.csv`; deny when manifest `written` or `vessels` disagree; synthetic 99/100 and 9/10 boundary tests plus a tampered-count test (SPEC-003, FR-010, BR-015, BR-016, NFR-012).
+- [x] Reject date-only `reviewed_at_utc` with exit 2, no traceback, and no release file.
+- [x] Prefix Ed25519 review messages with `harborlens.publication-review.v1` and reject the previous signature bytes. Canonical release JSON rejects non-finite numbers.
+- [x] Compare pinned SPKI fingerprints with `hmac.compare_digest`. Require `cryptography>=42.0.4` on the `release` and `dev` extras. Skip Ed25519 tests without that extra, and deny release when the import fails.
+- [ ] Institution-controlled reviewer key custody, trust-root distribution, and a real source-rights approval remain external. Refs #42 (stays open).

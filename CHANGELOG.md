@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security (SPEC-003: release-summary recount and signed-review format)
+- **BREAKING:** The Ed25519 signed-review message is now the domain separator `harborlens.publication-review.v1`, a newline, then the canonical JSON of every field except `signature_b64` (sorted keys, compact separators, ASCII escaping, `allow_nan=False`, trailing newline). Signatures made for `0.2.0.dev4`, which signed that JSON only, are rejected. Re-sign with `review_message()`.
+- Canonical release bytes also use `allow_nan=False`. NaN and Infinity fail closed (exit 2, nothing written) and cannot be hashed or staged.
+- `harborlens-release-summary` recounts retained observations and distinct MMSI groups from the verified `houston_clean.csv` and applies the 100-observation and 10-group floors to that recount. If manifest `counts.written` or `events.vessels` disagrees, the command exits 2 and writes nothing.
+- A date-only `reviewed_at_utc` (`2026-11-12` or `2026-11-12Z`) is a validation failure: exit 2, no traceback, nothing written.
+- Pinned reviewer SPKI SHA-256 fingerprints are compared with `hmac.compare_digest`. The `release` and `dev` extras require `cryptography>=42.0.4`. Ed25519 tests skip with an explicit reason when that extra is absent. A missing `cryptography` import denies release (exit 2, nothing written).
+- Package version `0.2.0.dev5`. Ordinary manifests change because `run_id` hashes `harborlens_version`, and `code_version.package_version` records it. Runs from `0.2.0.dev4` and `0.2.0.dev5` are not directly comparable. No source rights are granted. Refs #70. Refs #71. Refs #42 (stays open).
+
 ### Security (SPEC-003: cryptographically signed reviewer approval)
 - Require Ed25519 signature verification for aggregate release staging, including independently pinned reviewer public-key fingerprint and identity. Unsigned, altered or mismatched review JSON fails closed; offline synthetic key/signature attack tests and updated schemas/docs. No real data rights are granted.
 - Package version `0.2.0.dev4`. Actual staging requires `--trusted-reviewer-key`, `--trusted-reviewer-key-sha256` and `--trusted-reviewer-id`. The staged review object adds `signature_algorithm`, `public_key_sha256` and `signature_b64`. Ordinary manifests change because `run_id` hashes `harborlens_version` and `code_version.package_version` records it. Runs from `0.2.0.dev3` and `0.2.0.dev4` are not directly comparable.

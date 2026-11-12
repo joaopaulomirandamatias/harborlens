@@ -31,3 +31,9 @@
 - **BR-015/BR-016, NFR-013/NFR-019:** release staging now demands signature verification against a reviewer public key whose SHA-256 fingerprint and identity are specified independently; unsigned/altered decisions are denied.
 - **Evidence:** `src/harborlens/review_signatures.py`, `tests/test_review_signatures.py`, extended `tests/test_publication.py`, review/release schemas and `docs/data/signed-release-review.md`.
 - **External governance still required:** secure private-key custody, pin-distribution, key revocation and authoritative rights/legal/privacy decisions; no certified operational claims.
+
+## Release-summary recount and signed-review format (SPEC-003)
+
+- **FR-010 / BR-015 / BR-016 / NFR-012 / NFR-013 / NFR-019:** retained observations and MMSI groups are recounted from verified `houston_clean.csv`. Disagreement with manifest `written` or `vessels`, a recount below 100 observations or 10 groups, a date-only review timestamp, a non-finite canonical number, a signature without the `harborlens.publication-review.v1` domain separator, or a missing `cryptography` import exits 2 and writes nothing. Fingerprints use `hmac.compare_digest`. The `cryptography` floor is `>=42.0.4`.
+- **Evidence:** `src/harborlens/publication.py`, `src/harborlens/review_signatures.py`, `tests/test_publication.py` (99/100 observations, 9/10 MMSI groups, tampered manifest counts, date-only timestamp, non-finite number, legacy signature, mocked `ImportError`), `tests/test_review_signatures.py` (legacy signature rejected; tests skip without the extra).
+- **Not delivered:** a real source-rights approval, anonymity, or any berth, anchorage, port-call, or accuracy claim. Refs #70. Refs #71. Refs #42 (stays open).
