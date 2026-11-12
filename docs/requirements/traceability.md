@@ -6,6 +6,7 @@
 | FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019 | SPEC-002 | `segmentation.py` (shared engine), `ais.py`, `multiday.py`, `censoring.py` | synthetic engine, censoring and multi-day tests; [real two-day NOAA smoke](../data/noaa-consecutive-days-smoke-2024-01-02-03.md); [seven-day re-run with censoring](../data/noaa-real-data-rerun-2026-11-09.md) | Implemented; real event validity unknown |
 | FR-010, FR-013..014; NFR-012 | SPEC-003 | `provenance.py` (`harborlens-verify`, `code_version`), `labeling.py`, `evaluation.py` | synthetic checksum, contract, labeling and evaluation tests | Partial: tooling implemented; no labels collected |
 | FR-011..012, FR-015; BR-009..010 | SPEC-004 | `usace.py`, `noaa_anchorages.py`, `zone_context.py`, `track_context.py`, `vintage.py`, `cfr_anchorages.py`, `fr_timeline.py`, `fr_fulltext.py` | synthetic and schema tests plus source-pinned real-source smokes; no reviewed dated polygons or labels | Partial: reference geometry and source audits only |
+| FR-011, FR-012; NFR-001, NFR-003, NFR-006, NFR-010, NFR-011, NFR-015, NFR-019, NFR-020; BR-001, BR-009, BR-015, BR-018 | SPEC-004 | `lsa_compare.py` opt-in December 2023 / January 2024 GovInfo LSA index comparison; not a console script | offline synthetic tests in `tests/test_lsa_compare.py` and `schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json`; no live PDF hash | Partial: index contract only. Legal effect stays NOT_DETERMINED. Does not load geofences or label events |
 | FR-016; BR-014 | SPEC-005 | EPA methodology design | emissions validation pending | Proposed |
 | FR-017..018 | SPEC-006 | future read-only API/map | contract and accessibility tests pending | Proposed |
 | FR-019..020 | SPEC-007 | managed service hypothesis | buyers, security, license and SLA gates pending | Proposed |
@@ -59,6 +60,10 @@ The source-pinned [2023 original document triage](../data/fr-2023-fulltext-triag
 ### Official full-text source and relevance verification (SPEC-004)
 
 The four previously indexed 2023 Federal Register Part 110 document texts were fetched and hashed from original government URLs. All four had no direct 110.197/Houston/Galveston text hits, but this source-tied triage remains *non-certifying*; see [real-source evidence](../data/fr-2023-original-fulltext-evidence-2026-11-09.md). Legal effective-date and GPO LSA review still outstanding.
+
+### SPEC-004: GovInfo December 2023 / January 2024 LSA index comparison
+
+`src/harborlens/lsa_compare.py` compares two fixed GovInfo monthly LSA PDF URLs only after `--fetch`. Import, ordinary `harborlens` execution, and `tests/test_lsa_compare.py` make no network request. Redirects may not change the requested URL. Downloads are capped at 10 MiB and 60 seconds, with at most three redirects. The schema requires `legal_effect_on_study_date=NOT_DETERMINED`, `rights_status=review_required`, and `ais_spatial_join_permitted=false`. Digest comparisons use `hmac.compare_digest`. Evidence is synthetic only; no live GovInfo PDF hash is claimed. This does not complete dated geofence import (FR-011) or event labels (FR-012), and it does not establish the legal text of 33 CFR 110.197 on 2024-01-02. See [the engineering note](../data/govinfo-lsa-dec-jan-comparison.md). Refs #7 (stays open).
 
 ### SPEC-002: analysis-window censoring (BR-019, FR-021)
 

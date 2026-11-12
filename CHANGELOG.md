@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added (SPEC-004: GovInfo December 2023 / January 2024 LSA index comparison)
+- Opt-in `python -m harborlens.lsa_compare --fetch` can read the two fixed GovInfo monthly LSA PDFs. Import, ordinary `harborlens` runs, and the test suite make no network request. A fetch allows only those two HTTPS URLs; a redirect that changes the URL is refused. The timeout is 60 seconds, redirects stop at three, and each PDF is capped at 10 MiB. Extracted Title 33 text is capped at 500,000 characters.
+- The report always sets `legal_effect_on_study_date` to `NOT_DETERMINED`, `rights_status` to `review_required`, and `ais_spatial_join_permitted` to false. It does not join AIS and it cannot express approval or certification. Digest comparisons use `hmac.compare_digest`.
+- Schema `schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json` is registered in `schemas/README.md`. It is not packaged: setuptools packages only `src/harborlens/schemas/v1/*.json` (the rights register). No console script was added. The removed real-source Actions workflow stays removed.
+- No version bump: this PR does not change outputs. `lsa_compare` is not a console script, is not imported by `harborlens` or `harborlens-verify`, and does not enter `run_id` or `code_version`. Package remains `0.2.0.dev7`. No live GovInfo PDF hash is claimed. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #7 (stays open).
+
 ### Security (SPEC-003: single-buffer recount and constant-time digest pins)
 - `harborlens-release-summary` reads `houston_clean.csv` once into a bounded buffer (`MAX_CLEANED_RECOUNT_BYTES`, 256 MiB, the same output ceiling as archive extraction and track-context). SHA-256 of those exact bytes is compared with the manifest, and the retained-observation and MMSI-group recount uses the same buffer. There is no second open between the hash and the recount. A file larger than the ceiling is detected by reading ceiling + 1 bytes, then the command exits 2 and writes nothing.
 - A manifest hash or `counts.written` / `events.vessels` value that does not match that buffer exits 2 and writes nothing. Recount tests that do not need a signature run without the optional `cryptography` extra.

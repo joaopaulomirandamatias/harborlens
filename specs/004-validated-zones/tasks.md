@@ -63,4 +63,5 @@
 - [ ] Review GPO monthly LSA Title 33 and full FR effective-date/section amendments before concluding historical 2024-01-02 legal text.
 
 - [x] Verify the original FederalRegister.gov source text for all four July–December 2023 index entries, preserving metadata/raw text hashes and explicit region/110.197 keyword findings; see [engineering evidence](../../docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md).
+- [x] Add an opt-in bounded GovInfo December 2023 and January 2024 LSA Title 33 index comparison (`lsa_compare.py`) with offline synthetic tests, fixed HTTPS URLs, size and timeout caps, `rights_status=review_required`, and schema-enforced `legal_effect_on_study_date=NOT_DETERMINED` (draft PR #53). This does not complete official PDF reproduction or January 2, 2024 legal-effect review.
 - [ ] Complete official GPO December 2023 LSA Title 33 section-level coverage and remaining effective-date verification before concluding January 2, 2024 legal status.

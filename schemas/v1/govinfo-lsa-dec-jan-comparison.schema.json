@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json",
   "title": "HarborLens historical GPO LSA comparison (non-certifying)",
+  "description": "Index comparison of two fixed GovInfo monthly LSA PDFs. legal_effect_on_study_date is always NOT_DETERMINED. rights_status is always review_required. The report cannot approve geometry, AIS joins, berth, anchorage, wait, or port-call status.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,6 +16,7 @@
     "intervening_amendments_excluded",
     "historical_wgs84_geometry_approved",
     "ais_spatial_join_permitted",
+    "rights_status",
     "mandatory_follow_up"
   ],
   "properties": {
@@ -49,12 +51,12 @@
             "title33_pdf_pages_1based",
             "title33_extracted_text_sha256",
             "target_110_197_direct_occurrences",
-            "part110_proposed_fr_pages"
+            "part110_proposed_fr_pages",
+            "rights_status"
           ],
           "properties": {
             "official_pdf_url": {
-              "type": "string",
-              "pattern": "^https://www\\.govinfo\\.gov/content/pkg/LSA-202[34]-\\d{2}/pdf/LSA-202[34]-\\d{2}\\.pdf$"
+              "const": "https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf"
             },
             "official_pdf_sha256": {
               "type": "string",
@@ -89,6 +91,9 @@
                 "89646",
                 "89648"
               ]
+            },
+            "rights_status": {
+              "const": "review_required"
             }
           }
         },
@@ -102,12 +107,12 @@
             "title33_pdf_pages_1based",
             "title33_extracted_text_sha256",
             "target_110_197_direct_occurrences",
-            "part110_proposed_fr_pages"
+            "part110_proposed_fr_pages",
+            "rights_status"
           ],
           "properties": {
             "official_pdf_url": {
-              "type": "string",
-              "pattern": "^https://www\\.govinfo\\.gov/content/pkg/LSA-202[34]-\\d{2}/pdf/LSA-202[34]-\\d{2}\\.pdf$"
+              "const": "https://www.govinfo.gov/content/pkg/LSA-2024-01/pdf/LSA-2024-01.pdf"
             },
             "official_pdf_sha256": {
               "type": "string",
@@ -142,18 +147,23 @@
                 "89646",
                 "89648"
               ]
+            },
+            "rights_status": {
+              "const": "review_required"
             }
           }
         }
       }
     },
     "proposed_part110_pages_match": {
+      "description": "True only when both indexes show the same four proposed-rule page citations. This is not a legal determination.",
       "const": true
     },
     "study_target": {
       "const": "33 CFR 110.197 on 2024-01-02"
     },
     "legal_effect_on_study_date": {
+      "description": "The only allowed value. The schema has no approval or certification state.",
       "const": "NOT_DETERMINED"
     },
     "intervening_amendments_excluded": {
@@ -164,6 +174,9 @@
     },
     "ais_spatial_join_permitted": {
       "const": false
+    },
+    "rights_status": {
+      "const": "review_required"
     },
     "mandatory_follow_up": {
       "type": "string",
