@@ -5,6 +5,7 @@ authenticity, rights, or actual vessel behavior.
 """
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -21,6 +22,29 @@ def checksum(path):
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def digests_equal(left, right):
+    """Compare a digest, fingerprint or pin without an early content mismatch.
+
+    Hex strings are compared in lowercase. Byte strings are compared as raw
+    bytes. The two sides must be the same kind and the same length; anything
+    else is unequal. ``hmac.compare_digest`` covers the equal-length content.
+    """
+    try:
+        if isinstance(left, str) and isinstance(right, str):
+            left, right = left.lower(), right.lower()
+            if len(left) != len(right):
+                return False
+            return hmac.compare_digest(left, right)
+        if isinstance(left, (bytes, bytearray)) and isinstance(right, (bytes, bytearray)):
+            left, right = bytes(left), bytes(right)
+            if len(left) != len(right):
+                return False
+            return hmac.compare_digest(left, right)
+    except (TypeError, ValueError):
+        return False
+    return False
 
 def code_version():
     """Package version (part of run identity) and, in CI, the git commit (metadata only).
@@ -61,8 +85,15 @@ def add_provenance(folder, manifest, source_url=None):
     manifest["provenance_warning"] = "Integrity hashes do not establish source authenticity, data rights or verified events."
     return manifest
 
-def verify_manifest(path):
+def verify_manifest(path, preloaded=None):
+    """Check artifact SHA-256 and size against the manifest.
+
+    ``preloaded`` maps an artifact name to bytes already read by the caller.
+    Those names are hashed from that buffer and are not opened again, so a
+    release recount can share one read with this check.
+    """
     path = Path(path)
+    preloaded = {} if preloaded is None else preloaded
     record = json.loads(path.read_text(encoding="utf-8"))
     items = record.get("artifacts")
     if not isinstance(items, dict) or set(items) != set(FILES):
@@ -72,10 +103,20 @@ def verify_manifest(path):
         expected = items[name]
         if not isinstance(expected, dict) or not isinstance(expected.get("sha256"), str):
             raise ValueError("Invalid artifact hash entry")
-        file = path.parent / name
-        if not file.is_file():
-            results[name] = "missing"
-        elif checksum(file) == expected["sha256"] and file.stat().st_size == expected.get("size_bytes"):
+        if name in preloaded:
+            raw = preloaded[name]
+            if not isinstance(raw, (bytes, bytearray)):
+                raise ValueError("Invalid preloaded artifact bytes")
+            actual = hashlib.sha256(bytes(raw)).hexdigest()
+            size = len(raw)
+        else:
+            file = path.parent / name
+            if not file.is_file():
+                results[name] = "missing"
+                continue
+            actual = checksum(file)
+            size = file.stat().st_size
+        if digests_equal(actual, expected["sha256"]) and size == expected.get("size_bytes"):
             results[name] = "verified"
         else:
             results[name] = "mismatch"

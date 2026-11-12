@@ -20,7 +20,7 @@ from pathlib import Path
 
 from harborlens.ais import parse_time
 from harborlens.io_safe import AISInputError, stream_rows
-from harborlens.provenance import checksum
+from harborlens.provenance import checksum, digests_equal
 from harborlens.segmentation import SegmentationParams
 
 # Sized for seven full Houston days: ~3.9 million cleaned rows and up to ~26,000
@@ -96,7 +96,7 @@ def _load_zones(polygons):
 def _source_receipt(polygons, explicit_receipt=None):
     path = Path(explicit_receipt) if explicit_receipt else Path(str(polygons) + ".source.json")
     receipt = _json_document(path)
-    if receipt.get("output_sha256") != checksum(polygons):
+    if not digests_equal(receipt.get("output_sha256"), checksum(polygons)):
         raise TrackEvidenceError("Polygon receipt/output SHA-256 mismatch")
     if receipt.get("historical_validity") != "not_verified" or receipt.get("geometry_review_status") != "unreviewed":
         raise TrackEvidenceError("Only unreviewed, historically unverified polygon receipts are supported")
@@ -150,7 +150,8 @@ def _load_candidates(path):
             raise TrackEvidenceError("Invalid temporal candidate metadata") from exc
         if not (start < end and 1 <= expected <= MAX_OBSERVATIONS_PER_EVENT):
             raise TrackEvidenceError("Candidate duration or observation count outside limits")
-        if method["parameter_set"] and props.get("parameter_set") != method["parameter_set"]:
+        if method["parameter_set"] and not digests_equal(
+                props.get("parameter_set"), method["parameter_set"]):
             raise TrackEvidenceError("Candidate parameter_set differs from the collection method block")
     return rows, method
 

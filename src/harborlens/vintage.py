@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from harborlens.provenance import checksum
+from harborlens.provenance import checksum, digests_equal
 
 MAX_POLYGON_MIB = 32
 MAX_JSON_BYTES = 128 * 1024
@@ -118,7 +118,7 @@ def audit_vintage(polygons, output, start_utc, end_utc, source_receipt=None, enc
         raise VintageAuditError("Study start must precede study end")
     source = _small_json(receipt_path)
     geometry_sha = checksum(polygons)
-    if source.get("output_sha256") != geometry_sha:
+    if not digests_equal(source.get("output_sha256"), geometry_sha):
         raise VintageAuditError("Source receipt hash does not match polygon GeoJSON")
     if source.get("historical_validity") != "not_verified":
         raise VintageAuditError("Source may not claim verified historical geometry")

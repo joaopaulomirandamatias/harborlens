@@ -566,11 +566,6 @@ class PublicationGateTests(unittest.TestCase):
         exported = self.out.read_text(encoding="utf-8")
         self.assertNotIn("900000001", exported)
 
-    def test_recounted_99_observations_are_denied(self):
-        self.decide()
-        self.rewrite_cleaned(99, 12)
-        self.assert_cli_denied("Aggregate count")
-
     def test_recounted_10_mmsi_groups_are_allowed(self):
         self.decide()
         self.rewrite_cleaned(120, 10)
@@ -581,16 +576,6 @@ class PublicationGateTests(unittest.TestCase):
         result = self.produce()
         self.assertEqual(result["summary"]["counts"]["unique_mmsi_groups"], 10)
         self.assertTrue(self.out.exists())
-
-    def test_recounted_9_mmsi_groups_are_denied(self):
-        self.decide()
-        self.rewrite_cleaned(120, 9)
-        self.assert_cli_denied("Aggregate count")
-
-    def test_tampered_manifest_counts_are_denied(self):
-        self.decide()
-        self.rewrite_cleaned(120, 12, manifest_written=1000, manifest_vessels=40)
-        self.assert_cli_denied("do not match")
 
     def test_date_only_review_timestamp_exits_2(self):
         self.decide()
@@ -756,6 +741,257 @@ class MissingCryptographyReleaseTests(unittest.TestCase):
         self.assertNotIn("Traceback", message)
         self.assertIn("Release denied", message)
         self.assertIn("Install the release extra", message)
+        self.assertFalse(self.out.exists())
+
+
+class CleanedRecountWithoutSignatureTests(unittest.TestCase):
+    """Recount, stale-manifest and ceiling checks do not need Ed25519.
+
+    These tests must run when the optional cryptography extra is absent.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = Path(self.tmp.name)
+        self.registry = self.folder / "rights-register.json"
+        self.source = self.folder / "acquired.csv"
+        self.rundir = self.folder / "run"
+        self.out = self.folder / "release.json"
+        self.registry.write_text(
+            (ROOT / "docs/data/rights-register.json").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        fetch_subset(START, END, BBOX, self.source,
+                     opener=fake_erddap, rights_register=self.registry)
+        run(self.source, self.rundir)
+        _approve_registry(self.registry)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_cleaned(self, observations, groups, *, update_hash=True,
+                      update_counts=True, manifest_written=None,
+                      manifest_vessels=None):
+        path = self.rundir / "houston_clean.csv"
+        fieldnames = [
+            "mmsi", "timestamp_utc", "lat", "lon", "sog_knots", "vessel_type",
+            "nav_status", "cog_deg", "heading_deg", "length_m", "width_m",
+            "draft_m", "transceiver_class", "mmsi_category",
+        ]
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for index in range(observations):
+                writer.writerow({
+                    "mmsi": str(900000001 + (index % groups)),
+                    "timestamp_utc": "2024-06-10T00:00:00Z",
+                    "lat": "29.70",
+                    "lon": "-95.20",
+                    "sog_knots": "0.1",
+                    "vessel_type": "70",
+                    "nav_status": "5",
+                    "cog_deg": "",
+                    "heading_deg": "",
+                    "length_m": "",
+                    "width_m": "",
+                    "draft_m": "",
+                    "transceiver_class": "",
+                    "mmsi_category": "ship",
+                })
+        if not update_hash and not update_counts:
+            return
+        manifest_path = self.rundir / "manifest.json"
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if update_hash:
+            document["artifacts"]["houston_clean.csv"] = {
+                "sha256": checksum(path),
+                "size_bytes": path.stat().st_size,
+            }
+        if update_counts:
+            written = observations if manifest_written is None else manifest_written
+            vessels = groups if manifest_vessels is None else manifest_vessels
+            document["counts"]["written"] = written
+            document["events"]["vessels"] = vessels
+            if document["counts"]["total"] < written:
+                document["counts"]["total"] = written
+            document["events"]["stationary_candidates"] = 0
+        manifest_path.write_text(json.dumps(document), encoding="utf-8")
+
+    def assert_cli_denied(self, pattern):
+        stderr = io.StringIO()
+        command = [
+            "--run", str(self.rundir),
+            "--source-file", str(self.source),
+            "--rights-register", str(self.registry),
+            "--out", str(self.out),
+        ]
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                release_main(command)
+        self.assertEqual(caught.exception.code, 2)
+        message = stderr.getvalue()
+        self.assertNotIn("Traceback", message)
+        self.assertIn("Release denied", message)
+        self.assertRegex(message, pattern)
+        self.assertFalse(self.out.exists())
+
+    def test_recounted_100_observations_match_without_a_signature(self):
+        self.write_cleaned(100, 12)
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(summary["counts"]["observations_retained"], 100)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], 12)
+        self.assertFalse(self.out.exists())
+
+    def test_recounted_99_observations_are_denied(self):
+        self.write_cleaned(99, 12)
+        self.assert_cli_denied("Aggregate count")
+
+    def test_recounted_10_mmsi_groups_match_without_a_signature(self):
+        self.write_cleaned(120, 10)
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(summary["counts"]["observations_retained"], 120)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], 10)
+        self.assertFalse(self.out.exists())
+
+    def test_recounted_9_mmsi_groups_are_denied(self):
+        self.write_cleaned(120, 9)
+        self.assert_cli_denied("Aggregate count")
+
+    def test_tampered_manifest_counts_are_denied(self):
+        self.write_cleaned(120, 12, manifest_written=1000, manifest_vessels=40)
+        self.assert_cli_denied("do not match")
+
+    def test_stale_manifest_hash_and_counts_exit_2(self):
+        """A rewritten CSV with the old manifest hash and counts is denied."""
+        self.write_cleaned(100, 12, update_hash=False, update_counts=False)
+        self.assert_cli_denied("checksums")
+
+    def test_stale_counts_at_100_observations_exit_2(self):
+        """The hash matches the 100-row file; the old manifest count does not."""
+        self.write_cleaned(100, 12, update_hash=True, update_counts=False)
+        self.assert_cli_denied("do not match")
+
+    def test_stale_counts_at_10_groups_exit_2(self):
+        self.write_cleaned(120, 10, update_hash=True, update_counts=False)
+        self.assert_cli_denied("do not match")
+
+    def test_stale_hash_at_99_observations_exits_2(self):
+        self.write_cleaned(99, 12, update_hash=False, update_counts=False)
+        self.assert_cli_denied("checksums")
+
+    def test_cleaned_csv_is_opened_once(self):
+        opens = []
+        read_bytes_calls = []
+        real_open = Path.open
+        real_read_bytes = Path.read_bytes
+
+        def counting_open(self_path, *args, **kwargs):
+            if self_path.name == "houston_clean.csv":
+                opens.append(args[0] if args else kwargs.get("mode"))
+            return real_open(self_path, *args, **kwargs)
+
+        def counting_read_bytes(self_path, *args, **kwargs):
+            if self_path.name == "houston_clean.csv":
+                read_bytes_calls.append(self_path)
+            return real_read_bytes(self_path, *args, **kwargs)
+
+        with mock.patch.object(Path, "open", counting_open), \
+                mock.patch.object(Path, "read_bytes", counting_read_bytes):
+            summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(opens, ["rb"])
+        self.assertEqual(read_bytes_calls, [])
+        self.assertGreaterEqual(summary["counts"]["observations_retained"], 100)
+        self.assertFalse(self.out.exists())
+
+    def test_size_ceiling_exact_and_one_over(self):
+        from harborlens.archive_extract import MAX_OUTPUT_MIB
+        from harborlens.publication import MAX_CLEANED_RECOUNT_BYTES
+        from harborlens.track_context import MAX_OUTPUT_BYTES
+
+        self.assertEqual(MAX_CLEANED_RECOUNT_BYTES, MAX_OUTPUT_MIB * 1024 * 1024)
+        self.assertEqual(MAX_CLEANED_RECOUNT_BYTES, MAX_OUTPUT_BYTES)
+        path = self.rundir / "houston_clean.csv"
+        size = path.stat().st_size
+        self.assertGreater(size, 1)
+        requested = []
+        real_open = Path.open
+
+        def tracking_open(self_path, *args, **kwargs):
+            handle = real_open(self_path, *args, **kwargs)
+            if self_path.name != "houston_clean.csv":
+                return handle
+            original_read = handle.read
+
+            def tracking_read(n=-1):
+                requested.append(n)
+                return original_read(n)
+
+            handle.read = tracking_read
+            return handle
+
+        with mock.patch("harborlens.publication.MAX_CLEANED_RECOUNT_BYTES", size), \
+                mock.patch.object(Path, "open", tracking_open):
+            summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(requested, [size + 1])
+        self.assertGreaterEqual(summary["counts"]["observations_retained"], 100)
+        self.assertFalse(self.out.exists())
+
+        requested.clear()
+        stderr = io.StringIO()
+        with mock.patch("harborlens.publication.MAX_CLEANED_RECOUNT_BYTES", size - 1), \
+                mock.patch.object(Path, "open", tracking_open):
+            with contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as caught:
+                    release_main([
+                        "--run", str(self.rundir),
+                        "--source-file", str(self.source),
+                        "--rights-register", str(self.registry),
+                        "--out", str(self.out),
+                    ])
+        self.assertEqual(caught.exception.code, 2)
+        message = stderr.getvalue()
+        self.assertNotIn("Traceback", message)
+        self.assertIn("recount size ceiling", message)
+        self.assertEqual(requested, [size])
+        self.assertFalse(self.out.exists())
+
+    def test_mismatched_summary_digest_exits_2(self):
+        from harborlens.release_verify import main as verify_main
+
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        digest = summary_sha256(summary)
+        wrong = ("0" if digest[0] != "0" else "1") * 64
+        self.assertNotEqual(wrong, digest)
+        release = self.folder / "bad-release.json"
+        release.write_text(json.dumps({
+            "summary": summary,
+            "summary_sha256": wrong,
+            "release_review": {},
+        }), encoding="utf-8")
+        key = self.folder / "unused-reviewer.pem"
+        key.write_bytes(b"not-a-key\n")
+        pinned = hashlib.sha256(self.registry.read_bytes()).hexdigest()
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as caught:
+                verify_main([
+                    "--release", str(release),
+                    "--rights-register", str(self.registry),
+                    "--expected-rights-register-sha256", pinned,
+                    "--trusted-reviewer-key", str(key),
+                    "--trusted-reviewer-key-sha256", "ab" * 32,
+                    "--trusted-reviewer-id", "sample-reviewer",
+                    "--purpose", "public_aggregates",
+                    "--source-id", "noaa_pmel_erddap",
+                    "--dataset-version", "AIS2024_AIS",
+                ])
+        self.assertEqual(caught.exception.code, 2)
+        message = stderr.getvalue()
+        self.assertNotIn("Traceback", message)
+        self.assertIn("Release verification denied", message)
+        self.assertIn("modified or replaced", message)
+        self.assertNotIn('"verified": true', stdout.getvalue())
         self.assertFalse(self.out.exists())
 
 

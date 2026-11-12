@@ -27,7 +27,7 @@ from pathlib import Path
 from harborlens.ais import parse_time, sha256
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum
-from harborlens.provenance import verify_manifest
+from harborlens.provenance import digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
 SCHEMA_VERSION = "evaluation-v0.1"
@@ -124,7 +124,8 @@ def evaluate(run_dir, sampling, labels_path, out):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
     plan = json.loads(sampling.read_text(encoding="utf-8"))
-    if plan.get("run_manifest_sha256") != sha256(manifest_path) or plan.get("parameter_set") != params.parameter_set:
+    if (not digests_equal(plan.get("run_manifest_sha256"), sha256(manifest_path))
+            or not digests_equal(plan.get("parameter_set"), params.parameter_set)):
         raise AISInputError("Sampling manifest was not drawn from this run")
     key = {k["sample_id"]: k for k in plan["key"]}
     schema_version = plan.get("schema_version")
