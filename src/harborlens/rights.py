@@ -10,7 +10,9 @@ import argparse
 import json
 import re
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
+from urllib.parse import urlsplit
 
 MAX_REGISTRY_BYTES = 256 * 1024
 PURPOSES = ("research", "public_aggregates", "commercial")
@@ -21,6 +23,73 @@ APPROVED_STATUSES = (
 PENDING = "review_required"
 RESTRICTED = "use_restricted"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_NOTICE = "A recorded decision is not legal advice or a data redistribution grant."
+_MISSING_JSONSCHEMA = (
+    "Rights register schema validator is unavailable; "
+    "pip install 'harborlens[rights]'"
+)
+
+
+def _is_https_url(value):
+    """True only for https URLs whose hostname is a real host.
+
+    ``netloc`` alone accepts ``https://user@``, ``https://.``, ``https:// ``
+    and ``https://@``. The hostname must be non-empty, contain no whitespace,
+    and must not be only dots.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not isinstance(host, str) or not host:
+        return False
+    if any(ch.isspace() for ch in host):
+        return False
+    if not host.strip("."):
+        return False
+    return True
+
+
+def _load_jsonschema():
+    from jsonschema import Draft202012Validator
+    from jsonschema.exceptions import SchemaError, ValidationError
+    return Draft202012Validator, SchemaError, ValidationError
+
+
+def _read_packaged_schema():
+    """Read the schema shipped inside this package.
+
+    ``importlib.resources`` only. Searching parent directories would let a
+    foreign file next to a virtualenv replace the contract.
+    """
+    try:
+        text = files("harborlens").joinpath(
+            "schemas", "v1", "source-rights-register.schema.json"
+        ).read_text(encoding="utf-8")
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise ValueError("Rights register schema is unreadable") from exc
+    if not text.strip():
+        raise ValueError("Rights register schema is unreadable")
+    return text
+
+
+def _validate_registry_schema(data):
+    """Reject registers that do not match the packaged source-rights schema."""
+    try:
+        validator_cls, schema_error, validation_error = _load_jsonschema()
+    except ImportError as exc:
+        raise ValueError(_MISSING_JSONSCHEMA) from exc
+    try:
+        schema = json.loads(_read_packaged_schema())
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ValueError("Rights register schema is unreadable") from exc
+    try:
+        validator_cls(schema).validate(data)
+    except (validation_error, schema_error) as exc:
+        raise ValueError("Rights register failed schema validation") from exc
 
 
 def _valid_utc_time(value):
@@ -33,9 +102,18 @@ def _valid_utc_time(value):
         return False
 
 
-def _parse_registry_bytes(raw):
+def _load_registry_bytes(raw):
+    """Validate one register buffer with the packaged schema.
+
+    ``raw`` is parsed as UTF-8 JSON and checked with the schema shipped inside
+    this package (``importlib.resources`` only). The same structural errors as
+    ``load_registry`` are raised. Hostname rules are enforced by that schema
+    and again by ``_is_https_url`` when a decision is made.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_REGISTRY_BYTES:
+        raise ValueError("Missing or excessive rights register")
     try:
-        data = json.loads(raw)
+        data = json.loads(bytes(raw).decode("utf-8"))
     except (UnicodeError, ValueError) as exc:
         raise ValueError("Rights register is unreadable") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
@@ -55,24 +133,30 @@ def _parse_registry_bytes(raw):
         identifiers.append((identifier, source["dataset_version"]))
     if len(set(identifiers)) != len(identifiers):
         raise ValueError("Duplicate source/version pair")
+    _validate_registry_schema(data)
     return data
 
 
 def load_registry(path):
-    """Load bounded local bytes, with no remote request or registry trust leap."""
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_REGISTRY_BYTES + 1)
-    if len(raw) > MAX_REGISTRY_BYTES:
+    """Load an explicit local decision record; never fetch from the network."""
+    target = Path(path)
+    if not target.is_file() or target.stat().st_size > MAX_REGISTRY_BYTES:
         raise ValueError("Missing or excessive rights register")
-    return _parse_registry_bytes(raw)
+    try:
+        raw = target.read_bytes()
+    except OSError as exc:
+        raise ValueError("Rights register is unreadable") from exc
+    return _load_registry_bytes(raw)
 
 
-def _rights_status_from_registry(registry, source_id, dataset_version, purpose):
+def _rights_status_from_registry(document, source_id, dataset_version, purpose):
+    """Decide from an already validated register document."""
     if purpose not in PURPOSES:
         raise ValueError("Unsupported use purpose")
     if not source_id or not dataset_version:
         return PENDING
-    matched = [r for r in registry["sources"] if r["source_id"] == source_id
+    records = document["sources"]
+    matched = [r for r in records if r["source_id"] == source_id
                and r["dataset_version"] == dataset_version]
     if len(matched) != 1:
         return PENDING
@@ -84,10 +168,8 @@ def _rights_status_from_registry(registry, source_id, dataset_version, purpose):
     if (not isinstance(row.get("reviewed_by"), str) or
             not row["reviewed_by"].strip() or
             not _valid_utc_time(row.get("reviewed_at_utc")) or
-            not isinstance(row.get("terms_url"), str) or
-            not row["terms_url"].startswith("https://") or
-            not isinstance(row.get("evidence_url"), str) or
-            not row["evidence_url"].startswith("https://") or
+            not _is_https_url(row.get("terms_url")) or
+            not _is_https_url(row.get("evidence_url")) or
             not isinstance(row.get("terms_sha256"), str) or
             not _SHA256.fullmatch(row["terms_sha256"]) or
             not isinstance(row.get("attribution"), str) or
@@ -106,21 +188,33 @@ def _rights_status_from_registry(registry, source_id, dataset_version, purpose):
 
 
 def rights_status_for(source_id, *, dataset_version, purpose="research", register_path):
-    """Return conservative status for a source version and a particular purpose."""
+    """Return only conservative decisions for an exact source, vintage and use.
+
+    Invalid or absent records fail closed to review_required. A reviewer entry
+    is an audit assertion, not cryptographic authentication or legal approval.
+    """
     if purpose not in PURPOSES:
         raise ValueError("Unsupported use purpose")
+    if not source_id or not dataset_version:
+        return PENDING
     try:
-        registry = load_registry(register_path)
+        document = load_registry(register_path)
     except (ValueError, OSError):
         return PENDING
-    return _rights_status_from_registry(registry, source_id, dataset_version, purpose)
+    return _rights_status_from_registry(
+        document, source_id, dataset_version, purpose
+    )
 
 
 def rights_receipt(source_id, *, dataset_version, purpose="research", register_path=None):
-    """Snapshot a registry read once and produce an auditable sidecar receipt.
+    """Return a sidecar receipt for one in-memory read of a local register.
 
-    Caller-visible reviewed statuses are *recorded assertions*, never legal
-    guarantees. Absence/malformed data always produce review_required.
+    The path is read once. That buffer is parsed and schema-validated, and
+    both the SHA-256 and the decision come from it. The path is not opened
+    again. The schema is the packaged file via ``importlib.resources`` only.
+    A missing, unreadable, oversized, or schema-invalid register is
+    ``invalid_registry`` and ``review_required``. A recorded status is an
+    audit assertion, not legal advice or a redistribution grant.
     """
     import hashlib
 
@@ -139,12 +233,10 @@ def rights_receipt(source_id, *, dataset_version, purpose="research", register_p
         return result
     try:
         path = Path(register_path)
-        with path.open("rb") as stream:
-            raw = stream.read(MAX_REGISTRY_BYTES + 1)
-        if len(raw) > MAX_REGISTRY_BYTES:
-            raise ValueError("Rights register exceeds configured limit")
-        # Parse the identical bytes whose fingerprint is returned in the receipt.
-        document = _parse_registry_bytes(raw)
+        if not path.is_file() or path.stat().st_size > MAX_REGISTRY_BYTES:
+            raise ValueError("Missing or excessive rights register")
+        raw = path.read_bytes()
+        document = _load_registry_bytes(raw)
     except (OSError, UnicodeError, ValueError):
         result["evaluation"] = "invalid_registry"
         return result
@@ -172,14 +264,26 @@ def main(argv=None):
         "source_id": args.source_id,
         "dataset_version": args.dataset_version,
         "purpose": args.purpose,
-        "rights_status": rights_status_for(
-            args.source_id, dataset_version=args.dataset_version,
-            purpose=args.purpose, register_path=args.register
-        ),
-        "notice": "A recorded decision is not legal advice or a data redistribution grant.",
+        "notice": _NOTICE,
     }
+    # Load errors must not look like a pending decision. rights_status_for still
+    # fails closed to review_required for library callers; the CLI reports them
+    # separately so a broken register is not silent success.
+    try:
+        document = load_registry(args.register)
+    except (ValueError, OSError) as exc:
+        result["rights_status"] = PENDING
+        result["error"] = str(exc)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 2
+    result["rights_status"] = _rights_status_from_registry(
+        document, args.source_id, args.dataset_version, args.purpose
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
+    if result["rights_status"] in APPROVED_STATUSES:
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -11,12 +11,23 @@ The machine-readable register is [rights-register.json](rights-register.json). P
 Run the conservative offline audit:
 
 ```bash
+python -m pip install -e '.[rights]'
 python -m harborlens.rights --register docs/data/rights-register.json \
   --source-id noaa_pmel_erddap --dataset-version AIS2024_AIS \
   --purpose public_aggregates
 ```
 
-Until review, the response is `rights_status: review_required`. Unknown sources, missing versions, absent metadata, malformed/oversized/duplicate records and missing reviewer evidence also fail closed. A correctly reviewed entry may return `reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions` or `use_restricted` for a specifically prohibited purpose.
+`harborlens[rights]` installs `jsonschema`. It is not a core dependency. If that library is missing, the helper exits 2 and the JSON `error` field says to run `pip install 'harborlens[rights]'`. Validation is not skipped.
+
+The helper loads the schema shipped inside the package (`importlib.resources` only; it does not search parent directories). That file is a byte-identical copy of [schemas/v1/source-rights-register.schema.json](../../schemas/v1/source-rights-register.schema.json). Evidence and terms URLs must be `https` and must name a real host: `https://`, `https:///path`, `https://user@`, `https://.`, `https:// ` and `https://@` do not qualify. JSON is written to stdout in every case.
+
+| Exit code | When |
+| --- | --- |
+| 0 | `rights_status` is `reviewed_public_domain_attribution_required` or `reviewed_permitted_with_conditions` |
+| 1 | Any other status, including `review_required` and `use_restricted` |
+| 2 | The register cannot be loaded, parsed or schema-validated. The JSON includes `error` and `rights_status` stays `review_required`, so a broken file is not the same result as a pending source |
+
+Until review, the checked-in register answers `rights_status: review_required` (exit 1). Unknown sources, missing versions, absent metadata, malformed/oversized/duplicate records and missing reviewer evidence also fail closed. A correctly reviewed entry may return `reviewed_public_domain_attribution_required`, `reviewed_permitted_with_conditions` or `use_restricted` for a specifically prohibited purpose. Nothing in this repository auto-approves a source.
 
 ## Source-specific preliminary findings (not approvals)
 
@@ -30,6 +41,6 @@ Until review, the response is `rights_status: review_required`. Unknown sources,
 
 ## Security and compatibility notes
 
-This increment adds an explicit **audit helper**, not automatic promotion of existing acquisition metadata. Existing CLI outputs intentionally remain `review_required` until the reviewer approves a version-matched registry and those adapters are wired in a separate, tested change. In particular, an independently reviewed data license does not validate vessel events, historical anchorages or navigation suitability.
+This increment adds an explicit **audit helper**, not automatic promotion of existing acquisition metadata. **No source has been approved.** Optional adapter receipts ([rights-adapter-integration.md](rights-adapter-integration.md)) read this same gate and still default to `review_required`. A receipt is not an approval. Existing CLI outputs stay `review_required` until a reviewer approves a version-matched registry entry. In particular, an independently reviewed data license does not validate vessel events, historical anchorages or navigation suitability.
 
 **NOT FOR NAVIGATION. Not a government endorsement.**
