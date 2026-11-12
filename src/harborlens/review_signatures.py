@@ -9,12 +9,16 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import re
 from pathlib import Path
 
 MAX_PUBLIC_KEY_BYTES = 8192
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+# Domain separator so this signature cannot be replayed as another signed object.
+# Signatures from 0.2.0.dev4 covered the JSON body only and no longer verify.
+REVIEW_SIGNATURE_DOMAIN = "harborlens.publication-review.v1\n"
 
 
 class ReviewSignatureError(ValueError):
@@ -55,13 +59,24 @@ def public_key_fingerprint(public_key_path):
     return key, hashlib.sha256(canonical).hexdigest()
 
 
+def _fingerprints_equal(left, right):
+    """Compare public fingerprints without an early content mismatch return."""
+    if not isinstance(left, str) or not isinstance(right, str) or len(left) != len(right):
+        return False
+    return hmac.compare_digest(left, right)
+
+
 def review_message(review):
-    """Canonical signed fields; excludes only the detached signature bytes."""
+    """Domain-separated canonical claims; excludes only the detached signature bytes."""
     if not isinstance(review, dict) or "signature_b64" not in review:
         raise ReviewSignatureError("Signed review object is required")
     claims = {name: value for name, value in review.items() if name != "signature_b64"}
-    return (json.dumps(claims, sort_keys=True, separators=(",", ":"),
-                       ensure_ascii=True, allow_nan=False) + "\n").encode("ascii")
+    try:
+        body = json.dumps(claims, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=True, allow_nan=False) + "\n"
+    except ValueError as exc:
+        raise ReviewSignatureError("Signed review contains a non-finite number") from exc
+    return (REVIEW_SIGNATURE_DOMAIN + body).encode("ascii")
 
 
 def verify_review_signature(review, *, trusted_public_key,
@@ -76,8 +91,8 @@ def verify_review_signature(review, *, trusted_public_key,
             or review.get("reviewer_id") != expected_reviewer_id):
         raise ReviewSignatureError("Reviewer identity or algorithm is not trusted")
     key, actual_hash = public_key_fingerprint(trusted_public_key)
-    if (actual_hash != expected_public_key_sha256
-            or review.get("public_key_sha256") != actual_hash):
+    if (not _fingerprints_equal(expected_public_key_sha256, actual_hash)
+            or not _fingerprints_equal(review.get("public_key_sha256"), actual_hash)):
         raise ReviewSignatureError("Reviewer key fingerprint does not match trust anchor")
     signature = review.get("signature_b64")
     if not isinstance(signature, str) or len(signature) > 128:

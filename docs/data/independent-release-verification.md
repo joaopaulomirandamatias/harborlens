@@ -4,9 +4,9 @@
 
 ## Why a separate verifier?
 
-The local release command in PR #61 checks the original NOAA source, its acquisition receipt, the research run and the registry before it writes a small summary. PR #62 adds an Ed25519-signed reviewer decision. A third party receiving only the staged JSON should be able to check whether the file changed, whether a specified reviewer signed the precise summary and purpose, and whether a **separately trusted** rights-register snapshot permits that same purpose.
+`harborlens-release-summary` checks the original NOAA source, its acquisition receipt, the research run, a recount of `houston_clean.csv`, and the registry before it writes a small summary. The review is an Ed25519 signature over the domain separator `harborlens.publication-review.v1` plus the canonical review JSON. A third party receiving only the staged JSON should be able to check whether the file changed, whether a specified reviewer signed the precise summary and purpose, and whether a **separately trusted** rights-register snapshot permits that same purpose.
 
-`harborlens-verify-release` implements that separate, read-only check. It does not import an AIS file, fetch NOAA services, rebuild port events, sign anything, or publish to the Internet.
+`harborlens-verify-release` implements that separate, read-only check. It does not import an AIS file, fetch NOAA services, rebuild port events, sign anything, or publish to the Internet. It calls `summary_sha256` and `verify_review_signature`, so the canonical bytes and the fingerprint comparison (`hmac.compare_digest`) are the publisher's. A signature from `0.2.0.dev4` that omits the domain separator is rejected.
 
 ## Independent trust requirements
 
@@ -39,7 +39,7 @@ harborlens-verify-release \
 
 The final two flags are optional when external scope references are unavailable; the report's signed claims are still checked, but the verification is weaker against substitution of a different, otherwise valid report. Every successful result has `verified: true` and **`verification_scope: signed_release_and_pinned_rights_only`**. It reports file and summary hashes, source/version, purpose and reviewer identity with an explicit warning that original AIS truth and source authenticity were not checked. Any failed check exits with code 2 and emits no success record.
 
-The release must have the exact allowlisted structure of [the public-summary schema](../../schemas/v1/public-summary.schema.json). The verifier rejects duplicated JSON keys, non-finite values, unexpected payload fields, raw-record additions, invalid integer counts and false operational labels. It recomputes the canonical summary SHA-256; checks that the signed reviewer attestation binds to the same digest/purpose, is within 30 days and has all mandatory acknowledgments; verifies its Ed25519 signature with the pinned identity and key fingerprint; and re-evaluates the exact source/vintage/purpose under the independently pinned registry bytes.
+The release must have the exact allowlisted structure of [the public-summary schema](../../schemas/v1/public-summary.schema.json). The verifier rejects duplicated JSON keys, non-finite values, unexpected payload fields, raw-record additions, invalid integer counts, date-only review timestamps, and false operational labels. It recomputes the canonical summary SHA-256 with `allow_nan=False`; checks that the signed reviewer attestation binds to the same digest/purpose, is an RFC3339 UTC date-time within 30 days, and has all mandatory acknowledgments; verifies its Ed25519 signature with the pinned identity and key fingerprint; and re-evaluates the exact source/vintage/purpose under the independently pinned registry bytes. Retained observations must be at least 100 and MMSI groups at least 10, the same floors `harborlens-release-summary` applies to a recount of `houston_clean.csv`. A larger scanned count copied from a manifest does not pass by itself. This command does not re-read that CSV; without the original file it cannot detect an inflated count that still meets the floors.
 
 The output contract is [release-verification-result.schema.json](../../schemas/v1/release-verification-result.schema.json).
 
@@ -47,19 +47,19 @@ The output contract is [release-verification-result.schema.json](../../schemas/v
 
 | Threat | Enforced defense | Unsolved boundary |
 | --- | --- | --- |
-| Edited count, source, method or label | Strict allowlist, canonical summary SHA-256, signed exact digest | Cannot independently re-count missing original AIS |
+| Edited count, source, method or label | Strict allowlist, publisher canonical summary SHA-256, signed exact digest, recounted 100/10 floors | Cannot independently re-count missing original AIS; a manifest scanned count is not trusted alone, but an inflated retained count above the floor is not detectable without the CSV |
 | Self-signed malicious reviewer key | Out-of-band pinned SPKI hash and expected reviewer ID | External authority, key eligibility and revocation must be governed |
 | Rights registry swapped or revoked | Separately pinned registry SHA-256 and live purpose/version lookup | Registry approval is still an assertion, not an audited legal opinion |
 | Signed release reused for another purpose | Caller-specified purpose/source/version; optionally expected run and summary hashes | Same release replay in the same scope before expiry is possible |
 | Low-count disclosure or injected record | Coarse fixed numeric summary, minimum cohort counts and no unapproved fields | Thresholds do not guarantee privacy or prevent linkage attacks |
-| Edited signature or missing attestation | Ed25519 verification, exact signed-field contract and human review flags | No organizational dual-control, immutable audit store or policy engine |
+| Edited signature or missing attestation | Domain-separated Ed25519 verification, `hmac.compare_digest` fingerprints, exact signed-field contract and human review flags. `0.2.0.dev4` signatures and a missing `cryptography` install fail closed | No organizational dual-control, immutable audit store or policy engine |
 
 **Independent technical review still required before production:** check trust-anchor distribution, registry review and revocation, source-provenance authenticity, disclosure/privacy analysis, review lifecycle, local file ownership and retention, race conditions between review and release, and the ability of other workflows to bypass this narrow command. This verifier is a supplementary control, not a universal data-loss-prevention system.
 
 ## Test evidence
 
-`tests/test_release_verify.py` contains offline synthetic fixtures for correct verification, altered summary, wrong purpose/source/year, swapped key, stale review, rights revocation, malformed and duplicate-key JSON, unexpected raw fields, low-count exports and CLI scope. `tests/test_publication.py` also verifies interoperability using a report actually produced by `release_summary` from synthetic AIS.
+`tests/test_release_verify.py` contains offline synthetic fixtures for correct verification, a byte-identical canonical message with `review_message`, rejection of a `0.2.0.dev4` signature, altered summary, wrong purpose/source/year, swapped key, stale and date-only review, rights revocation, malformed and duplicate-key JSON, unexpected raw fields, low-count exports (including a high scanned count with a retained count below the recounted floor), CLI scope, and a missing `cryptography` import (exit 2, nothing written). `tests/test_publication.py` verifies interoperability using a report produced by `release_summary` from synthetic AIS after the cleaned-file recount. Ed25519 tests generate keys at runtime and skip with `unittest.skipUnless` when the extra is absent.
 
-Run `python -m unittest discover -s tests -v` with `.[noaa,dev,geo]`. No private key or real AIS is committed. The tests generate ephemeral Ed25519 keys that are not exported.
+Run `python -m unittest discover -s tests -v` with `.[noaa,dev,geo,rights]`. No private key or real AIS is committed. The `release` and `dev` extras require `cryptography>=42.0.4`.
 
 **NOT FOR NAVIGATION. No real dataset redistribution approval is implied.**

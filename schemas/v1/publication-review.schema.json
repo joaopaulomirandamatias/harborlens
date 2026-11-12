@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Manually reviewed HarborLens aggregate release approval",
-  "description": "Cryptographically signed, reviewer-pinned SHA-256 and purpose assertions; not proof of upstream data rights.",
+  "description": "Cryptographically signed, reviewer-pinned SHA-256 and purpose assertions; not proof of upstream data rights. The Ed25519 message is the domain separator line harborlens.publication-review.v1, a newline, then the canonical JSON of every field except signature_b64 (sorted keys, compact separators, ASCII escaping, non-finite numbers rejected, trailing newline). A signature that omits that separator is invalid.",
   "type": "object",
   "additionalProperties": false,
   "required": [

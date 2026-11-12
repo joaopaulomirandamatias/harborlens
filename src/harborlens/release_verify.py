@@ -16,6 +16,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from harborlens.publication import (
+    CAUTION,
+    MIN_OBSERVATIONS,
+    MIN_VESSELS,
+    ReleaseDenied,
+    _review_moment,
+    summary_sha256,
+)
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
 from harborlens.rights import APPROVED_STATUSES, rights_receipt
 
@@ -42,11 +50,8 @@ COUNT_FIELDS = frozenset({
     "observations_scanned", "observations_retained", "unique_mmsi_groups",
     "unvalidated_stationary_candidates",
 })
-WARNING = (
-    "Offline research diagnostics only; inferred stationary candidates are "
-    "NOT verified anchoring, berth occupancy, waiting, port calls or navigation signals. "
-    "Counts do not prove data coverage, independent accuracy or anonymity."
-)
+# Same caution string the publisher hashes. A divergent copy would change the digest.
+WARNING = CAUTION
 
 
 class ReleaseVerificationError(ValueError):
@@ -93,12 +98,19 @@ def _hex(value):
 
 
 def _canonical_summary_digest(summary):
-    # Independent implementation of the publication-v0.1 JSON hash contract.
-    encoded = (json.dumps(
-        summary, sort_keys=True, separators=(",", ":"),
-        ensure_ascii=True, allow_nan=False
-    ) + "\n").encode("ascii")
-    return hashlib.sha256(encoded).hexdigest()
+    """SHA-256 of the publisher's canonical summary bytes.
+
+    ``summary_sha256`` is the publisher path: sorted keys, compact separators,
+    ASCII escaping, ``allow_nan=False``, and a trailing newline. Reusing it
+    keeps this check from accepting a divergent encoding. The Ed25519 message
+    is ``review_message`` (domain separator plus those canonical review bytes).
+    """
+    try:
+        return summary_sha256(summary)
+    except ReleaseDenied as exc:
+        raise ReleaseVerificationError(
+            "Summary canonical bytes are not finite"
+        ) from exc
 
 
 def _validate_summary(summary, purpose, source_id, dataset_version, expected_run_id):
@@ -138,9 +150,15 @@ def _validate_summary(summary, purpose, source_id, dataset_version, expected_run
         counts["observations_scanned"], counts["observations_retained"],
         counts["unique_mmsi_groups"], counts["unvalidated_stationary_candidates"],
     )
-    if (scanned < 100 or retained < 100 or groups < 10 or
-            retained > scanned or groups > retained or episodes > retained):
-        raise ReleaseVerificationError("Summary is below conservative aggregate bounds")
+    # observations_scanned is the manifest total. It cannot satisfy the floor
+    # alone: retained observations and MMSI groups use the same recounted
+    # floors harborlens-release-summary applies to verified houston_clean.csv.
+    if (scanned < MIN_OBSERVATIONS or retained < MIN_OBSERVATIONS
+            or groups < MIN_VESSELS or retained > scanned
+            or groups > retained or episodes > retained):
+        raise ReleaseVerificationError(
+            "Summary is below recounted aggregate floors or breaks conservation bounds"
+        )
 
 
 def _validate_review(review, summary, digest, expected_reviewer_id, *,
@@ -165,16 +183,20 @@ def _validate_review(review, summary, digest, expected_reviewer_id, *,
             summary["rights_status"] == "reviewed_permitted_with_conditions"
             and not conditions):
         raise ReleaseVerificationError("Conditions require explicit reviewer attestation")
-    timestamp = review.get("reviewed_at_utc")
-    if not isinstance(timestamp, str) or not timestamp.endswith("Z"):
-        raise ReleaseVerificationError("Review timestamp is not UTC")
     try:
-        reviewed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ReleaseVerificationError("Review timestamp is malformed") from exc
+        reviewed = _review_moment(review.get("reviewed_at_utc"))
+    except ReleaseDenied as exc:
+        raise ReleaseVerificationError(
+            "Review timestamp must be an RFC3339 UTC date-time"
+        ) from exc
     now = datetime.now(timezone.utc)
-    if reviewed.tzinfo is None or not (
-            now - timedelta(days=30) <= reviewed <= now + timedelta(minutes=5)):
+    try:
+        fresh = now - timedelta(days=30) <= reviewed <= now + timedelta(minutes=5)
+    except TypeError as exc:
+        raise ReleaseVerificationError(
+            "Review timestamp must be an RFC3339 UTC date-time"
+        ) from exc
+    if not fresh:
         raise ReleaseVerificationError("Review is stale or future-dated")
     try:
         verify_review_signature(
@@ -183,7 +205,9 @@ def _validate_review(review, summary, digest, expected_reviewer_id, *,
             expected_reviewer_id=expected_reviewer_id,
         )
     except ReviewSignatureError as exc:
-        raise ReleaseVerificationError("Reviewer signature/trust anchor invalid") from exc
+        raise ReleaseVerificationError(
+            "Reviewer signature/trust anchor invalid: " + str(exc)
+        ) from exc
 
 
 def verify_release(

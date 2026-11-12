@@ -4,13 +4,12 @@ All vessel observations and approval records in this test are synthetic.
 """
 from __future__ import annotations
 
+import builtins
 import io
 import contextlib
+import csv
 import hashlib
 import base64
-
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import zstandard
 import json
@@ -18,19 +17,35 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from jsonschema import Draft202012Validator
 
 from harborlens.ais import run
 from harborlens.erddap import fetch_subset
 from harborlens.archive_extract import extract_archive
+from harborlens.provenance import checksum
 from harborlens.publication import (
     ReleaseDenied, prepare_summary, release_summary, summary_sha256,
     main as release_main
 )
 from harborlens.rights import rights_receipt
-from harborlens.review_signatures import public_key_fingerprint, review_message
-from harborlens.release_verify import verify_release
+from harborlens.review_signatures import (
+    REVIEW_SIGNATURE_DOMAIN, public_key_fingerprint, review_message,
+)
+
+
+def _load_cryptography():
+    """Import Ed25519 helpers when the optional extra is installed."""
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError:
+        return None
+    return serialization, Ed25519PrivateKey
+
+
+_CRYPTOGRAPHY = _load_cryptography()
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,8 +73,15 @@ def fake_erddap(req, timeout):
     return MockResponse(("\n".join(rows) + "\n").encode())
 
 
+@unittest.skipUnless(
+    _CRYPTOGRAPHY is not None,
+    "optional cryptography extra is not installed",
+)
 class PublicationGateTests(unittest.TestCase):
     def setUp(self):
+        serialization, Ed25519PrivateKey = _CRYPTOGRAPHY
+        self.serialization = serialization
+        self.Ed25519PrivateKey = Ed25519PrivateKey
         self.tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self.tmp.name)
         self.registry = self.folder / "rights-register.json"
@@ -276,14 +298,15 @@ class PublicationGateTests(unittest.TestCase):
             self.produce()
         self.assertEqual(self.out.read_bytes(), saved)
 
-    def test_small_sample_is_not_exported(self):
+    def test_manifest_written_count_disagreement_is_denied(self):
         self.decide()
         manifest = self.rundir / "manifest.json"
         doc = json.loads(manifest.read_text())
         doc["counts"]["written"] = 6
         manifest.write_text(json.dumps(doc))
-        with self.assertRaisesRegex(ReleaseDenied, "Aggregate count"):
+        with self.assertRaisesRegex(ReleaseDenied, "do not match"):
             prepare_summary(self.rundir, self.source, self.registry)
+        self.assertFalse(self.out.exists())
 
     def test_receipt_rechecks_current_registry_without_reacquisition(self):
         self.decide()
@@ -421,11 +444,11 @@ class PublicationGateTests(unittest.TestCase):
                 expected_public_key_sha256=self.trusted_key_sha256,
                 expected_reviewer_id="someone-else",
             )
-        alternate = Ed25519PrivateKey.generate()
+        alternate = self.Ed25519PrivateKey.generate()
         other_key = self.folder / "other.pem"
         other_key.write_bytes(alternate.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            encoding=self.serialization.Encoding.PEM,
+            format=self.serialization.PublicFormat.SubjectPublicKeyInfo,
         ))
         with self.assertRaisesRegex(ReleaseDenied, "fingerprint"):
             release_summary(
@@ -459,12 +482,169 @@ class PublicationGateTests(unittest.TestCase):
             release_main(cmd)
         self.assertTrue(self.out.exists())
 
-    def test_independent_verifier_accepts_producer_output(self):
-        """Verifier must accept actual output, not only handcrafted JSON."""
+    def rewrite_cleaned(self, observations, groups, *,
+                        manifest_written=None, manifest_vessels=None):
+        """Replace the verified cleaned file with a synthetic recount fixture."""
+        path = self.rundir / "houston_clean.csv"
+        fieldnames = [
+            "mmsi", "timestamp_utc", "lat", "lon", "sog_knots", "vessel_type",
+            "nav_status", "cog_deg", "heading_deg", "length_m", "width_m",
+            "draft_m", "transceiver_class", "mmsi_category",
+        ]
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for index in range(observations):
+                writer.writerow({
+                    "mmsi": str(900000001 + (index % groups)),
+                    "timestamp_utc": "2024-06-10T00:00:00Z",
+                    "lat": "29.70",
+                    "lon": "-95.20",
+                    "sog_knots": "0.1",
+                    "vessel_type": "70",
+                    "nav_status": "5",
+                    "cog_deg": "",
+                    "heading_deg": "",
+                    "length_m": "",
+                    "width_m": "",
+                    "draft_m": "",
+                    "transceiver_class": "",
+                    "mmsi_category": "ship",
+                })
+        manifest_path = self.rundir / "manifest.json"
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        document["artifacts"]["houston_clean.csv"] = {
+            "sha256": checksum(path),
+            "size_bytes": path.stat().st_size,
+        }
+        document["counts"]["written"] = (
+            observations if manifest_written is None else manifest_written
+        )
+        document["events"]["vessels"] = (
+            groups if manifest_vessels is None else manifest_vessels
+        )
+        if document["counts"]["total"] < document["counts"]["written"]:
+            document["counts"]["total"] = document["counts"]["written"]
+        document["events"]["stationary_candidates"] = 0
+        manifest_path.write_text(json.dumps(document), encoding="utf-8")
+
+    def release_command(self):
+        return [
+            "--run", str(self.rundir),
+            "--source-file", str(self.source),
+            "--rights-register", str(self.registry),
+            "--review", str(self.review),
+            "--out", str(self.out),
+            "--trusted-reviewer-key", str(self.trusted_key),
+            "--trusted-reviewer-key-sha256", self.trusted_key_sha256,
+            "--trusted-reviewer-id", "sample-reviewer",
+        ]
+
+    def assert_cli_denied(self, pattern):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                release_main(self.release_command())
+        self.assertEqual(caught.exception.code, 2)
+        message = stderr.getvalue()
+        self.assertNotIn("Traceback", message)
+        self.assertIn("Release denied", message)
+        self.assertRegex(message, pattern)
+        self.assertFalse(self.out.exists())
+
+    def test_recounted_100_observations_are_allowed(self):
+        self.decide()
+        self.rewrite_cleaned(100, 12)
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(summary["counts"]["observations_retained"], 100)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], 12)
+        self.approve(summary)
+        result = self.produce()
+        self.assertEqual(result["summary"]["counts"]["observations_retained"], 100)
+        schema = json.loads((ROOT / "schemas/v1/public-summary.schema.json").read_text())
+        Draft202012Validator(schema).validate(result)
+        exported = self.out.read_text(encoding="utf-8")
+        self.assertNotIn("900000001", exported)
+
+    def test_recounted_99_observations_are_denied(self):
+        self.decide()
+        self.rewrite_cleaned(99, 12)
+        self.assert_cli_denied("Aggregate count")
+
+    def test_recounted_10_mmsi_groups_are_allowed(self):
+        self.decide()
+        self.rewrite_cleaned(120, 10)
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        self.assertEqual(summary["counts"]["observations_retained"], 120)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], 10)
+        self.approve(summary)
+        result = self.produce()
+        self.assertEqual(result["summary"]["counts"]["unique_mmsi_groups"], 10)
+        self.assertTrue(self.out.exists())
+
+    def test_recounted_9_mmsi_groups_are_denied(self):
+        self.decide()
+        self.rewrite_cleaned(120, 9)
+        self.assert_cli_denied("Aggregate count")
+
+    def test_tampered_manifest_counts_are_denied(self):
+        self.decide()
+        self.rewrite_cleaned(120, 12, manifest_written=1000, manifest_vessels=40)
+        self.assert_cli_denied("do not match")
+
+    def test_date_only_review_timestamp_exits_2(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        for stamp in ("2026-11-12", "2026-11-12Z"):
+            if self.out.exists():
+                self.out.unlink()
+            review["reviewed_at_utc"] = stamp
+            self.sign_review(review)
+            self.review.write_text(json.dumps(review), encoding="utf-8")
+            self.assert_cli_denied("date-time")
+
+    def test_non_finite_number_fails_closed(self):
         self.decide()
         summary = prepare_summary(self.rundir, self.source, self.registry)
         self.approve(summary)
-        self.produce()
+        poisoned = json.loads(json.dumps(summary))
+        poisoned["counts"]["observations_retained"] = float("nan")
+        with mock.patch("harborlens.publication.prepare_summary", return_value=poisoned):
+            self.assert_cli_denied("non-finite")
+
+    def test_legacy_signature_without_domain_separator_is_denied(self):
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = self.approve(summary)
+        claims = {name: value for name, value in review.items() if name != "signature_b64"}
+        legacy = (json.dumps(claims, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=True, allow_nan=False) + "\n").encode("ascii")
+        self.assertFalse(legacy.startswith(REVIEW_SIGNATURE_DOMAIN.encode("ascii")))
+        review["signature_b64"] = base64.b64encode(
+            self.private_key.sign(legacy)
+        ).decode("ascii")
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        self.assert_cli_denied("signature")
+
+    def test_independent_verifier_accepts_recounted_producer_output(self):
+        """The verifier accepts a staged release whose counts match the cleaned recount."""
+        from harborlens.publication import _recount_cleaned
+        from harborlens.release_verify import verify_release
+
+        self.decide()
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        retained, groups = _recount_cleaned(self.rundir / "houston_clean.csv")
+        manifest = json.loads((self.rundir / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["counts"]["observations_retained"], retained)
+        self.assertEqual(summary["counts"]["unique_mmsi_groups"], groups)
+        self.assertEqual(manifest["counts"]["written"], retained)
+        self.assertEqual(manifest["events"]["vessels"], groups)
+        self.assertGreaterEqual(retained, 100)
+        self.assertGreaterEqual(groups, 10)
+        self.approve(summary)
+        produced = self.produce()
+        self.assertEqual(produced["summary_sha256"], summary_sha256(summary))
         pinned_registry = hashlib.sha256(self.registry.read_bytes()).hexdigest()
         result = verify_release(
             self.out,
@@ -480,8 +660,103 @@ class PublicationGateTests(unittest.TestCase):
             expected_summary_sha256=summary_sha256(summary),
         )
         self.assertTrue(result["verified"])
+        self.assertEqual(result["summary_sha256"], summary_sha256(summary))
         self.assertEqual(result["verification_scope"], "signed_release_and_pinned_rights_only")
+        self.assertIn("unverified", result["caveat"])
 
+
+def _approve_registry(path):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    entry = next(item for item in data["sources"] if item["source_id"] == "noaa_pmel_erddap")
+    entry.update({
+        "decision": "reviewed",
+        "rights_status": "reviewed_public_domain_attribution_required",
+        "reviewed_by": "Synthetic approval fixture",
+        "reviewed_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "attribution": "Source: synthetic NOAA example",
+        "terms_sha256": "a" * 64,
+        "terms_url": "https://example.test/terms",
+        "evidence_url": "https://example.test/approval",
+        "permitted_uses": {
+            "research": "allowed",
+            "public_aggregates": "allowed",
+            "commercial": "prohibited",
+        },
+    })
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+class MissingCryptographyReleaseTests(unittest.TestCase):
+    """A missing Ed25519 library must deny release without writing a file."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = Path(self.tmp.name)
+        self.registry = self.folder / "rights-register.json"
+        self.source = self.folder / "acquired.csv"
+        self.rundir = self.folder / "run"
+        self.out = self.folder / "release.json"
+        self.review = self.folder / "review.json"
+        self.key = self.folder / "trusted-reviewer.pem"
+        self.key.write_bytes(b"not-a-key\n")
+        self.registry.write_text(
+            (ROOT / "docs/data/rights-register.json").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        fetch_subset(START, END, BBOX, self.source,
+                     opener=fake_erddap, rights_register=self.registry)
+        run(self.source, self.rundir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_import_error_denies_release_without_writing(self):
+        _approve_registry(self.registry)
+        summary = prepare_summary(self.rundir, self.source, self.registry)
+        review = {
+            "schema_version": 1,
+            "decision": "approved",
+            "summary_sha256": summary_sha256(summary),
+            "purpose": summary["purpose"],
+            "reviewer_id": "sample-reviewer",
+            "reviewed_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "privacy_reviewed": True,
+            "source_rights_reviewed": True,
+            "scientific_limitations_reviewed": True,
+            "conditions_reviewed": False,
+            "signature_algorithm": "Ed25519",
+            "public_key_sha256": "a" * 64,
+            "signature_b64": "A" * 86 + "==",
+        }
+        self.review.write_text(json.dumps(review), encoding="utf-8")
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name == "cryptography" or name.startswith("cryptography."):
+                raise ImportError("cryptography is not installed")
+            return real_import(name, *args, **kwargs)
+
+        command = [
+            "--run", str(self.rundir),
+            "--source-file", str(self.source),
+            "--rights-register", str(self.registry),
+            "--review", str(self.review),
+            "--out", str(self.out),
+            "--trusted-reviewer-key", str(self.key),
+            "--trusted-reviewer-key-sha256", "a" * 64,
+            "--trusted-reviewer-id", "sample-reviewer",
+        ]
+        stderr = io.StringIO()
+        with mock.patch("builtins.__import__", side_effect=blocked):
+            with contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as caught:
+                    release_main(command)
+        self.assertEqual(caught.exception.code, 2)
+        message = stderr.getvalue()
+        self.assertNotIn("Traceback", message)
+        self.assertIn("Release denied", message)
+        self.assertIn("Install the release extra", message)
+        self.assertFalse(self.out.exists())
 
 
 if __name__ == "__main__":
