@@ -11,12 +11,15 @@ The machine-readable register is [rights-register.json](rights-register.json). P
 Run the conservative offline audit:
 
 ```bash
+python -m pip install -e '.[rights]'
 python -m harborlens.rights --register docs/data/rights-register.json \
   --source-id noaa_pmel_erddap --dataset-version AIS2024_AIS \
   --purpose public_aggregates
 ```
 
-The helper loads the register and validates it against `schemas/v1/source-rights-register.schema.json` before it will report an approved status. Evidence and terms URLs must be `https` and must include a host (`https://` and `https:///path` do not qualify). JSON is written to stdout in every case.
+`harborlens[rights]` installs `jsonschema`. It is not a core dependency. If that library is missing, the helper exits 2 and the JSON `error` field says to run `pip install 'harborlens[rights]'`. Validation is not skipped.
+
+The helper loads the schema shipped inside the package (`importlib.resources` only; it does not search parent directories). That file is a byte-identical copy of [schemas/v1/source-rights-register.schema.json](../../schemas/v1/source-rights-register.schema.json). Evidence and terms URLs must be `https` and must name a real host: `https://`, `https:///path`, `https://user@`, `https://.`, `https:// ` and `https://@` do not qualify. JSON is written to stdout in every case.
 
 | Exit code | When |
 | --- | --- |

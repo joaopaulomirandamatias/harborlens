@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harborlens.rights import APPROVED_STATUSES, _NOTICE, main
+from unittest.mock import patch
+
+from harborlens.rights import APPROVED_STATUSES, _MISSING_JSONSCHEMA, _NOTICE, main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -179,6 +181,20 @@ class RightsCLITests(unittest.TestCase):
             payload = json.loads(completed.stdout)
             self.assertEqual(payload["error"], "Rights register is unreadable")
             self.assertEqual(payload["rights_status"], "review_required")
+
+    def test_missing_jsonschema_error_names_rights_extra(self):
+        with patch("harborlens.rights._load_jsonschema", side_effect=ImportError("blocked")):
+            code, result = self._invoke([
+                "--register", str(ROOT / "docs/data/rights-register.json"),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], _MISSING_JSONSCHEMA)
+        self.assertIn("pip install 'harborlens[rights]'", result["error"])
+        self.assertEqual(result["rights_status"], "review_required")
+        self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
 
 
 if __name__ == "__main__":

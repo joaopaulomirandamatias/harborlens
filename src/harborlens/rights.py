@@ -10,6 +10,7 @@ import argparse
 import json
 import re
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,44 +23,72 @@ APPROVED_STATUSES = (
 PENDING = "review_required"
 RESTRICTED = "use_restricted"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_SCHEMA_RELATIVE = Path("schemas") / "v1" / "source-rights-register.schema.json"
 _NOTICE = "A recorded decision is not legal advice or a data redistribution grant."
+_MISSING_JSONSCHEMA = (
+    "Rights register schema validator is unavailable; "
+    "pip install 'harborlens[rights]'"
+)
 
 
 def _is_https_url(value):
-    """True only for https URLs that name a host.
+    """True only for https URLs whose hostname is a real host.
 
-    ``startswith("https://")`` accepts ``https://`` and ``https:///path``.
+    ``netloc`` alone accepts ``https://user@``, ``https://.``, ``https:// ``
+    and ``https://@``. The hostname must be non-empty, contain no whitespace,
+    and must not be only dots.
     """
     if not isinstance(value, str) or not value:
         return False
-    parts = urlsplit(value)
-    return parts.scheme == "https" and bool(parts.netloc)
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not isinstance(host, str) or not host:
+        return False
+    if any(ch.isspace() for ch in host):
+        return False
+    if not host.strip("."):
+        return False
+    return True
 
 
-def _published_schema_path():
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        candidate = parent / _SCHEMA_RELATIVE
-        if candidate.is_file():
-            return candidate
-    raise ValueError("Rights register schema is unreadable")
+def _load_jsonschema():
+    from jsonschema import Draft202012Validator
+    from jsonschema.exceptions import SchemaError, ValidationError
+    return Draft202012Validator, SchemaError, ValidationError
+
+
+def _read_packaged_schema():
+    """Read the schema shipped inside this package.
+
+    ``importlib.resources`` only. Searching parent directories would let a
+    foreign file next to a virtualenv replace the contract.
+    """
+    try:
+        text = files("harborlens").joinpath(
+            "schemas", "v1", "source-rights-register.schema.json"
+        ).read_text(encoding="utf-8")
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise ValueError("Rights register schema is unreadable") from exc
+    if not text.strip():
+        raise ValueError("Rights register schema is unreadable")
+    return text
 
 
 def _validate_registry_schema(data):
-    """Reject registers that do not match the published source-rights schema."""
+    """Reject registers that do not match the packaged source-rights schema."""
     try:
-        from jsonschema import Draft202012Validator
-        from jsonschema.exceptions import SchemaError, ValidationError
+        validator_cls, schema_error, validation_error = _load_jsonschema()
     except ImportError as exc:
-        raise ValueError("Rights register schema validator is unavailable") from exc
+        raise ValueError(_MISSING_JSONSCHEMA) from exc
     try:
-        schema = json.loads(_published_schema_path().read_text(encoding="utf-8"))
+        schema = json.loads(_read_packaged_schema())
     except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError("Rights register schema is unreadable") from exc
     try:
-        Draft202012Validator(schema).validate(data)
-    except (ValidationError, SchemaError) as exc:
+        validator_cls(schema).validate(data)
+    except (validation_error, schema_error) as exc:
         raise ValueError("Rights register failed schema validation") from exc
 
 
