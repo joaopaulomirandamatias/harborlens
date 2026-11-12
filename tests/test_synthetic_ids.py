@@ -14,16 +14,20 @@ Exclusions, each with the reason the path is not a current vessel id:
   digest is not a vessel id, and the quoted evidence note is not rewritten.
 * ``tests/synthetic_id_map.py`` is the mapping table. Its keys are the retired
   identifiers. The same identifiers anywhere else still fail the guard.
-* ``268435456`` in ``tests/multiday_memory_probe.py`` is ``PRAGMA mmap_size``
-  for 256 MiB. It is a byte count. The same digits in an MMSI column still fail.
+* A nine-digit token is ignored only on a line that sets ``mmap_size``
+  (``PRAGMA mmap_size=`` or ``mmap_size =``). In
+  ``tests/multiday_memory_probe.py`` that line is a 256 MiB byte count.
+  The same digits in an MMSI column, a ``mmsi`` field, or any other line fail.
 
-``mmsi_category`` classifies MID 199 as ``other`` and MID 367 as ``ship``.
-The byte-identity proof below does not rewrite category, event id, counts, or
-hashes. It only substitutes legacy vessel ids.
+The byte-identity proof starts from the dev9 goldens, applies
+``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
+``hashlib``. It does not call the pipeline. ``mmsi_category`` changes from
+``ship`` to ``other`` only on rows whose identifier was mapped.
 """
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import re
@@ -31,7 +35,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harborlens.provenance import FILES, verify_manifest
 from synthetic_id_map import SYNTHETIC_ID_MAP, SYNTHETIC_ID_RULES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,14 +74,13 @@ EXCLUSIONS = (
     ),
 )
 
-# Token, reason. Applied only to Python-source token scans, not to MMSI columns.
-NON_MMSI_DIGIT_TOKENS = {
-    str(256 * 1024 * 1024): (
-        "tests/multiday_memory_probe.py sets PRAGMA mmap_size to 256 MiB. "
-        "That decimal byte count is not a vessel identifier. The same nine "
-        "digits in an MMSI column or mmsi field still fail."
-    ),
-}
+# Files harborlens-verify hashes, and the cleaned CSV the release recount reads.
+VERIFY_ARTIFACTS = (
+    "houston_clean.csv",
+    "stationary_candidates.csv",
+    "stationary_candidates.geojson",
+)
+MMAP_SIZE_ASSIGNMENT = re.compile(r"mmap_size\s*=")
 
 
 def mid_is_assigned(mid):
@@ -148,20 +150,30 @@ def _inside_hex_blob(text, start, end):
     return False
 
 
+def _line_containing(text, offset):
+    start = text.rfind("\n", 0, offset) + 1
+    end = text.find("\n", offset)
+    if end < 0:
+        end = len(text)
+    return text[start:end]
+
+
 def python_source_hits(text):
     """Assigned-MID vessel-id tokens in Python or other source text.
 
     A nine-digit token inside a hex digest of 32 or more characters is not a
-    vessel id. ``NON_MMSI_DIGIT_TOKENS`` lists the other documented exceptions.
-    An f-string prefix whose first three digits are an assigned MID is a hit
+    vessel id. A token on a line that assigns ``mmap_size`` is a byte count
+    (``PRAGMA mmap_size=`` in ``tests/multiday_memory_probe.py``), not an
+    allowlisted number: the same digits on any other line are a hit. An
+    f-string prefix whose first three digits are an assigned MID is a hit
     even when the format field completes the nine digits at runtime.
     """
     hits = []
     for match in TOKEN_9.finditer(text):
         token = match.group(1)
-        if token in NON_MMSI_DIGIT_TOKENS:
-            continue
         if _inside_hex_blob(text, match.start(), match.end()):
+            continue
+        if MMAP_SIZE_ASSIGNMENT.search(_line_containing(text, match.start())):
             continue
         if mid_is_assigned(token[:3]):
             hits.append(token)
@@ -223,6 +235,228 @@ def substitute_legacy_ids(data):
     return text.encode("utf-8")
 
 
+def mapped_mmsi_images():
+    return set(SYNTHETIC_ID_MAP.values())
+
+
+def package_version_text():
+    """Package version string.
+
+    Defined as ``__version__`` in ``src/harborlens/__init__.py``.
+    ``harborlens.provenance.code_version`` copies it into
+    ``code_version.package_version``. Read as text so this proof does not
+    import the package.
+    """
+    source = (ROOT / "src" / "harborlens" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__ = "([^"]+)"', source, re.MULTILINE)
+    if match is None:
+        raise AssertionError("package version is not defined")
+    return match.group(1)
+
+
+def event_id_digest(mmsi, start, end, method_version, parameter_set):
+    """First 18 hex characters of SHA-256(mmsi|start|end|method|parameter_set).
+
+    Defined in ``harborlens.segmentation`` where ``Segmenter`` builds
+    ``event_id`` (the ``hashlib.sha256`` call on that joined string).
+    """
+    payload = f"{mmsi}|{start}|{end}|{method_version}|{parameter_set}".encode()
+    return hashlib.sha256(payload).hexdigest()[:18]
+
+
+def input_sha256_digest(path):
+    """SHA-256 of the input file bytes.
+
+    Defined as ``harborlens.ais.sha256``, stored on the manifest as
+    ``input_sha256`` by ``ingest``.
+    """
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def run_id_digest(manifest, version):
+    """SHA-256 of the canonical run-identity JSON.
+
+    Defined in ``harborlens.provenance.add_provenance``. The hashed object is
+    ``input_sha256``, ``bbox_lon_lat``, ``method_parameters``,
+    ``method_version``, and ``harborlens_version``. A known analysis window
+    adds ``analysis_window`` as ``[start_utc, end_utc]`` pairs. An unknown
+    window is not hashed. Encoding is ``sort_keys`` and ``separators=(",", ":")``.
+    """
+    settings = {
+        "input_sha256": manifest["input_sha256"],
+        "bbox_lon_lat": manifest["bbox_lon_lat"],
+        "method_parameters": manifest["method_parameters"],
+        "method_version": manifest["method_parameters"].get("method_version", "stationary-v0.1"),
+        "harborlens_version": version,
+    }
+    window = manifest.get("analysis_window") or {}
+    if window.get("status") == "known":
+        settings["analysis_window"] = [[block["start_utc"], block["end_utc"]] for block in window["blocks"]]
+    encoded = json.dumps(settings, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _line_ending(line):
+    if line.endswith("\r\n"):
+        return "\r\n"
+    if line.endswith("\n"):
+        return "\n"
+    return ""
+
+
+def _flip_mapped_category(body, mmsi, category):
+    """Change a trailing ``ship`` category to ``other`` only for a mapped id."""
+    if mmsi in mapped_mmsi_images() and category == "ship" and body.endswith("ship"):
+        return body[:-len("ship")] + "other"
+    return body
+
+
+def project_cleaned_csv(data):
+    """Map ids, then set ``mmsi_category`` from ``ship`` to ``other`` on those rows.
+
+    ``ingest`` writes ``mmsi_category(mmsi)`` on each cleaned row
+    (``harborlens.ais``). MID 199 is ``other`` because the first digit is not
+    in ``2``–``7`` (``harborlens.vessel.mmsi_category``).
+    """
+    text = substitute_legacy_ids(data).decode("utf-8")
+    lines = text.splitlines(keepends=True)
+    projected = [lines[0]]
+    for line in lines[1:]:
+        if not line.strip():
+            projected.append(line)
+            continue
+        ending = _line_ending(line)
+        body = line[:-len(ending)] if ending else line
+        row = next(csv.reader([body]))
+        body = _flip_mapped_category(body, row[0], row[-1])
+        projected.append(body + ending)
+    return "".join(projected).encode("utf-8")
+
+
+def project_candidates_csv(data):
+    """Map ids, recompute ``event_id``, and flip ``ship`` to ``other`` on those rows."""
+    text = substitute_legacy_ids(data).decode("utf-8")
+    lines = text.splitlines(keepends=True)
+    header = next(csv.reader([lines[0].strip("\r\n")]))
+    index = {name: position for position, name in enumerate(header)}
+    projected = [lines[0]]
+    for line in lines[1:]:
+        if not line.strip():
+            projected.append(line)
+            continue
+        ending = _line_ending(line)
+        body = line[:-len(ending)] if ending else line
+        row = next(csv.reader([body]))
+        mmsi = row[index["mmsi"]]
+        if mmsi in mapped_mmsi_images():
+            old_id = row[index["event_id"]]
+            new_id = event_id_digest(
+                mmsi, row[index["start_utc"]], row[index["end_utc"]],
+                row[index["method_version"]], row[index["parameter_set"]],
+            )
+            if body.startswith(old_id):
+                body = new_id + body[len(old_id):]
+            body = _flip_mapped_category(body, mmsi, row[index["mmsi_category"]])
+        projected.append(body + ending)
+    return "".join(projected).encode("utf-8")
+
+
+def project_candidates_geojson(data):
+    """Map ids, recompute ``event_id``, and flip ``ship`` to ``other`` on those features.
+
+    Serialization is ``json.dumps(..., indent=2)``, the writer in
+    ``harborlens.ais.write_events``.
+    """
+    document = json.loads(substitute_legacy_ids(data).decode("utf-8"))
+    for feature in document["features"]:
+        props = feature["properties"]
+        if props.get("mmsi") not in mapped_mmsi_images():
+            continue
+        props["event_id"] = event_id_digest(
+            props["mmsi"], props["start_utc"], props["end_utc"],
+            props["method_version"], props["parameter_set"],
+        )
+        if props.get("mmsi_category") == "ship":
+            props["mmsi_category"] = "other"
+    return json.dumps(document, indent=2).encode("utf-8")
+
+
+def category_counts(cleaned):
+    """Category histogram in first-seen order.
+
+    ``ingest`` increments ``mmsi_categories`` once per written row
+    (``harborlens.ais``).
+    """
+    counts = {}
+    for row in csv.DictReader(io.StringIO(cleaned.decode("utf-8"))):
+        category = row["mmsi_category"]
+        counts[category] = counts.get(category, 0) + 1
+    return counts
+
+
+def project_manifest(data, artifacts):
+    """Map ids, then recompute the ID-derived manifest fields.
+
+    ``input_sha256`` is the fixture digest (``ais.sha256``).
+    ``code_version.package_version`` is ``__version__``.
+    ``mmsi_categories`` is the cleaned-row histogram after the ship-to-other
+    flip on mapped rows. ``run_id`` is ``run_id_digest``. Artifact ``sha256``
+    and ``size_bytes`` are SHA-256 and length of the projected artifact bytes,
+    the check ``harborlens.provenance.add_provenance`` stores and
+    ``verify_manifest`` repeats. The manifest text is ``json.dumps`` with
+    indent 2 plus a trailing newline, matching the committed golden.
+    """
+    manifest = json.loads(substitute_legacy_ids(data).decode("utf-8"))
+    version = package_version_text()
+    manifest["input_sha256"] = input_sha256_digest(ROOT / "tests" / "fixtures" / "synthetic_ais.csv")
+    manifest["code_version"]["package_version"] = version
+    manifest["mmsi_categories"] = category_counts(artifacts["houston_clean.csv"])
+    manifest["run_id"] = run_id_digest(manifest, version)
+    for name in VERIFY_ARTIFACTS:
+        body = artifacts[name]
+        manifest["artifacts"][name] = {
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "size_bytes": len(body),
+        }
+    return (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+
+
+def project_dev9():
+    """dev9 goldens after the mapping and the ID-derived recomputation."""
+    artifacts = {
+        "houston_clean.csv": project_cleaned_csv((DEV9 / "houston_clean.csv").read_bytes()),
+        "stationary_candidates.csv": project_candidates_csv(
+            (DEV9 / "stationary_candidates.csv").read_bytes()
+        ),
+        "stationary_candidates.geojson": project_candidates_geojson(
+            (DEV9 / "stationary_candidates.geojson").read_bytes()
+        ),
+    }
+    artifacts["manifest.json"] = project_manifest(
+        (DEV9 / "manifest.json").read_bytes(), artifacts
+    )
+    return artifacts
+
+
+def independent_verify(files):
+    """Hash and size check from ``harborlens.provenance.verify_manifest``.
+
+    Computed here with ``hashlib`` only. ``ok`` is true when every artifact
+    digest and byte length matches the manifest entry.
+    """
+    manifest = json.loads(files["manifest.json"].decode("utf-8"))
+    results = {}
+    for name in VERIFY_ARTIFACTS:
+        body = files[name]
+        expected = manifest["artifacts"][name]
+        digest = hashlib.sha256(body).hexdigest()
+        if digest == expected["sha256"] and len(body) == expected["size_bytes"]:
+            results[name] = "verified"
+        else:
+            results[name] = "mismatch"
+    return {"ok": all(item == "verified" for item in results.values()), "artifacts": results}
+
+
 def _csv_diffs(before, after):
     left = list(csv.DictReader(io.StringIO(before.decode("utf-8"))))
     right = list(csv.DictReader(io.StringIO(after.decode("utf-8"))))
@@ -271,19 +505,19 @@ def _json_diffs(before, after, prefix=""):
     return lines
 
 
-def golden_substitution_report():
-    """Field-level diff after substituting legacy ids in the dev9 golden."""
+def golden_projection_report(projected):
+    """Field-level diff when the projected dev9 bytes are not dev15."""
     report = []
-    compared = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson", "manifest.json")
-    for name in compared:
-        before = substitute_legacy_ids((DEV9 / name).read_bytes())
+    for name in ("houston_clean.csv", "stationary_candidates.csv",
+                 "stationary_candidates.geojson", "manifest.json"):
+        before = projected[name]
         after = (DEV15 / name).read_bytes()
         if before == after:
-            report.append(f"{name}: byte-identical after id substitution")
+            report.append(f"{name}: byte-identical")
             continue
         if name.endswith(".csv"):
             detail, old_rows, new_rows = _csv_diffs(before, after)
-            report.append(f"{name}: NOT byte-identical ({old_rows} dev9 rows, {new_rows} dev15 rows)")
+            report.append(f"{name}: NOT byte-identical ({old_rows} projected rows, {new_rows} dev15 rows)")
         else:
             detail = _json_diffs(before, after)
             report.append(f"{name}: NOT byte-identical")
@@ -349,7 +583,6 @@ class MappingTableTests(unittest.TestCase):
         for path, reason in EXCLUSIONS:
             self.assertTrue(path.strip())
             self.assertGreater(len(reason.split()), 8, path)
-        self.assertTrue(NON_MMSI_DIGIT_TOKENS[str(256 * 1024 * 1024)].strip())
 
 
 class GuardScanTests(unittest.TestCase):
@@ -372,12 +605,22 @@ class GuardScanTests(unittest.TestCase):
         self.assertTrue(all(mid_is_assigned(hit[:3]) for hit in hits if hit.isdigit()))
         self.assertTrue(path_is_excluded(MAP_SOURCE))
 
-    def test_byte_count_token_is_ignored_until_it_is_in_an_mmsi_column(self):
+    def test_mmap_size_byte_count_is_contextual_and_an_mmsi_still_fails(self):
         token = str(256 * 1024 * 1024)
         probe = (ROOT / "tests" / "multiday_memory_probe.py").read_text(encoding="utf-8")
         self.assertIn(token, probe)
         self.assertNotIn(token, python_source_hits(probe))
+        self.assertEqual(
+            python_source_hits(f'db.execute("PRAGMA mmap_size={token}")'),
+            [],
+        )
+        self.assertEqual(python_source_hits(f"mmap_size = {token}\n"), [])
+        # Same digits, not an mmap_size assignment: the guard fails.
+        self.assertEqual(python_source_hits(f'mmsi = "{token}"\n'), [token])
+        self.assertEqual(python_source_hits(f"value = {token}\n"), [token])
         self.assertEqual(csv_mmsi_hits(f"MMSI\n{token}\n"), [token])
+        self.assertEqual(json_mmsi_hits(json.dumps({"mmsi": token})), [token])
+        self.assertEqual(json_mmsi_hits(json.dumps({"properties": {"mmsi": token}})), [token])
 
     def test_federal_register_digit_run_is_inside_a_sha256_not_a_vessel_id(self):
         text = FR_EVIDENCE.read_text(encoding="utf-8")
@@ -395,57 +638,53 @@ class GuardScanTests(unittest.TestCase):
 
 
 class GoldenSubstitutionProofTests(unittest.TestCase):
-    """ID substitution of the dev9 golden must be byte-identical to dev15.
+    """Projected dev9 goldens must be byte-identical to dev15.
 
-    harborlens-verify checks the three artifact hashes. The release recount
-    reads ``houston_clean.csv``. Both paths use the same substitution proof.
+    The projection applies ``SYNTHETIC_ID_MAP``, flips ``ship`` to ``other``
+    only on mapped rows, and recomputes ``event_id``, ``input_sha256``,
+    ``run_id``, and ``package_version`` with ``hashlib``. It does not import
+    or call the pipeline. Any other difference fails.
+
+    ``harborlens-verify`` checks the three artifact hashes. The release
+    recount reads ``houston_clean.csv``. Those bytes use the same projection.
     """
 
     def test_dev15_manifest_verifies_its_own_artifacts(self):
-        result = verify_manifest(DEV15 / "manifest.json")
+        files = {name: (DEV15 / name).read_bytes() for name in (*VERIFY_ARTIFACTS, "manifest.json")}
+        result = independent_verify(files)
         self.assertTrue(result["ok"], result)
-        self.assertEqual(set(result["artifacts"]), set(FILES))
+        self.assertEqual(set(result["artifacts"]), set(VERIFY_ARTIFACTS))
 
-    def test_dev9_id_substitution_is_byte_identical_to_dev15(self):
-        mismatches = []
-        names = ("houston_clean.csv", "stationary_candidates.csv",
-                 "stationary_candidates.geojson", "manifest.json")
-        for name in names:
-            substituted = substitute_legacy_ids((DEV9 / name).read_bytes())
-            current = (DEV15 / name).read_bytes()
-            if substituted != current:
-                mismatches.append(name)
-        report = "\n".join(golden_substitution_report())
+    def test_dev9_projection_is_byte_identical_to_dev15(self):
+        projected = project_dev9()
+        mismatches = [
+            name for name, body in projected.items()
+            if body != (DEV15 / name).read_bytes()
+        ]
+        self.assertEqual(mismatches, [], "\n".join(golden_projection_report(projected)))
+
+    def test_release_verify_path_projection_is_byte_identical(self):
+        """Same projection for the verify artifacts and the release recount input."""
+        projected = project_dev9()
+        dev15 = {
+            name: (DEV15 / name).read_bytes()
+            for name in (*VERIFY_ARTIFACTS, "manifest.json")
+        }
+        mismatches = [name for name in VERIFY_ARTIFACTS if projected[name] != dev15[name]]
+        cleaned_differs = projected["houston_clean.csv"] != dev15["houston_clean.csv"]
+        projected_verify = independent_verify(projected)
+        current_verify = independent_verify(dev15)
+        report = "\n".join(golden_projection_report(projected))
+        report += (
+            f"\nindependent verify(projected)={projected_verify}"
+            f"\nindependent verify(dev15)={current_verify}"
+            f"\nrelease recount input differs={cleaned_differs}"
+        )
         self.assertEqual(mismatches, [], report)
-
-    def test_release_verify_path_id_substitution_is_byte_identical(self):
-        """Same proof for the bytes ``harborlens-verify`` and the release recount read."""
-        with tempfile.TemporaryDirectory() as folder:
-            substituted_root = Path(folder)
-            for name in ("houston_clean.csv", "stationary_candidates.csv",
-                         "stationary_candidates.geojson", "manifest.json"):
-                (substituted_root / name).write_bytes(
-                    substitute_legacy_ids((DEV9 / name).read_bytes())
-                )
-            substituted_verify = verify_manifest(substituted_root / "manifest.json")
-            current_verify = verify_manifest(DEV15 / "manifest.json")
-            artifact_mismatches = []
-            for name in FILES:
-                if (substituted_root / name).read_bytes() != (DEV15 / name).read_bytes():
-                    artifact_mismatches.append(name)
-            # The release recount input is the cleaned CSV.
-            cleaned_differs = (substituted_root / "houston_clean.csv").read_bytes() != (
-                DEV15 / "houston_clean.csv"
-            ).read_bytes()
-            report = "\n".join(golden_substitution_report())
-            report += (
-                f"\nverify_manifest(dev9 substituted)={substituted_verify}"
-                f"\nverify_manifest(dev15)={current_verify}"
-                f"\nrelease recount input differs={cleaned_differs}"
-            )
-            self.assertEqual(artifact_mismatches, [], report)
-            self.assertFalse(cleaned_differs, report)
-            self.assertEqual(substituted_verify, current_verify, report)
+        self.assertFalse(cleaned_differs, report)
+        self.assertEqual(projected["manifest.json"], dev15["manifest.json"], report)
+        self.assertEqual(projected_verify, current_verify, report)
+        self.assertTrue(projected_verify["ok"], report)
 
 
 if __name__ == "__main__":

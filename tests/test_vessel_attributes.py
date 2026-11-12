@@ -124,5 +124,44 @@ class AttributePipelineTests(unittest.TestCase):
         self.assertIsNone(rows[0][7]["length_m"])
 
 
+class ShipCategoryAboveAllocatedMidTests(unittest.TestCase):
+    """A leading digit 7 above the allocated MID block stays ``ship``.
+
+    ITU-R M.585 assigns a ship station identity as three maritime
+    identification digits (MID) plus six figures. The ITU Table of Maritime
+    Identification Digits (ITU MARS, GLAD) is published at
+    https://www.itu.int/en/ITU-R/terrestrial/fmd/Pages/mid.aspx and
+    https://www.itu.int/gladapp/Allocation/MIDs . The U.S. Coast Guard
+    Navigation Center summarizes that table: MIDs are three-digit identifiers
+    ranging from 201 to 775 (https://www.navcen.uscg.gov/mmsi-formats).
+    MID 790 is above 775, so it is not an allocated MID. ``mmsi_category``
+    in ``src/harborlens/vessel.py`` still returns ``ship`` when the first
+    digit is ``7``.
+    """
+
+    MMSI = "790000001"
+
+    def test_classifier_marks_an_unallocated_leading_seven_as_ship(self):
+        self.assertEqual(mmsi_category(self.MMSI), "ship")
+        self.assertFalse(201 <= int(self.MMSI[:3]) <= 775)
+
+    def test_pipeline_writes_ship_for_an_unallocated_leading_seven(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = write(root / "ship.csv", stop_rows(self.MMSI, DAY, 40))
+            manifest = run(source, root / "out")
+            self.assertEqual(manifest["mmsi_categories"], {"ship": 9})
+            with (root / "out" / "houston_clean.csv").open(newline="") as handle:
+                cleaned = list(csv.DictReader(handle))
+            self.assertTrue(cleaned)
+            self.assertTrue(all(
+                row["mmsi"] == self.MMSI and row["mmsi_category"] == "ship" for row in cleaned
+            ))
+            records = read_candidates_csv(root / "out" / "stationary_candidates.csv")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["mmsi"], self.MMSI)
+            self.assertEqual(records[0]["mmsi_category"], "ship")
+
+
 if __name__ == "__main__":
     unittest.main()
