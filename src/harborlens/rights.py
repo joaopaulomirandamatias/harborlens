@@ -9,8 +9,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 MAX_REGISTRY_BYTES = 256 * 1024
 PURPOSES = ("research", "public_aggregates", "commercial")
@@ -21,6 +22,45 @@ APPROVED_STATUSES = (
 PENDING = "review_required"
 RESTRICTED = "use_restricted"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SCHEMA_RELATIVE = Path("schemas") / "v1" / "source-rights-register.schema.json"
+_NOTICE = "A recorded decision is not legal advice or a data redistribution grant."
+
+
+def _is_https_url(value):
+    """True only for https URLs that name a host.
+
+    ``startswith("https://")`` accepts ``https://`` and ``https:///path``.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    parts = urlsplit(value)
+    return parts.scheme == "https" and bool(parts.netloc)
+
+
+def _published_schema_path():
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / _SCHEMA_RELATIVE
+        if candidate.is_file():
+            return candidate
+    raise ValueError("Rights register schema is unreadable")
+
+
+def _validate_registry_schema(data):
+    """Reject registers that do not match the published source-rights schema."""
+    try:
+        from jsonschema import Draft202012Validator
+        from jsonschema.exceptions import SchemaError, ValidationError
+    except ImportError as exc:
+        raise ValueError("Rights register schema validator is unavailable") from exc
+    try:
+        schema = json.loads(_published_schema_path().read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ValueError("Rights register schema is unreadable") from exc
+    try:
+        Draft202012Validator(schema).validate(data)
+    except (ValidationError, SchemaError) as exc:
+        raise ValueError("Rights register failed schema validation") from exc
 
 
 def _valid_utc_time(value):
@@ -59,6 +99,7 @@ def load_registry(path):
         identifiers.append((identifier, source["dataset_version"]))
     if len(set(identifiers)) != len(identifiers):
         raise ValueError("Duplicate source/version pair")
+    _validate_registry_schema(data)
     return data
 
 
@@ -88,10 +129,8 @@ def rights_status_for(source_id, *, dataset_version, purpose="research", registe
     if (not isinstance(row.get("reviewed_by"), str) or
             not row["reviewed_by"].strip() or
             not _valid_utc_time(row.get("reviewed_at_utc")) or
-            not isinstance(row.get("terms_url"), str) or
-            not row["terms_url"].startswith("https://") or
-            not isinstance(row.get("evidence_url"), str) or
-            not row["evidence_url"].startswith("https://") or
+            not _is_https_url(row.get("terms_url")) or
+            not _is_https_url(row.get("evidence_url")) or
             not isinstance(row.get("terms_sha256"), str) or
             not _SHA256.fullmatch(row["terms_sha256"]) or
             not isinstance(row.get("attribution"), str) or
@@ -122,14 +161,27 @@ def main(argv=None):
         "source_id": args.source_id,
         "dataset_version": args.dataset_version,
         "purpose": args.purpose,
-        "rights_status": rights_status_for(
-            args.source_id, dataset_version=args.dataset_version,
-            purpose=args.purpose, register_path=args.register
-        ),
-        "notice": "A recorded decision is not legal advice or a data redistribution grant.",
+        "notice": _NOTICE,
     }
+    # Load errors must not look like a pending decision. rights_status_for still
+    # fails closed to review_required for library callers; the CLI reports them
+    # separately so a broken register is not silent success.
+    try:
+        load_registry(args.register)
+    except (ValueError, OSError) as exc:
+        result["rights_status"] = PENDING
+        result["error"] = str(exc)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 2
+    result["rights_status"] = rights_status_for(
+        args.source_id, dataset_version=args.dataset_version,
+        purpose=args.purpose, register_path=args.register
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
+    if result["rights_status"] in APPROVED_STATUSES:
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

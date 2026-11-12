@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: source rights register, #42)
+- `docs/data/rights-register.json`: offline inventory of five official sources. **No source has been approved.** Every checked-in entry stays `rights_status=review_required`.
+- Schema `source-rights-register` (`schemas/v1/source-rights-register.schema.json`). `load_registry` validates a register against that schema before any decision; a schema-invalid register is a load error and is not granted.
+- `python -m harborlens.rights`: offline audit helper. Exit 0 only when `rights_status` is an approved status; exit 1 for any other status, including `review_required` and `use_restricted`; exit 2 when the register cannot be loaded, parsed or schema-validated. JSON stays on stdout, and a load failure includes an `error` field so it is distinct from pending. **Adapters do not consume the gate yet**; acquisition metadata remains `review_required`.
+
 ### Added (SPEC-001: NOAA archive vintages, #36)
 - `harborlens.vintages`: 2015–2023 daily ZIP layout and 2024–2026 csv2 zstd layout, with how each was verified. `harborlens-download-noaa` builds URLs from it and refuses unregistered years (it previously built a csv2 URL for 2019–2023).
 - `harborlens-extract-noaa-archive` accepts single-CSV `.zip` archives, no longer hard-codes 2024, checks compression against the year, and records `source_vintage` in the sidecar.
