@@ -1,4 +1,5 @@
 """Offline, source-bounded LSA comparison tests (no actual PDFs downloaded)."""
+import builtins
 import contextlib
 import hashlib
 import io
@@ -9,13 +10,16 @@ import unittest
 from pathlib import Path
 from urllib.request import Request
 
+import harborlens
 import harborlens.lsa_compare as lsa_compare
 from harborlens.lsa_compare import (
     FIXED_GOVINFO_URLS,
     LSAComparisonError,
+    MAX_PDF_PAGES,
     MAX_REDIRECTS,
     MAX_SOURCE_BYTES,
     MAX_TITLE33_CHARS,
+    MIN_PDF_PAGES,
     TIMEOUT_SECONDS,
     _GovInfoRedirects,
     _require_fixed_govinfo_url,
@@ -31,6 +35,23 @@ PROPOSED = "\nProposed Rules:\n110 ......................47837, 89644, 89646, 89
 END = "TITLE 34—EDUCATION\n" + "new unrelated title."
 SYNTHETIC_PDF = b"%PDF-SYNTHETIC"
 REMOVED_WORKFLOW = ROOT / ".github" / "workflows" / "lsa-dec-2023-jan-2024-comparison.yml"
+
+
+def _load_pypdf():
+    try:
+        import pypdf
+    except ImportError:
+        return None
+    return pypdf
+
+
+_PYPDF = _load_pypdf()
+
+
+def _raising(exc):
+    def factory(_raw):
+        raise exc
+    return factory
 
 
 class FakePage:
@@ -101,6 +122,8 @@ class GovInfoLSATests(unittest.TestCase):
         self.assertFalse(report["historical_wgs84_geometry_approved"])
         self.assertEqual(report["legal_effect_on_study_date"], "NOT_DETERMINED")
         self.assertEqual(report["rights_status"], "review_required")
+        self.assertEqual(report["harborlens_version"], harborlens.__version__)
+        self.assertEqual(report["harborlens_version"], "0.2.0.dev8")
         expected_pdf = hashlib.sha256(SYNTHETIC_PDF).hexdigest()
         expected_text = hashlib.sha256((TITLE + PROPOSED).encode("utf-8")).hexdigest()
         for month, document in report["documents"].items():
@@ -134,6 +157,8 @@ class GovInfoLSATests(unittest.TestCase):
         self.assertIs(schema["properties"]["ais_spatial_join_permitted"]["const"], False)
         self.assertIs(schema["properties"]["historical_wgs84_geometry_approved"]["const"], False)
         self.assertEqual(schema["properties"]["rights_status"]["const"], "review_required")
+        self.assertIn("harborlens_version", schema["required"])
+        self.assertEqual(record["harborlens_version"], harborlens.__version__)
         self.assertEqual(
             schema["properties"]["documents"]["properties"]["2023-12"]["properties"]["official_pdf_url"]["const"],
             FIXED_GOVINFO_URLS["2023-12"],
@@ -189,8 +214,8 @@ class GovInfoLSATests(unittest.TestCase):
         compare_official_lsa(opener, lambda raw: FakeReader(TITLE + PROPOSED, prefix=297))
         with self.assertRaisesRegex(LSAComparisonError, "page count"):
             compare_official_lsa(opener, lambda raw: FakeReader(TITLE + PROPOSED, prefix=23))
-        with self.assertRaisesRegex(LSAComparisonError, "page count"):
-            compare_official_lsa(opener, lambda raw: FakeReader(TITLE + PROPOSED, prefix=298))
+        with self.assertRaisesRegex(LSAComparisonError, "page ceiling"):
+            compare_official_lsa(opener, lambda raw: FakeReader(TITLE + PROPOSED, prefix=MAX_PDF_PAGES - 1))
 
     def test_extracted_text_length_bounds(self):
         compare_official_lsa(opener, lambda raw: FakeReader(section_of_length(300)))
@@ -348,6 +373,146 @@ class GovInfoLSATests(unittest.TestCase):
             self.assertEqual(json.loads(dest.read_text())["rights_status"], "review_required")
             with self.assertRaisesRegex(LSAComparisonError, "new"):
                 save_report(dest, opener, reader_factory)
+
+    def _cli(self, reader_factory):
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder) / "audit.json"
+            partial = Path(str(dest) + ".partial")
+            code = 0
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+                try:
+                    lsa_compare.main(
+                        ["--fetch", "--out", str(dest)],
+                        opener=opener,
+                        reader_factory=reader_factory,
+                    )
+                except SystemExit as exc:
+                    code = exc.code
+            body = dest.read_text(encoding="utf-8") if dest.exists() else ""
+            return code, dest.exists(), partial.exists(), body, stderr.getvalue(), stdout.getvalue()
+
+    def test_page_ceiling_exact_writes_versioned_report(self):
+        self.assertEqual(MAX_PDF_PAGES, 299)
+        self.assertEqual(MIN_PDF_PAGES, 26)
+        code, exists, partial, body, stderr, stdout = self._cli(
+            lambda raw: FakeReader(TITLE + PROPOSED, prefix=MAX_PDF_PAGES - 2)
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(exists)
+        self.assertFalse(partial)
+        self.assertNotIn("Traceback", stderr)
+        report = json.loads(body)
+        self.assertEqual(report["harborlens_version"], harborlens.__version__)
+        self.assertEqual(report["documents"]["2023-12"]["pdf_page_count"], MAX_PDF_PAGES)
+        self.assertIn(harborlens.__version__, stdout)
+
+    def test_page_ceiling_plus_one_exits_2_and_writes_nothing(self):
+        extracted = {"count": 0}
+
+        class CountingPage:
+            def extract_text(self):
+                extracted["count"] += 1
+                return ""
+
+        def factory(_raw):
+            reader = FakeReader("unused")
+            reader.pages = [CountingPage() for _ in range(MAX_PDF_PAGES + 1)]
+            return reader
+
+        code, exists, partial, body, stderr, stdout = self._cli(factory)
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertEqual(body, "")
+        self.assertEqual(extracted["count"], 0)
+        self.assertIn("page ceiling", stderr)
+        self.assertNotIn("Traceback", stderr)
+        self.assertNotIn("Traceback", stdout)
+
+    def test_parser_exceptions_exit_2_and_write_nothing(self):
+        failures = (
+            RuntimeError("parser"),
+            RecursionError("recurse"),
+            MemoryError("memory"),
+            ValueError("value"),
+            OSError("os"),
+            KeyError("key"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                code, exists, partial, body, stderr, stdout = self._cli(_raising(failure))
+                self.assertEqual(code, 2)
+                self.assertFalse(exists)
+                self.assertFalse(partial)
+                self.assertEqual(body, "")
+                self.assertNotIn("Traceback", stderr)
+                self.assertNotIn("Traceback", stdout)
+                self.assertIn("Could not parse", stderr)
+
+        class ExplodingPage:
+            def extract_text(self):
+                raise RecursionError("extract")
+
+        def extract_factory(_raw):
+            reader = FakeReader(TITLE + PROPOSED)
+            reader.pages[30] = ExplodingPage()
+            return reader
+
+        code, exists, partial, _body, stderr, stdout = self._cli(extract_factory)
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertIn("Could not parse", stderr)
+        self.assertNotIn("Traceback", stderr + stdout)
+
+        class ExplodingPages:
+            def __len__(self):
+                raise MemoryError("count")
+
+            def __iter__(self):
+                raise AssertionError("page iteration ran before the count check")
+
+        code, exists, partial, _body, stderr, stdout = self._cli(lambda raw: type("Reader", (), {"pages": ExplodingPages()})())
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertIn("Could not parse", stderr)
+        self.assertNotIn("Traceback", stderr + stdout)
+
+    def test_missing_pypdf_names_lsa_extra_and_exits_2(self):
+        real_import = builtins.__import__
+
+        def guarded(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "pypdf" or name.startswith("pypdf."):
+                raise ImportError("pypdf blocked for the test")
+            return real_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = guarded
+        try:
+            with self.assertRaises(LSAComparisonError) as caught:
+                compare_official_lsa(opener, reader_factory=None)
+            self.assertIn("harborlens[lsa]", str(caught.exception))
+            code, exists, partial, _body, stderr, stdout = self._cli(None)
+        finally:
+            builtins.__import__ = real_import
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertIn("harborlens[lsa]", stderr)
+        self.assertNotIn("Traceback", stderr)
+        self.assertNotIn("Traceback", stdout)
+
+    @unittest.skipUnless(_PYPDF is not None, "optional harborlens[lsa] extra is not installed")
+    def test_real_pypdf_rejects_synthetic_bytes_without_traceback(self):
+        code, exists, partial, _body, stderr, stdout = self._cli(None)
+        self.assertEqual(code, 2)
+        self.assertFalse(exists)
+        self.assertFalse(partial)
+        self.assertNotIn("Traceback", stderr)
+        self.assertNotIn("Traceback", stdout)
+        self.assertTrue(stderr)
 
     def test_module_does_not_join_ais_or_add_a_console_script(self):
         source = Path(lsa_compare.__file__).read_text(encoding="utf-8")

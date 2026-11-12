@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "harborlens_version",
     "retrieved_at_utc",
     "source_months",
     "documents",
@@ -22,6 +23,11 @@
   "properties": {
     "schema_version": {
       "const": "govinfo-lsa-dec-jan-v1"
+    },
+    "harborlens_version": {
+      "description": "harborlens.__version__ of the code that wrote this artifact.",
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.dev(?:0|[1-9][0-9]*))?$"
     },
     "retrieved_at_utc": {
       "type": "string",

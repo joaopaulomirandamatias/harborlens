@@ -17,11 +17,14 @@ import io
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from harborlens import __version__
 
 MONTHS = ("2023-12", "2024-01")
 FIXED_GOVINFO_URLS = {
@@ -31,6 +34,10 @@ FIXED_GOVINFO_URLS = {
 EXPECTED_PART110_PROPOSAL_PAGES = ("47837", "89644", "89646", "89648")
 MAX_SOURCE_BYTES = 10 * 1048576
 MAX_TITLE33_CHARS = 500_000
+# Inclusive page ceiling, checked before any extract_text call. Matches the
+# schema maximum. One more page fails closed (CLI exit 2, no output).
+MIN_PDF_PAGES = 26
+MAX_PDF_PAGES = 299
 TIMEOUT_SECONDS = 60
 MAX_REDIRECTS = 3
 RIGHTS_STATUS = "review_required"
@@ -132,11 +139,39 @@ def _fetch_source(opener, month: str):
     return url, raw
 
 
+def _parser_failure(exc: Exception) -> LSAComparisonError:
+    """Hide parser internals. Callers exit 2 and write nothing."""
+    if not isinstance(exc, Exception):
+        raise exc
+    return LSAComparisonError("Could not parse the complete official LSA PDF")
+
+
 def _extract_title33(reader):
-    page_count = len(reader.pages)
-    if not (25 < page_count < 300):
+    try:
+        page_count = len(reader.pages)
+    except LSAComparisonError:
+        raise
+    except Exception as exc:
+        raise _parser_failure(exc) from exc
+    if isinstance(page_count, bool) or not isinstance(page_count, int):
+        raise LSAComparisonError("Could not parse the complete official LSA PDF")
+    if page_count > MAX_PDF_PAGES:
+        raise LSAComparisonError("Official LSA exceeds the page ceiling")
+    if page_count < MIN_PDF_PAGES:
         raise LSAComparisonError("Unexpected source PDF page count")
-    pages = [page.extract_text() or "" for page in reader.pages]
+    pages = []
+    try:
+        for page in reader.pages:
+            text = page.extract_text()
+            if text is None:
+                text = ""
+            if not isinstance(text, str):
+                raise LSAComparisonError("Could not parse the complete official LSA PDF")
+            pages.append(text)
+    except LSAComparisonError:
+        raise
+    except Exception as exc:
+        raise _parser_failure(exc) from exc
     starts = [index for index, body in enumerate(pages)
               if re.search(r"TITLE\s*33\s*[-—]?\s*NAVIGATION", body, re.I)]
     if not starts:
@@ -152,7 +187,7 @@ def _extract_title33(reader):
         raise LSAComparisonError("Title 33 extracted content is unexpectedly short")
     if len(content) > MAX_TITLE33_CHARS:
         raise LSAComparisonError("Title 33 extracted content exceeds the size cap")
-    return content, start + 1, end
+    return content, start + 1, end, page_count
 
 
 def _proposed_part110_pages(text: str) -> tuple[str, ...]:
@@ -175,9 +210,14 @@ def _pdf_reader(content: bytes):
         from pypdf import PdfReader
     except ImportError as exc:
         raise LSAComparisonError(
-            "Install optional dependency: pip install 'pypdf>=5,<7'"
+            "Install optional dependency: pip install 'harborlens[lsa]'"
         ) from exc
-    return PdfReader(io.BytesIO(content), strict=True)
+    try:
+        return PdfReader(io.BytesIO(content), strict=True)
+    except LSAComparisonError:
+        raise
+    except Exception as exc:
+        raise _parser_failure(exc) from exc
 
 
 def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: bool = False):
@@ -199,7 +239,7 @@ def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: boo
         url, raw = _fetch_source(opener, month)
         try:
             reader = reader_factory(raw)
-            scoped, first_page, last_page = _extract_title33(reader)
+            scoped, first_page, last_page, page_count = _extract_title33(reader)
         except LSAComparisonError:
             raise
         except Exception as exc:
@@ -216,7 +256,7 @@ def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: boo
         documents[month] = {
             "official_pdf_url": url,
             "official_pdf_sha256": pdf_sha,
-            "pdf_page_count": len(reader.pages),
+            "pdf_page_count": page_count,
             "title33_pdf_pages_1based": [first_page, last_page],
             "title33_extracted_text_sha256": text_sha,
             "target_110_197_direct_occurrences": len(re.findall(
@@ -227,6 +267,7 @@ def compare_official_lsa(opener=None, reader_factory=None, *, allow_network: boo
         }
     return {
         "schema_version": "govinfo-lsa-dec-jan-v1",
+        "harborlens_version": __version__,
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source_months": list(MONTHS),
         "documents": documents,
@@ -261,7 +302,7 @@ def save_report(output: Path, opener=None, reader_factory=None, *, allow_network
     return report
 
 
-def main(argv=None):
+def main(argv=None, *, opener=None, reader_factory=None):
     parser = argparse.ArgumentParser(
         description="Compare official 2023-12/2024-01 Title 33 LSA source indexes"
     )
@@ -274,9 +315,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.fetch:
         parser.error("network fetch is disabled; pass --fetch to opt in to the two fixed GovInfo URLs")
-    report = save_report(args.out, allow_network=True)
+    try:
+        report = save_report(
+            args.out,
+            opener=opener,
+            reader_factory=reader_factory,
+            allow_network=opener is None,
+        )
+    except LSAComparisonError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from None
     print(json.dumps({
         "source_months": report["source_months"],
+        "harborlens_version": report["harborlens_version"],
         "official_pdf_sha256": {
             key: value["official_pdf_sha256"] for key, value in report["documents"].items()
         },

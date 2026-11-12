@@ -15,8 +15,7 @@ The official 2023/2024 GPO annual CFR source text and the [Federal Register orig
 The tool is not a console script. Ordinary `harborlens` and `harborlens-verify` do not import it. Without `--fetch` the process exits 2 and opens no socket.
 
 ~~~bash
-python -m pip install -e .
-python -m pip install 'pypdf>=5,<7'
+python -m pip install -e '.[lsa]'
 python -m harborlens.lsa_compare --fetch --out results/lsa-2023-12-versus-2024-01.json
 ~~~
 
@@ -25,7 +24,7 @@ python -m harborlens.lsa_compare --fetch --out results/lsa-2023-12-versus-2024-0
 - `https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf`
 - `https://www.govinfo.gov/content/pkg/LSA-2024-01/pdf/LSA-2024-01.pdf`
 
-A redirect that changes either URL is refused, including a redirect to the other month, another GovInfo path, another host, or `http`. At most three redirects are followed, and only when the target is the same fixed URL. Each response must declare a decimal Content-Length at or below 10 MiB when that header is present, and the body is read with a 10 MiB cap (one extra byte detects overflow). The timeout is 60 seconds. The PDF must start with `%PDF-` and contain 26 to 299 pages. Extracted Title 33 text must be at least 300 characters and at most 500,000 characters. `pypdf` is imported only when a caller does not supply a reader.
+A redirect that changes either URL is refused, including a redirect to the other month, another GovInfo path, another host, or `http`. At most three redirects are followed, and only when the target is the same fixed URL. Each response must declare a decimal Content-Length at or below 10 MiB when that header is present, and the body is read with a 10 MiB cap (one extra byte detects overflow). The timeout is 60 seconds. The PDF must start with `%PDF-`. `MAX_PDF_PAGES` is 299 and is checked before any text extraction; 26 pages is the minimum. Extracted Title 33 text must be at least 300 characters and at most 500,000 characters. `pypdf` is imported only when a caller does not supply a reader. Install it with the `lsa` extra (`pypdf>=6.21.4,<7`). A missing install, a page count above 299, or any parser exception exits 2, writes nothing, and prints no traceback.
 
 The report records:
 
@@ -36,7 +35,7 @@ The report records:
 - `rights_status=review_required` on the report and on each document
 - `historical_wgs84_geometry_approved=false` and `ais_spatial_join_permitted=false`
 
-No version bump: this PR does not change outputs. The module does not enter `run_id` or `code_version`. The package remains `0.2.0.dev7`.
+Package `0.2.0.dev8` identifies this artifact. The report field `harborlens_version` is that version. Ordinary AIS `run_id` values also change, because they hash `harborlens_version`. The module is still not a console script and is not imported by `harborlens` or `harborlens-verify`.
 
 The schema is `schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json`, registered in `schemas/README.md`. It is not copied into the wheel. setuptools packages `src/harborlens/schemas/v1/*.json`, which is the rights register only.
 
