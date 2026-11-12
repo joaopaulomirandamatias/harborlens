@@ -21,6 +21,7 @@
 
 - [x] Labeling protocol, label taxonomy and evidence levels (`docs/research/labeling-protocol.md`)
 - [x] Seeded, blinded, stratified sampler with negatives and sampling manifest; agreement report; schemas and synthetic tests (`tests/test_labeling.py`)
+- [x] Transceiver class stratum (`A`, `B`, `absent_or_unknown`) on `harborlens-label-sample`, schema `label-sample-v0.2`, synthetic positive/negative/boundary tests (`tests/test_labeling.py`, issue #65 code slice). Pilot annotation is still open.
 - [ ] Draw the first pilot sample (≥100 units) from a source-pinned NOAA run, kept outside the public repository
 - [ ] Two independent annotators label it; adjudicate disagreements; publish aggregate agreement only
 - [ ] Evaluator against labels (#9)
