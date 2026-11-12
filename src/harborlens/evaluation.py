@@ -26,7 +26,7 @@ from pathlib import Path
 
 from harborlens.ais import parse_time, sha256
 from harborlens.io_safe import AISInputError
-from harborlens.labeling import COLLAPSED, LABELS, censoring_status
+from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum
 from harborlens.provenance import verify_manifest
 from harborlens.segmentation import SegmentationParams
 
@@ -155,7 +155,8 @@ def evaluate(run_dir, sampling, labels_path, out):
             props, censoring = None, None
         rows.append({"sample_id": sid, "kind": unit["kind"], "stratum": stratum, "outcome": outcome,
                      "label": row["label"], "evidence_level": row["evidence_level"], "props": props,
-                     "censoring": censoring, "vessel_group": stratum.rsplit("|", 1)[-1], "label_row": row})
+                     "censoring": censoring,
+                     "vessel_group": parse_stratum(stratum)["vessel_group"], "label_row": row})
 
     def metrics(selected):
         counts = Counter(r["outcome"] for r in selected)

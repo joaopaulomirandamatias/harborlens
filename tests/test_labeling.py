@@ -12,7 +12,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 from harborlens.ais import run
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
-    ANNOTATION_FIELDS, SHEET_FIELDS, _allocate, agreement, cohen_kappa, draw_sample,
+    ANNOTATION_FIELDS, SHEET_FIELDS, TRANSCEIVER_STRATA, _allocate, agreement, cohen_kappa,
+    draw_sample, parse_stratum, transceiver_stratum,
 )
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas" / "v1"
@@ -37,6 +38,196 @@ def rows():
                 out.append([mmsi, (t + timedelta(minutes=i)).strftime("%Y-%m-%d %H:%M:%S"), lat, lon, 0.1, vtype, "1"])
             t += timedelta(minutes=stop + 5)
     return out
+
+
+CLASS_HEADER = HEADER + ["TransceiverClass"]
+
+
+def track(mmsi, vtype, tclass, stops, index):
+    """One synthetic vessel: movement, then each stop. Transceiver class is a raw source value."""
+    out = []
+    t = DAY + timedelta(minutes=10 + index * 3)
+    lat, lon = 29.4 + index * 0.02, -95.0
+    for stop in stops:
+        for i in range(0, 45, 3):
+            lon += 0.002
+            out.append([mmsi, (t + timedelta(minutes=i)).strftime("%Y-%m-%d %H:%M:%S"),
+                        lat, lon, 8.0, vtype, "0", tclass])
+        t += timedelta(minutes=45)
+        for i in range(0, stop + 1, 5):
+            out.append([mmsi, (t + timedelta(minutes=i)).strftime("%Y-%m-%d %H:%M:%S"),
+                        lat, lon, 0.1, vtype, "1", tclass])
+        t += timedelta(minutes=stop + 5)
+    return out
+
+
+def write_classed_run(root, rows, name="run"):
+    src = root / f"{name}-in.csv"
+    with src.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(CLASS_HEADER)
+        writer.writerows(rows)
+    run_dir = root / name
+    run(src, run_dir, window_start="2024-01-02T00:00:00Z", window_end="2024-01-02T12:00:00Z")
+    return run_dir
+
+
+class TransceiverStratumTests(unittest.TestCase):
+    """Transceiver class is a labeling stratum (SPEC-003, FR-013, issue #65). Synthetic AIS only."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def draw(self, run_dir, name, seed=7, **kw):
+        record = draw_sample(run_dir, self.root / name, seed, **kw)
+        Draft202012Validator.check_schema(self.schema)
+        Draft202012Validator(self.schema, format_checker=FormatChecker()).validate(record)
+        return record
+
+    def test_missing_and_invalid_values_map_to_absent_or_unknown(self):
+        mapped = [transceiver_stratum(v) for v in
+                  ("A", " a ", "Class A", "B", "b", "Class B", "", None, "X", "C", "not-a-class", "AB")]
+        self.assertEqual(mapped, ["A", "A", "A", "B", "B", "B",
+                                  "absent_or_unknown", "absent_or_unknown", "absent_or_unknown",
+                                  "absent_or_unknown", "absent_or_unknown", "absent_or_unknown"])
+        self.assertEqual(parse_stratum("gt_180|censored|cargo|B"),
+                         {"kind": "candidate", "duration_band": "gt_180", "censoring": "censored",
+                          "vessel_group": "cargo", "transceiver_class": "B"})
+        self.assertEqual(parse_stratum("negative|tanker|absent_or_unknown")["transceiver_class"],
+                         "absent_or_unknown")
+        # v0.1 keys have no class component and still name the vessel group.
+        self.assertEqual(parse_stratum("lt_60|uncensored|cargo")["vessel_group"], "cargo")
+        self.assertIsNone(parse_stratum("negative|cargo")["transceiver_class"])
+        with self.assertRaises(ValueError):
+            parse_stratum("not-a-stratum")
+
+    def test_every_non_empty_class_stratum_is_drawn_and_the_sheet_stays_blind(self):
+        rows = (track("367100001", "70", "A", [40, 200], 0)
+                + track("367100002", "80", "Class B", [40], 1)
+                + track("367100003", "31", "B", [90], 2)
+                + track("367100004", "60", "", [45], 3)
+                + track("367100005", "70", "b", [50], 4))
+        run_dir = write_classed_run(self.root, rows)
+        record = self.draw(run_dir, "sheet.csv", seed=3, candidates=200, negatives=200)
+        again = self.draw(run_dir, "again.csv", seed=3, candidates=200, negatives=200)
+        self.assertEqual(record["key"], again["key"])
+        self.assertEqual(record["schema_version"], "label-sample-v0.2")
+        frame = {**record["frame"]["candidates"], **record["frame"]["negatives"]}
+        self.assertEqual(set(record["allocation"]), set(frame))
+        self.assertTrue(record["stratification"]["all_non_empty_strata_drawn"])
+        drawn = {row["stratum"] for row in record["key"]}
+        self.assertEqual(drawn, set(frame))
+        for row in record["key"]:
+            self.assertEqual(row["transceiver_class"], parse_stratum(row["stratum"])["transceiver_class"])
+            self.assertIn(row["transceiver_class"], TRANSCEIVER_STRATA)
+        classes = record["stratification"]["transceiver_classes"]
+        self.assertEqual(classes["candidates"]["in_frame"], ["A", "B", "absent_or_unknown"])
+        self.assertEqual(classes["candidates"]["drawn"], ["A", "B", "absent_or_unknown"])
+        self.assertEqual(classes["negatives"]["drawn"], classes["negatives"]["in_frame"])
+        self.assertEqual(set(classes["negatives"]["in_frame"]), {"A", "B", "absent_or_unknown"})
+        geo = json.loads((run_dir / "stationary_candidates.geojson").read_text())
+        self.assertEqual(sum(record["frame"]["candidates"].values()), len(geo["features"]))
+        with (self.root / "sheet.csv").open(newline="") as handle:
+            fields = csv.DictReader(handle).fieldnames
+        self.assertEqual(fields, SHEET_FIELDS)
+        self.assertNotIn("transceiver_class", fields)
+        self.assertNotIn("kind", fields)
+        self.assertNotIn("stratum", fields)
+
+    def test_small_sample_still_covers_every_present_class(self):
+        rows = (track("367100011", "70", "A", [40], 0)
+                + track("367100012", "70", "A", [200], 1)
+                + track("367100013", "80", "B", [40], 2)
+                + track("367100014", "60", "", [90], 3))
+        run_dir = write_classed_run(self.root, rows, name="small")
+        for seed in range(8):
+            with self.subTest(seed=seed):
+                record = self.draw(run_dir, f"s{seed}.csv", seed=seed, candidates=3, negatives=0)
+                coverage = record["stratification"]["transceiver_classes"]["candidates"]
+                self.assertEqual(record["drawn"]["candidates"], 3)
+                self.assertEqual(coverage["drawn"], coverage["in_frame"])
+                self.assertEqual(coverage["in_frame"], ["A", "B", "absent_or_unknown"])
+                self.assertFalse(record["stratification"]["all_non_empty_strata_drawn"])
+
+    def test_empty_transceiver_stratum_is_omitted(self):
+        rows = track("367100021", "70", "A", [40, 50], 0) + track("367100022", "80", "A", [60], 1)
+        run_dir = write_classed_run(self.root, rows, name="only_a")
+        record = self.draw(run_dir, "only_a.csv", candidates=50, negatives=20)
+        for bucket in ("candidates", "negatives"):
+            present = set(record["stratification"]["transceiver_classes"][bucket]["in_frame"])
+            drawn = set(record["stratification"]["transceiver_classes"][bucket]["drawn"])
+            self.assertEqual(present, {"A"})
+            self.assertEqual(drawn, {"A"})
+        tokens = {parse_stratum(key)["transceiver_class"] for key in record["allocation"]}
+        self.assertEqual(tokens, {"A"})
+        self.assertNotIn("B", tokens)
+        self.assertNotIn("absent_or_unknown", tokens)
+
+    def test_singleton_stratum_is_drawn_once(self):
+        rows = (track("367100031", "70", "A", [40, 50, 80], 0)
+                + track("367100032", "80", "B", [40], 1))
+        run_dir = write_classed_run(self.root, rows, name="one_b")
+        geo = json.loads((run_dir / "stationary_candidates.geojson").read_text())
+        class_b = [f["properties"]["event_id"] for f in geo["features"]
+                   if f["properties"].get("transceiver_class") == "B"]
+        self.assertEqual(len(class_b), 1)
+        record = self.draw(run_dir, "one_b.csv", candidates=100, negatives=0)
+        b_keys = [key for key, count in record["frame"]["candidates"].items()
+                  if parse_stratum(key)["transceiver_class"] == "B"]
+        self.assertEqual(len(b_keys), 1)
+        self.assertEqual(record["frame"]["candidates"][b_keys[0]], 1)
+        self.assertEqual(record["allocation"][b_keys[0]], 1)
+        drawn = [row for row in record["key"] if row["transceiver_class"] == "B"]
+        self.assertEqual(len(drawn), 1)
+        self.assertEqual(drawn[0]["event_id"], class_b[0])
+
+    def test_invalid_class_is_kept_in_the_absent_stratum(self):
+        rows = (track("367100041", "70", "A", [40], 0)
+                + track("367100042", "80", "X", [40], 1)
+                + track("367100043", "31", "", [50], 2)
+                + track("367100044", "60", "not-a-class", [45], 3))
+        run_dir = write_classed_run(self.root, rows, name="invalid")
+        geo = json.loads((run_dir / "stationary_candidates.geojson").read_text())
+        absent_ids = {f["properties"]["event_id"] for f in geo["features"]
+                      if not f["properties"].get("transceiver_class")}
+        self.assertGreaterEqual(len(absent_ids), 3)
+        record = self.draw(run_dir, "invalid.csv", candidates=100, negatives=50)
+        self.assertEqual(sum(record["frame"]["candidates"].values()), len(geo["features"]))
+        drawn_absent = {row["event_id"] for row in record["key"]
+                        if row["kind"] == "candidate" and row["transceiver_class"] == "absent_or_unknown"}
+        self.assertEqual(drawn_absent, absent_ids)
+        self.assertNotIn("X", {row["transceiver_class"] for row in record["key"]})
+        self.assertNotIn("not-a-class", {row["stratum"] for row in record["key"]})
+        self.assertIn("absent_or_unknown", record["stratification"]["transceiver_classes"]["candidates"]["drawn"])
+        self.assertIn("absent_or_unknown", record["stratification"]["transceiver_classes"]["negatives"]["drawn"])
+
+    def test_allocation_omits_empty_and_keeps_a_singleton(self):
+        strata = {
+            "lt_60|uncensored|cargo|A": list(range(10)),
+            "lt_60|uncensored|cargo|B": [1],
+            "lt_60|uncensored|cargo|absent_or_unknown": [],
+        }
+        plan = _allocate(strata, 5, random.Random(1), cover=lambda key: key.rsplit("|", 1)[-1])
+        self.assertNotIn("lt_60|uncensored|cargo|absent_or_unknown", plan)
+        self.assertEqual(plan["lt_60|uncensored|cargo|B"], 1)
+        self.assertEqual(plan["lt_60|uncensored|cargo|A"], 4)
+        self.assertEqual(sum(plan.values()), 5)
+        many = {}
+        for band in ("a", "b", "c", "d"):
+            many[f"{band}|A"] = list(range(20))
+            many[f"{band}|B"] = list(range(2))
+            many[f"{band}|absent_or_unknown"] = [0]
+        many["empty|A"] = []
+        for seed in range(12):
+            short = _allocate(many, 3, random.Random(seed), cover=lambda key: key.rsplit("|", 1)[-1])
+            self.assertEqual(sum(short.values()), 3)
+            self.assertEqual({key.rsplit("|", 1)[-1] for key in short}, {"A", "B", "absent_or_unknown"})
+            self.assertNotIn("empty|A", short)
 
 
 class SamplerTests(unittest.TestCase):
@@ -83,7 +274,10 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(record["drawn"]["candidates"], sum(record["frame"]["candidates"].values()))
         strata = {k["stratum"] for k in record["key"]}
         self.assertTrue(any(s.startswith("gt_180") for s in strata))
-        self.assertTrue(any(s.endswith("tug_or_service") for s in strata))
+        self.assertTrue(any(parse_stratum(s)["vessel_group"] == "tug_or_service" for s in strata))
+        # This fixture has no transceiver column, so every unit is the absent/unknown stratum.
+        self.assertEqual({parse_stratum(s)["transceiver_class"] for s in strata}, {"absent_or_unknown"})
+        self.assertTrue(record["stratification"]["all_non_empty_strata_drawn"])
 
     def test_negatives_are_moving_and_do_not_overlap_candidates(self):
         record, sheet = self.sheet(candidates=0, negatives=50)

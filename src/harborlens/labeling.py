@@ -1,8 +1,11 @@
-"""Labeling-pilot tooling (SPEC-003, issue #8): stratified sampling and agreement.
+"""Labeling-pilot tooling (SPEC-003, issues #8 and #65): stratified sampling and agreement.
 
 ``harborlens-label-sample`` draws a seeded, stratified, blinded sample of
 stationary candidates and negative (movement) intervals from one verified run.
-``harborlens-label-agreement`` compares two annotators' sheets.
+Candidates are stratified by duration band, censoring, vessel group and AIS
+transceiver class (A, B, or absent/unknown). Negatives are stratified by
+vessel group and transceiver class. ``harborlens-label-agreement`` compares
+two annotators' sheets.
 
 Agreement between annotators is NOT accuracy of the method, and an L2 label is
 expert review of AIS, not independent ground truth. Nothing here upgrades a
@@ -28,8 +31,10 @@ from harborlens.io_safe import AISInputError
 from harborlens.provenance import verify_manifest
 from harborlens.segmentation import SegmentationParams
 
-SAMPLE_SCHEMA = "label-sample-v0.1"
+SAMPLE_SCHEMA = "label-sample-v0.2"
 AGREEMENT_SCHEMA = "label-agreement-v0.1"
+# Closed stratum tokens. Anything other than A or B is absent_or_unknown and stays in the sample.
+TRANSCEIVER_STRATA = ("A", "B", "absent_or_unknown")
 LABELS = ("at_berth", "at_anchor", "other_stationary", "maneuvering", "transit", "mixed", "unknown")
 COLLAPSED = {"at_berth": "stationary", "at_anchor": "stationary", "other_stationary": "stationary",
              "maneuvering": "moving", "transit": "moving", "mixed": "mixed", "unknown": "unknown"}
@@ -67,6 +72,43 @@ def vessel_group(code):
     if value in (21, 22, 31, 32, 33, 50, 51, 52, 53, 54, 55, 58):
         return "tug_or_service"
     return "other_or_unknown"
+
+
+def transceiver_stratum(value):
+    """Map a transmitted or stored AIS class to A, B, or absent_or_unknown.
+
+    ``Class A`` / ``Class B`` normalize the same way as ingestion. Missing,
+    blank and any other value (for example ``X``) become ``absent_or_unknown``.
+    Callers keep the unit; this function never signals a drop.
+    """
+    text = str(value or "").strip().upper().replace("CLASS", "").strip()
+    return text if text in ("A", "B") else "absent_or_unknown"
+
+
+def parse_stratum(key):
+    """Named components of a stratum key.
+
+    v0.2 candidates are ``duration|censoring|vessel_group|transceiver_class`` and
+    negatives are ``negative|vessel_group|transceiver_class``. v0.1 keys omit the
+    class component; ``transceiver_class`` is then None. The vessel group is never
+    the final component of a v0.2 key (the evaluator reads it by position).
+    """
+    parts = key.split("|")
+    if not parts or parts[0] == "":
+        raise ValueError(f"Invalid stratum key: {key!r}")
+    if parts[0] == "negative":
+        if len(parts) == 3:
+            return {"kind": "negative", "vessel_group": parts[1], "transceiver_class": parts[2]}
+        if len(parts) == 2:
+            return {"kind": "negative", "vessel_group": parts[1], "transceiver_class": None}
+        raise ValueError(f"Invalid negative stratum key: {key!r}")
+    if len(parts) == 4:
+        return {"kind": "candidate", "duration_band": parts[0], "censoring": parts[1],
+                "vessel_group": parts[2], "transceiver_class": parts[3]}
+    if len(parts) == 3:
+        return {"kind": "candidate", "duration_band": parts[0], "censoring": parts[1],
+                "vessel_group": parts[2], "transceiver_class": None}
+    raise ValueError(f"Invalid candidate stratum key: {key!r}")
 
 
 def duration_band(minutes):
@@ -143,14 +185,54 @@ def _negative_intervals(rows, params, candidates, min_minutes):
     return intervals
 
 
-def _allocate(strata, total, rng):
-    """At least one unit per non-empty stratum, remainder proportional (largest remainder)."""
+def _interval_transceiver(run):
+    """Most frequent A/B class in one movement interval; absent_or_unknown if neither occurs.
+
+    Invalid and blank point values do not vote, so they cannot outvote a real class
+    or create a stratum of their own. An interval with no A/B point is kept.
+    """
+    votes = []
+    for row in run:
+        raw = ""
+        if len(row) > 7 and isinstance(row[7], dict):
+            raw = row[7].get("transceiver_class") or ""
+        bucket = transceiver_stratum(raw)
+        if bucket in ("A", "B"):
+            votes.append(bucket)
+    if not votes:
+        return "absent_or_unknown"
+    return sorted(Counter(votes).items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+
+def _allocate(strata, total, rng, cover=None):
+    """At least one unit per non-empty stratum, remainder proportional (largest remainder).
+
+    When fewer units are requested than there are non-empty strata, ``cover(key)``
+    (the transceiver class) is drawn first: every covered value present in the frame
+    gets one stratum when the request is at least that large, then a seeded sample
+    fills any remainder. Empty strata are omitted. The proportional path does not
+    consume ``cover`` and keeps the previous random sequence.
+    """
     keys = sorted(k for k, members in strata.items() if members)
     total = min(total, sum(len(strata[k]) for k in keys))
     if total <= 0:
         return {}
     if total < len(keys):
-        return {k: 1 for k in sorted(rng.sample(keys, total))}
+        if cover is None:
+            chosen = rng.sample(keys, total)
+        else:
+            by_value = defaultdict(list)
+            for key in keys:
+                by_value[cover(key)].append(key)
+            values = sorted(by_value)
+            if len(values) > total:
+                values = sorted(rng.sample(values, total))
+            chosen = [rng.choice(by_value[value]) for value in values]
+            rest = [key for key in keys if key not in chosen]
+            need = total - len(chosen)
+            if need:
+                chosen += rng.sample(rest, need)
+        return {k: 1 for k in sorted(chosen)}
     allocation = {k: 1 for k in keys}
     spare = {k: len(strata[k]) - 1 for k in keys}
     remaining = total - len(keys)
@@ -167,6 +249,35 @@ def _allocate(strata, total, rng):
                 allocation[k] += 1
                 leftover -= 1
     return allocation
+
+
+def _class_list(group, allocation, drawn_only):
+    found = set()
+    for key, members in group.items():
+        if not members:
+            continue
+        if drawn_only and not allocation.get(key):
+            continue
+        found.add(parse_stratum(key)["transceiver_class"])
+    return [name for name in TRANSCEIVER_STRATA if name in found]
+
+
+def _stratification(strata, negative_strata, allocation):
+    """Record whether the draw covered every non-empty stratum and every transceiver class."""
+    non_empty = [key for group in (strata, negative_strata) for key, members in group.items() if members]
+    return {
+        "dimensions": {
+            "candidates": ["duration_band", "censoring", "vessel_group", "transceiver_class"],
+            "negatives": ["vessel_group", "transceiver_class"],
+        },
+        "all_non_empty_strata_drawn": all(allocation.get(key) for key in non_empty) if non_empty else True,
+        "transceiver_classes": {
+            "candidates": {"in_frame": _class_list(strata, allocation, False),
+                           "drawn": _class_list(strata, allocation, True)},
+            "negatives": {"in_frame": _class_list(negative_strata, allocation, False),
+                          "drawn": _class_list(negative_strata, allocation, True)},
+        },
+    }
 
 
 def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_minutes=30):
@@ -189,9 +300,12 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
     for c in sorted(stops, key=lambda c: c["event_id"]):
         types = [r[5] for r in by_mmsi[c["mmsi"]] if c["start"] <= r[1] <= c["end"]]
         mode = _mode(types)
+        tclass = transceiver_stratum(c.get("transceiver_class"))
         key = "|".join((duration_band(c["duration_min"]),
-                        censoring_status(c["left_censoring"], c["right_censoring"]), vessel_group(mode)))
+                        censoring_status(c["left_censoring"], c["right_censoring"]),
+                        vessel_group(mode), tclass))
         strata[key].append({"kind": "candidate", "event_id": c["event_id"], "stratum": key,
+                            "transceiver_class": tclass,
                             "mmsi": c["mmsi"], "start": c["start"], "end": c["end"],
                             "points": c["point_count"], "lon": c["lon"], "lat": c["lat"], "type": mode,
                             "left": c["left_censoring"], "right": c["right_censoring"]})
@@ -200,16 +314,18 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
     for run in _negative_intervals(rows, params, stops, min_negative_minutes):
         mode = _mode([r[5] for r in run])
         left, right = window.classify(run[0][1], run[-1][1])
-        key = "negative|" + vessel_group(mode)
+        tclass = _interval_transceiver(run)
+        key = "|".join(("negative", vessel_group(mode), tclass))
         negative_strata[key].append({
-            "kind": "negative", "event_id": None, "stratum": key, "mmsi": run[0][0],
+            "kind": "negative", "event_id": None, "stratum": key, "transceiver_class": tclass,
+            "mmsi": run[0][0],
             "start": run[0][1], "end": run[-1][1], "points": len(run),
             "lon": round(sum(r[3] for r in run) / len(run), 6), "lat": round(sum(r[2] for r in run) / len(run), 6),
             "type": mode, "left": left, "right": right})
 
     allocation = {}
     for group, wanted in ((strata, candidates), (negative_strata, negatives)):
-        plan = _allocate(group, wanted, rng)
+        plan = _allocate(group, wanted, rng, cover=lambda key: parse_stratum(key)["transceiver_class"])
         allocation.update(plan)
         for key, count in plan.items():
             units.extend(rng.sample(group[key], count))
@@ -232,7 +348,7 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
                                  "vessel_type_mode": unit["type"], "left_censoring": unit["left"],
                                  "right_censoring": unit["right"]})
                 key_rows.append({"sample_id": sample_id, "kind": unit["kind"], "event_id": unit["event_id"],
-                                 "stratum": unit["stratum"]})
+                                 "stratum": unit["stratum"], "transceiver_class": unit["transceiver_class"]})
         record = {
             "schema_version": SAMPLE_SCHEMA,
             "run_manifest_sha256": sha256(manifest_path),
@@ -246,6 +362,7 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
                       "negatives": {k: len(v) for k, v in sorted(negative_strata.items())},
                       "unparsable_cleaned_rows": unparsable},
             "allocation": dict(sorted(allocation.items())),
+            "stratification": _stratification(strata, negative_strata, allocation),
             "drawn": {"candidates": sum(1 for u in units if u["kind"] == "candidate"),
                       "negatives": sum(1 for u in units if u["kind"] == "negative")},
             "sheet_filename": sheet.name,

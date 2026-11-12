@@ -96,6 +96,11 @@ class EvaluatorTests(unittest.TestCase):
         self.assertEqual(report["coverage"]["evaluated_units"], len(self.plan["key"]) - 2)
         self.assertEqual(report["candidate_label_composition"]["unknown"], 1)
         self.assertEqual(report["evidence_basis"], "includes_L2_expert_review")
+        # v0.2 stratum keys end in the transceiver class. Vessel group stays the group, not the class.
+        groups = set(report["cohorts"]["vessel_group"])
+        self.assertTrue(groups)
+        self.assertTrue(groups <= {"cargo", "tanker", "passenger", "tug_or_service", "other_or_unknown"})
+        self.assertTrue(groups.isdisjoint({"A", "B", "absent_or_unknown"}))
         schema = json.loads((SCHEMAS / "evaluation-report.schema.json").read_text())
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(report)
