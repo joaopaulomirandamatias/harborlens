@@ -1,6 +1,6 @@
 # SPEC-002: Stationary candidate inference and multi-day continuity
 
-**Status:** IMPLEMENTED for preliminary multi-day historical reconstruction; real two-day engineering smoke passed, independent event truth still unvalidated. **Created:** 2026-11-08; **Updated:** 2026-11-09.
+**Status:** IMPLEMENTED for preliminary multi-day historical reconstruction with a fixed SQLite working set; real two-day engineering smoke passed, independent event truth still unvalidated. **Created:** 2026-11-08; **Updated:** 2026-11-12.
 
 ## Problem / user story
 
@@ -22,6 +22,8 @@ FR-005..007, FR-009, FR-021, FR-022; BR-001, BR-003, BR-007..008, BR-019
 8. **Given** one input processed by `harborlens` and by `harborlens-multiday` (split into daily files); **when** both run with the same thresholds; **then** they emit identical candidates and identical split/discard diagnostics.
 9. **Given** non-default thresholds; **when** a run completes; **then** they appear in the manifest, the GeoJSON `harborlens_method` block and each candidate's `parameter_set`, change the `run_id`, and `harborlens-track-context` applies them in its completeness check.
 10. **Given** a group rejected by any rule; **when** the run completes; **then** it is counted under `discarded_by_reason`.
+11. **Given** synthetic multi-day inputs of 1, 3, 7, and 14 days with the same rows per day; **when** `harborlens-multiday` runs in a fresh process per size; **then** traced Python peak and process RSS stay inside the fixed ceilings in the design, scratch bytes may grow, and a low-speed track that crosses midnight is one `stationary_candidate` with `confidence_label=unvalidated`.
+12. **Given** shuffled rows, a point filed in the wrong day's file, a same-timestamp position conflict, or an exact duplicate across files; **when** multi-day segmentation runs; **then** order is the disk order `(mmsi, epoch_us, insertion id)`, the conflict splits, the duplicate is stored once with both sources, and a descending timestamp fed straight to `Segmenter` fails closed.
 
 ## Non-goals and safety
 

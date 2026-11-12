@@ -1,5 +1,7 @@
 Schemas are **JSON Schema Draft 2020-12**, versioned by major directory. AIS point, stationary candidate and run manifest represent current prototype formats (CSV must be type-coerced to validate). Source snapshot is a proposed future contract. A new product or API must not claim schema conformance until serialized-output tests pass. Every event currently has confidence=unvalidated.
 
+`multi-day-run.schema.json` allows 2 to 16 input files. `resources.memory_bound` is required. Its policy is `fixed-sqlite-heap-v1`: SQLite cache 8192 KiB, soft heap 8388608 bytes, `mmap_bytes` 0, `temp_store` `FILE`, and `grows_with_input_rows` false. Scratch disk is still the separate `limits.max_scratch_mib` cap. The object describes resource limits. It does not validate a candidate as a berth, anchorage, wait, or port call.
+
 The SPEC-004 track-zone-evidence and track-zone-context-receipt contracts cover an **unverified geometric observation report**, never independently confirmed anchorage or berth/waiting events. Source receipt hashes are verified locally; authoritative source dates and reuse rights are NOT inferred.
 
 SPEC-004 historical geometry documentary contracts: noaa-enc-documentary-evidence.schema.json and geometry-vintage-audit.schema.json. Both deliberately lack any status that could automatically approve historic polygons or operational maritime events.

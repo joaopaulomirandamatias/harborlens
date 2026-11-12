@@ -10,7 +10,7 @@ References: ISO/IEC 25010 quality vocabulary, NIST SSDF SP 800-218, OWASP ASVS, 
 | NFR-004 | P0 | Determinism | Same input and method SHOULD yield identical events/QA, subject to documented ordering |
 | NFR-005 | P0 | Data quality | Invalid, excluded, duplicated and retained records MUST be counted separately |
 | NFR-006 | P0 | Information security | No public commitment of secrets or unauthorized customer or third-party AIS data |
-| NFR-007 | P1 | Scalability | Benchmark real national daily files with bounded memory before claiming capacity |
+| NFR-007 | P1 | Scalability | Multi-day segmentation keeps a fixed SQLite cache (8192 KiB) and soft heap (8 MiB) so the working set does not grow with day count (SPEC-002). Real national daily files still need a bounded-memory benchmark before capacity is claimed. |
 | NFR-008 | P2 | Availability | No current SLA; future SLA targets must be negotiated and tested |
 | NFR-009 | P1 | Observability | Track input lineage, runtime, errors and data gaps; no sensitive log leakage |
 | NFR-010 | P1 | Interoperability | JSON Schema 2020-12 and, if implemented, OpenAPI 3.1 contract compatibility |

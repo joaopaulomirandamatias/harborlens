@@ -4,7 +4,7 @@
 
 ## Why this matters
 
-An AIS observation stream often crosses UTC midnight. Processing daily CSV files independently can split one continuous candidate into two events. HarborLens now offers a separate batch command to ingest two to seven **locally available geographic subsets**, deduplicate observations across file boundaries, perform an on-disk chronological sort by MMSI, and report any candidate that spans a date boundary.
+An AIS observation stream often crosses UTC midnight. Processing daily CSV files independently can split one continuous candidate into two events. HarborLens now offers a separate batch command to ingest two to sixteen **locally available geographic subsets**, deduplicate observations across file boundaries, perform an on-disk chronological sort by MMSI, and report any candidate that spans a date boundary. Sixteen is the file-count cap. A full Houston day is still limited by the 6 million row cap, which is about seven such days.
 
 Install and execute after obtaining authorized local data:
 
@@ -18,12 +18,14 @@ For national compressed NOAA archives, first use the existing opt-in daily downl
 
 ## Memory and disk architecture
 
-- Temporary SQLite stores normalized points, source membership and candidate-group membership, and performs a deterministic sort by MMSI/time.
-- Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
+- Temporary SQLite stores normalized points, source membership and candidate-group membership, and orders rows by `(mmsi, epoch_us, insertion id)` through the `observations_by_vessel_time` index.
+- The working set is fixed and is not a CLI flag: page cache 8192 KiB, soft heap limit 8 MiB, memory mapping off, temporary store on disk. `PRAGMA shrink_memory` runs after each file. Python holds running aggregates and one active low-speed candidate at a time; full per-vessel tracks are **not** accumulated in a Python list.
+- Shuffled rows and late points are ordered on disk. There is no in-memory reorder buffer. An exact duplicate is stored once and keeps every source. The same timestamp with a different position splits the candidate. A descending timestamp passed straight to the segmenter fails closed.
 - The temporary directory is deleted after completion or a failed run.
-- Defaults: at most 7 sources, 6 million input rows, 2,048 MiB SQLite scratch, 1,024 MiB exported files (ceiling 2,048). Exceeding a limit fails rather than silently truncating data. The manifest records the `limits` used and `resources.scratch_peak_bytes`.
+- Defaults: at most 16 sources, 6 million input rows, 2,048 MiB SQLite scratch, 1,024 MiB exported files (ceiling 2,048). Exceeding a limit fails rather than silently truncating data. The manifest records the `limits` used, `resources.scratch_peak_bytes`, and `resources.memory_bound`.
+- Scratch disk may grow with accepted rows, up to the scratch cap. Process memory must not. Synthetic 1, 3, 7, and 14 day runs assert that in `tests/test_multiday_bounded.py` (traced peak ≤ 16 MiB and growth ≤ 1 MiB; RSS ≤ 192 MiB and growth ≤ 16 MiB).
 - Output files are never overwritten; rerun to a new output directory for reproducibility.
-- Measured on synthetic data ([scale benchmark](scale-benchmark-2026-11-09.md)): 3.92 million rows in 78 s, 47 MiB RSS, 628 MiB scratch peak (about 168 bytes per row). The two-day NOAA run measured 46 MiB RSS; a seven-day real run is pending.
+- Measured on synthetic data ([scale benchmark](scale-benchmark-2026-11-09.md)): 3.92 million rows in 78 s, 47 MiB RSS, 628 MiB scratch peak (about 168 bytes per row). The two-day NOAA run measured 46 MiB RSS. The seven-day real run measured about 47 MiB RSS and predates the soft-heap pin.
 
 ## Output
 
