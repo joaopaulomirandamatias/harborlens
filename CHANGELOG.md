@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-001: Federal Register date errors exit 2)
+- Package version `0.2.0.dev18` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `harborlens-fr-timeline` reports an invalid `--start` or `--end` through `parser.error`. The command exits 2, prints the `FederalRegisterAuditError` message, prints no traceback, and does not create a network client or call `urlopen`.
+- Rejected values include an ISO week date (`2026-W10-1`), `YYYYMMDD` (`20260301`), non-ASCII digits (Arabic-Indic `٢٠٢٦-٠٣-٠١`), and an impossible day (`2026-02-30`). The stderr text is the message `_date` raises for that same input (`Date must be YYYY-MM-DD`).
+- A real calendar start after the end date is still `FederalRegisterAuditError` (`Use a historical publication window of at most 370 days`) from `initial_url`. `main` does not catch that error, so an uncaught exception still produces the interpreter's exit 1 and a traceback. `urlopen` is still not called on that path. Valid dates follow the existing scan.
+- `main` does not catch a bare `ValueError` and does not catch `KeyboardInterrupt`.
+- **Compatibility:** invalid window dates that used to exit 1 with a traceback now exit 2. Callers that treated any nonzero status as failure still fail. Callers that distinguished status 1 from status 2 now see 2 for a bad calendar string.
+- Single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev15`: `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75`, `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05`, `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3`. The manifest differs in `code_version.package_version` and in `run_id`. Formula goldens stay the `0.2.0.dev17` bytes. The GovInfo LSA report's `harborlens_version` is `0.2.0.dev18` because that field copies the package version. Comparison behavior is unchanged. Schemas are unchanged. No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Found during the #78/#81 review. Refs #82 (stays open).
+
 ### Security (SPEC-001, SPEC-003: CSV formula hygiene)
 - Package version `0.2.0.dev17` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `src/harborlens/csv_safe.py` is the only neutralizer. Labeling, cleaned AIS, stationary-candidate CSV, and multi-day CSV writers call it. There is no second copy.
 - Triggers are `=`, `+`, `-`, `@`, tab, carriage return, and fullwidth `＝` `＋` `－` `＠` (U+FF1D, U+FF0B, U+FF0D, U+FF20). Characters ignored before the trigger are Unicode whitespace (`str.isspace`), U+FEFF, and U+200B. Tab and carriage return are both ignorable and triggers; the first trigger character matches.
