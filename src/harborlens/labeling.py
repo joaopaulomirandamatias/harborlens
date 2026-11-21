@@ -73,7 +73,7 @@ from harborlens.csv_safe import (
     matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
 )
 from harborlens.io_safe import AISInputError
-from harborlens.provenance import digests_equal, verify_manifest
+from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -389,7 +389,12 @@ def _load_run(run_dir):
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.is_file():
         raise AISInputError("Run directory has no manifest.json")
-    check = verify_manifest(manifest_path)
+    try:
+        check = verify_manifest(manifest_path)
+    except ManifestFormatError as exc:
+        raise AISInputError(
+            f"manifest '{manifest_path}' is not a valid HarborLens manifest"
+        ) from exc
     if not check["ok"]:
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

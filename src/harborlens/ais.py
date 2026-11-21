@@ -12,9 +12,10 @@ import itertools
 import json
 import math
 import os
-import unicodedata
+import tempfile
 import zipfile
 from pathlib import Path
+from harborlens.cli_usage import escape_error_text
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell, recover_text_cell
 from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
@@ -62,26 +63,8 @@ _FOUND_NAME_LIMIT = 10
 _FOUND_NAME_CHARS = 40
 
 def _escape_shown_text(value):
-    """Render one header name without terminal or bidi controls.
-
-    Ordinary text is kept. C0/C1 controls, DEL, and format characters
-    (including bidi controls) use ``ascii()``-style escapes. Line and
-    paragraph separators are escaped too, so the error stays one line.
-    """
-    parts=[]
-    for character in str(value):
-        category=unicodedata.category(character)
-        if category in ("Cc", "Cf", "Zl", "Zp"):
-            code=ord(character)
-            if code < 0x100:
-                parts.append(f"\\x{code:02x}")
-            elif code < 0x10000:
-                parts.append(f"\\u{code:04x}")
-            else:
-                parts.append(f"\\U{code:08x}")
-        else:
-            parts.append(character)
-    rendered="".join(parts)
+    """One header name, escaped, then capped for the error line."""
+    rendered=escape_error_text(value)
     if len(rendered) > _FOUND_NAME_CHARS:
         return rendered[:_FOUND_NAME_CHARS] + "..."
     return rendered
@@ -112,19 +95,40 @@ def header_alias(header, name, required=True, source=None):
         )
     return None
 
-def _publish(path, write):
-    """Write ``path`` via a sibling temp file and ``os.replace`` on success.
+def _cannot_write_directory(directory, exc):
+    detail=exc.strerror if exc.strerror else type(exc).__name__
+    return AISInputError(f"cannot write output directory '{directory}' ({detail}).")
 
-    A failure deletes the temp file and leaves an existing ``path`` in place.
+def _publish(path, write):
+    """Write ``path`` via a private temp file and ``os.replace`` this one file.
+
+    The temp name is random (``tempfile.mkstemp``), so a pre-planted symlink
+    at ``<name>.partial`` is not opened. The file mode is ``0o644`` before
+    the replace. A failure deletes the temp file and leaves ``path`` in place.
+    This replaces one file, not the whole output set.
     """
-    partial=path.with_name(path.name + ".partial")
+    path=Path(path)
+    fd=None
+    partial=None
     published=False
     try:
-        write(partial)
+        try:
+            fd, raw=tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".partial")
+        except OSError as exc:
+            raise _cannot_write_directory(path.parent, exc) from exc
+        partial=Path(raw)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            fd=None
+            write(handle)
+        if partial.is_symlink():
+            raise AISInputError(f"cannot write output directory '{path.parent}' (temp file was replaced).")
+        os.chmod(partial, 0o644)
         os.replace(partial, path)
         published=True
     finally:
-        if not published:
+        if fd is not None:
+            os.close(fd)
+        if partial is not None and not published:
             partial.unlink(missing_ok=True)
 
 def _resolve_columns(header, source):
@@ -177,21 +181,23 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
         except StopIteration:
             peeked=None
         cols=_resolve_columns(list(peeked), source) if peeked is not None else None
-        output.parent.mkdir(parents=True,exist_ok=True)
-        # Publish only after the whole file is written, so a mid-stream error
-        # cannot truncate an existing cleaned CSV.
-        partial=output.with_name(output.name + ".partial")
-        published=False
+        try:
+            output.parent.mkdir(parents=True,exist_ok=True)
+        except OSError as exc:
+            raise _cannot_write_directory(output.parent, exc) from exc
+        # One file is replaced only after it is fully written. A failure here
+        # leaves an existing cleaned CSV in place. Later files are separate.
         counts=dict(total=0,in_bbox=0,missing_value=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
         seen=set()
         first=last=None
         truncated=False
         categories={}
-        try:
-            with partial.open("w",newline="",encoding="utf-8") as stream:
-                writer=CsvDictWriter(stream,CLEAN_FIELDS)
-                rows=() if peeked is None else itertools.chain((peeked,), row_iter)
-                for row in rows:
+        holder={}
+        def write_cleaned(handle):
+            nonlocal first, last, truncated
+            writer=CsvDictWriter(handle,CLEAN_FIELDS)
+            rows=() if peeked is None else itertools.chain((peeked,), row_iter)
+            for row in rows:
                     if max_rows is not None and counts["total"]>=max_rows:
                         truncated=True
                         break
@@ -237,17 +243,13 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                     counts["written"]+=1
                     first=t if first is None or t<first else first
                     last=t if last is None or t>last else last
-            result={"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
+            holder["result"]={"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
                     "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
                     "input_truncated":truncated,"limits":{"max_rows":max_rows},
                     "mmsi_categories":dict(sorted(categories.items())),
                     "observed_time_range":observed_range(first,last)}
-            os.replace(partial, output)
-            published=True
-            return result
-        finally:
-            if not published:
-                partial.unlink(missing_ok=True)
+        _publish(output, write_cleaned)
+        return holder["result"]
     finally:
         row_iter.close()
 
@@ -347,20 +349,19 @@ def write_events(events,out,params=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
 
-    def write_csv(path):
-        with path.open("w",newline="",encoding="utf-8") as stream:
-            writer=CsvDictWriter(stream,EVENT_FIELDS)
-            for event in events:
-                # Copy so GeoJSON keeps the logical vessel_type. JSON strings are not formulas.
-                row={field:event[field] for field in EVENT_FIELDS}
-                row["vessel_type"]=neutralize_text_cell(row["vessel_type"])
-                writer.writerow(row)
+    def write_csv(handle):
+        writer=CsvDictWriter(handle,EVENT_FIELDS)
+        for event in events:
+            # Copy so GeoJSON keeps the logical vessel_type. JSON strings are not formulas.
+            row={field:event[field] for field in EVENT_FIELDS}
+            row["vessel_type"]=neutralize_text_cell(row["vessel_type"])
+            writer.writerow(row)
 
-    def write_geojson(path):
+    def write_geojson(handle):
         features=[{"type":"Feature","geometry":{"type":"Point","coordinates":[e["centroid_lon"],e["centroid_lat"]]},
                    "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
         collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
-        path.write_text(json.dumps(collection,indent=2),encoding="utf-8")
+        handle.write(json.dumps(collection,indent=2))
 
     _publish(out/"stationary_candidates.csv", write_csv)
     _publish(out/"stationary_candidates.geojson", write_geojson)
@@ -392,7 +393,10 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
     out=Path(out)
     created_out=not out.exists()
     try:
-        out.mkdir(parents=True,exist_ok=True)
+        try:
+            out.mkdir(parents=True,exist_ok=True)
+        except OSError as exc:
+            raise _cannot_write_directory(out, exc) from exc
         cleaned=out/"houston_clean.csv"
         manifest=ingest(src,cleaned,bbox,max_rows)
         window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
@@ -411,12 +415,9 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
         manifest["analysis_window"]=censoring.summary(observed)
         manifest = add_provenance(out, manifest, source_url=source_url)
         body=json.dumps(manifest,indent=2)
-        _publish(out/"manifest.json", lambda path: path.write_text(body, encoding="utf-8"))
+        _publish(out/"manifest.json", lambda handle: handle.write(body))
         return manifest
     except AISInputError:
-        for name in ("houston_clean.csv", "stationary_candidates.csv",
-                     "stationary_candidates.geojson", "manifest.json"):
-            (out / (name + ".partial")).unlink(missing_ok=True)
         if created_out:
             try:
                 _discard_new_directory(out)

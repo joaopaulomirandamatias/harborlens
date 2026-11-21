@@ -10,6 +10,7 @@ import importlib
 import inspect
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -20,7 +21,7 @@ from harborlens import __version__
 from harborlens.ais import REQUIRED_COLUMNS, header_alias
 from harborlens.cli import main as harborlens_main
 from harborlens.evaluation import _read_labels, evaluate, main as evaluate_main
-from harborlens.labeling import draw_sample
+from harborlens.labeling import draw_sample, sample_main
 from harborlens.fr_timeline import main as fr_main
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import main as verify_main
@@ -296,6 +297,65 @@ class HarborlensCliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn('"ok": true', stdout)
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_planted_partial_symlink_and_file_are_not_followed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            out = root / "out"
+            out.mkdir()
+            victim_link = root / "victim-link.txt"
+            victim_file = root / "victim-file.txt"
+            victim_target = root / "victim-target.txt"
+            victim_link.write_text("LINK-SECRET", encoding="utf-8")
+            victim_file.write_text("FILE-SECRET", encoding="utf-8")
+            victim_target.write_text("TARGET-SECRET", encoding="utf-8")
+            planted_file = out / "manifest.json.partial"
+            planted_file.write_text("REGULAR-PARTIAL", encoding="utf-8")
+            try:
+                (out / "houston_clean.csv.partial").symlink_to(victim_link)
+                (out / "stationary_candidates.csv").symlink_to(victim_target)
+            except OSError as exc:
+                self.skipTest(f"symlink is not supported: {exc}")
+            code, _, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(victim_link.read_text(encoding="utf-8"), "LINK-SECRET")
+            self.assertEqual(victim_file.read_text(encoding="utf-8"), "FILE-SECRET")
+            self.assertEqual(victim_target.read_text(encoding="utf-8"), "TARGET-SECRET")
+            self.assertEqual(planted_file.read_text(encoding="utf-8"), "REGULAR-PARTIAL")
+            self.assertTrue((out / "houston_clean.csv.partial").is_symlink())
+            cleaned = (out / "houston_clean.csv").read_bytes()
+            self.assertEqual(
+                hashlib.sha256(cleaned).hexdigest(),
+                "4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75",
+            )
+            self.assertNotIn(b"TARGET-SECRET", cleaned)
+            self.assertFalse((out / "stationary_candidates.csv").is_symlink())
+            code, stdout, err = _invoke(verify_main, [
+                "harborlens-verify", "--manifest", str(out / "manifest.json"),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertIn('"ok": true', stdout)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory write bits")
+    def test_unwritable_output_directory_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "locked"
+            out.mkdir()
+            out.chmod(0o500)
+            try:
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                ])
+            finally:
+                out.chmod(0o700)
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(f"cannot write output directory '{out}'", err)
+            self.assertIn("Permission denied", err)
+            self.assertNotIn("Traceback", err)
+
     def test_main_does_not_catch_broad_errors(self):
         source = inspect.getsource(harborlens_main)
         self.assertNotIn("except Exception", source)
@@ -446,6 +506,57 @@ class EvaluateAndVerifyCliTests(unittest.TestCase):
             with self.assertRaisesRegex(AISInputError, "is not valid JSON"):
                 evaluate(run_dir, sampling_path, labels, root / "geo-utf8.json",
                          label_provenance="synthetic")
+            for payload in (b"[]", b"null", b"1"):
+                point_manifest_at(payload)
+                with self.assertRaises(AISInputError) as caught:
+                    evaluate(run_dir, sampling_path, labels, root / "geo-shape.json",
+                             label_provenance="synthetic")
+                self.assertEqual(
+                    str(caught.exception),
+                    f"candidate GeoJSON '{geo}' is not valid JSON",
+                )
+            sampling.write_text("[]", encoding="utf-8")
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling),
+                "--labels", str(labels),
+                "--out", str(root / "shape.json"),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(f"sampling file '{sampling}' is not valid JSON", err)
+            self.assertNotIn("Traceback", err)
+
+    def test_control_in_input_path_is_escaped_on_stderr(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            missing = root / "no\x1bpe.csv"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(missing), "--out", str(root / "out"),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("\x1b", err)
+            self.assertIn("\\x1b", err)
+            self.assertIn("cannot read input file", err)
+
+    def test_label_sample_bad_manifest_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run_dir = Path(folder) / "run"
+            run_dir.mkdir()
+            manifest = run_dir / "manifest.json"
+            manifest.write_text("[]", encoding="utf-8")
+            code, stdout, err = _invoke(sample_main, [
+                "harborlens-label-sample", "--run", str(run_dir),
+                "--sheet", str(Path(folder) / "sheet.csv"), "--seed", "1",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(
+                f"manifest '{manifest}' is not a valid HarborLens manifest", err,
+            )
+            self.assertNotIn("Traceback", err)
 
     def test_unreadable_artifact_stays_a_verification_result(self):
         with tempfile.TemporaryDirectory() as folder:

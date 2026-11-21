@@ -221,6 +221,8 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         plan = json.loads(sampling_text)
     except json.JSONDecodeError as exc:
         raise AISInputError(sampling_invalid) from exc
+    if not isinstance(plan, dict):
+        raise AISInputError(sampling_invalid)
     if (not digests_equal(plan.get("run_manifest_sha256"), sha256(manifest_path))
             or not digests_equal(plan.get("parameter_set"), params.parameter_set)):
         raise AISInputError("Sampling manifest was not drawn from this run")
@@ -241,6 +243,8 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         geo = json.loads(geo_text)
     except json.JSONDecodeError as exc:
         raise AISInputError(geo_invalid) from exc
+    if not isinstance(geo, dict):
+        raise AISInputError(geo_invalid)
     candidates = {f["properties"]["event_id"]: f["properties"] for f in geo["features"]}
 
     excluded = Counter()
