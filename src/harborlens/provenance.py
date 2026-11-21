@@ -82,9 +82,18 @@ def require_declared_source_url(source_url):
         return
     if not isinstance(source_url, str):
         raise AISInputError(_SOURCE_URL_MESSAGE)
-    parts = urlsplit(source_url)
+    try:
+        parts = urlsplit(source_url)
+        # Reading these raises ``ValueError`` for an unbalanced IPv6 bracket
+        # such as ``http://[::1`` or ``http://[``. ``.port`` is not read: a
+        # port ``urlsplit`` accepts (including an out-of-range port) stays a
+        # later check and is not rejected here.
+        username = parts.username
+        password = parts.password
+    except ValueError:
+        raise AISInputError(_SOURCE_URL_MESSAGE) from None
     if (parts.scheme not in ("https", "http") or not parts.netloc
-            or parts.username or parts.password):
+            or username or password):
         raise AISInputError(_SOURCE_URL_MESSAGE)
 
 

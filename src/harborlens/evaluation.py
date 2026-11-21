@@ -173,12 +173,17 @@ def _timing(errors):
             "median_absolute_error_minutes": round(statistics.median(absolute), 2)}
 
 
+def _frame_count(value):
+    """True for a JSON number used as a stratum size. ``bool`` is not a count."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _sampling_shape(plan):
     """True when a parsed sampling document has the objects ``evaluate`` indexes.
 
     A JSON array, ``null``, or an object whose ``key`` is not a list of
-    objects, or whose ``frame.candidates`` is not an object, is the wrong
-    shape. That is distinct from text that is not JSON.
+    objects, or whose ``frame.candidates`` is not an object of JSON numbers,
+    is the wrong shape. That is distinct from text that is not JSON.
     """
     if not isinstance(plan, dict):
         return False
@@ -186,6 +191,8 @@ def _sampling_shape(plan):
     frame = plan.get("frame")
     candidates = frame.get("candidates") if isinstance(frame, dict) else None
     if not isinstance(rows, list) or not isinstance(candidates, dict):
+        return False
+    if any(not _frame_count(size) for size in candidates.values()):
         return False
     return all(isinstance(item, dict) and "sample_id" in item for item in rows)
 
@@ -240,7 +247,7 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         ) from exc
     try:
         plan = json.loads(sampling_text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise AISInputError(sampling_not_json) from exc
     if not _sampling_shape(plan):
         raise AISInputError(sampling_wrong_shape)
@@ -262,7 +269,7 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         ) from exc
     try:
         geo = json.loads(geo_text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise AISInputError(geo_invalid) from exc
     candidates = {}
     for feature in candidate_feature_collection(geo, geo_path):

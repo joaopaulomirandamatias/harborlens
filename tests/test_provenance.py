@@ -56,6 +56,8 @@ class ProvenanceTests(unittest.TestCase):
             "https:///",
             "https://user@example.org",
             "https://user:secret@example.org",
+            "http://[::1",
+            "http://[",
         ):
             with self.subTest(url=rejected):
                 with self.assertRaises(AISInputError) as caught:

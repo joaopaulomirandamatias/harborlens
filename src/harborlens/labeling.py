@@ -74,7 +74,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, parse_time, sha256
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.censoring import CENSORED, NOT_CENSORED, UNKNOWN, WindowCensoring
 from harborlens.csv_safe import (
     matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
@@ -497,16 +497,28 @@ def _load_run(run_dir):
         ) from exc
     try:
         geo = json.loads(geo_text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise AISInputError(geo_not_json) from exc
     candidates = []
+    shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
     for feature in candidate_feature_collection(geo, geo_path):
         props = feature["properties"]
+        event_id = props.get("event_id")
+        start_raw = props.get("start_utc")
+        end_raw = props.get("end_utc")
+        if (not isinstance(event_id, str) or not event_id or "mmsi" not in props
+                or not isinstance(start_raw, str) or not isinstance(end_raw, str)):
+            raise AISInputError(shape)
+        try:
+            start = parse_time(start_raw)
+            end = parse_time(end_raw)
+        except (TypeError, ValueError) as exc:
+            raise AISInputError(shape) from exc
         if not digests_equal(props.get("parameter_set"), params.parameter_set):
             raise AISInputError("Candidate parameter_set differs from the run manifest")
         candidates.append({**props, "lon": feature["geometry"]["coordinates"][0],
                            "lat": feature["geometry"]["coordinates"][1],
-                           "start": parse_time(props["start_utc"]), "end": parse_time(props["end_utc"])})
+                           "start": start, "end": end})
     rows, unparsable = load_cleaned(run_dir / "houston_clean.csv")
     return manifest_path, manifest, params, candidates, rows, unparsable
 
@@ -897,7 +909,7 @@ def sample_main():
         record = draw_sample(args.run, args.sheet, args.seed, args.candidates, args.negatives,
                              args.min_negative_minutes)
     except AISInputError as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps({k: record[k] for k in ("parameter_set", "seed", "drawn", "allocation", "sheet_sha256")},
                      indent=2))
 
@@ -912,6 +924,6 @@ def agreement_main():
     try:
         report = agreement(args.sheets[0], args.sheets[1], args.out, args.sampling)
     except AISInputError as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps({k: report[k] for k in ("units", "raw_agreement", "kappa_labels", "kappa_collapsed")},
                      indent=2))
