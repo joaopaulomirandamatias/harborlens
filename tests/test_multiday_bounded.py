@@ -530,6 +530,36 @@ class MultidayCliErrorTests(unittest.TestCase):
         self.assertIn("cannot be accessed", text)
         self.assertFalse(out.exists())
 
+    def test_error_line_escapes_controls_in_paths(self):
+        controls = (
+            ("esc", "\x1b", "\\x1b"),
+            ("newline", "\n", "\\x0a"),
+            ("cr", "\r", "\\x0d"),
+            ("bidi", "\u202e", "\\u202e"),
+            ("line_separator", "\u2028", "\\u2028"),
+            ("c1", "\x85", "\\x85"),
+        )
+        good = self.root / "good.csv"
+        write_csv(good, [line(DAY)])
+        for name, character, escaped in controls:
+            with self.subTest(control=name):
+                bad = self.root / f"bad{character}x.csv"
+                bad.write_text("foo,bar\n1,2\n", encoding="utf-8")
+                out = self.root / f"out-{name}"
+                code, text, stdout = self._exit([
+                    "--input", str(bad), str(good), "--out", str(out),
+                ])
+                self.assertEqual(code, 2)
+                self.assertEqual(stdout, "")
+                error_lines = [line for line in text.splitlines() if "error:" in line]
+                self.assertEqual(len(error_lines), 1)
+                self.assertIn(escaped, error_lines[0])
+                self.assertNotIn(character, error_lines[0])
+                self.assertIn("missing required column", error_lines[0])
+                self.assertNotIn("Traceback", text)
+                self.assertFalse(out.exists())
+                bad.unlink()
+
     def test_malformed_header_exits_2_without_traceback(self):
         bad = self.root / "bad.csv"
         good = self.root / "good.csv"

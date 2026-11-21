@@ -102,6 +102,45 @@ def _json_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+# Same pattern as schemas/v1/stationary-candidate-feature.schema.json and
+# schemas/v1/multi-day-candidate-feature.schema.json. The GeoJSON writer
+# copies the cleaned CSV string (8 or 9 digits). A JSON integer is the
+# wrong type. ``\Z`` rejects a trailing newline; ``[0-9]`` does not match
+# Unicode digits.
+_CANDIDATE_MMSI = re.compile(r"[0-9]{8,9}\Z")
+
+
+def candidate_identity_shape(props):
+    """True when one feature's identity fields match the candidate writer.
+
+    ``mmsi`` is a string of 8 or 9 digits, the type and pattern in
+    ``stationary-candidate-feature.schema.json``. ``write_events`` stores
+    that string. A JSON integer, a bool, a missing key, and a string outside
+    the pattern are the wrong shape. ``event_id`` is a non-empty string.
+    ``start_utc`` and ``end_utc`` are text that ``parse_time`` accepts.
+    ``harborlens-label-sample`` and ``harborlens-evaluate`` both use this
+    check, so the two commands do not disagree.
+    """
+    if not isinstance(props, dict):
+        return False
+    event_id = props.get("event_id")
+    mmsi = props.get("mmsi")
+    start_raw = props.get("start_utc")
+    end_raw = props.get("end_utc")
+    if not isinstance(event_id, str) or event_id == "":
+        return False
+    if not isinstance(mmsi, str) or _CANDIDATE_MMSI.fullmatch(mmsi) is None:
+        return False
+    if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+        return False
+    try:
+        parse_time(start_raw)
+        parse_time(end_raw)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def candidate_feature_collection(document, path):
     """Return the features of a parsed candidate GeoJSON document.
 
@@ -485,11 +524,12 @@ def _load_run(run_dir):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
     geo_path = run_dir / "stationary_candidates.geojson"
+    geo_not_utf8 = f"candidate GeoJSON '{geo_path}' is not valid UTF-8"
     geo_not_json = f"candidate GeoJSON '{geo_path}' is not valid JSON"
     try:
         geo_text = geo_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise AISInputError(geo_not_json) from exc
+        raise AISInputError(geo_not_utf8) from exc
     except OSError as exc:
         detail = exc.strerror if exc.strerror else type(exc).__name__
         raise AISInputError(
@@ -503,15 +543,11 @@ def _load_run(run_dir):
     shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
     for feature in candidate_feature_collection(geo, geo_path):
         props = feature["properties"]
-        event_id = props.get("event_id")
-        start_raw = props.get("start_utc")
-        end_raw = props.get("end_utc")
-        if (not isinstance(event_id, str) or not event_id or "mmsi" not in props
-                or not isinstance(start_raw, str) or not isinstance(end_raw, str)):
+        if not candidate_identity_shape(props):
             raise AISInputError(shape)
         try:
-            start = parse_time(start_raw)
-            end = parse_time(end_raw)
+            start = parse_time(props["start_utc"])
+            end = parse_time(props["end_utc"])
         except (TypeError, ValueError) as exc:
             raise AISInputError(shape) from exc
         if not digests_equal(props.get("parameter_set"), params.parameter_set):

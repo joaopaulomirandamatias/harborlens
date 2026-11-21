@@ -9,11 +9,12 @@ import hmac
 import json
 import os
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from harborlens import __version__
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, escape_error_text
 from harborlens.io_safe import AISInputError
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
@@ -69,29 +70,64 @@ _SOURCE_URL_MESSAGE = (
 )
 
 
+def _raw_source_url_forbidden(value):
+    """True when ``value`` has whitespace or a C0/C1/DEL control.
+
+    Checked on the raw string. ``urlsplit`` removes tab, CR, and LF before
+    it parses, so a check after the split would see a different value.
+    A format character (category Cf, including bidi) is not this rule.
+    """
+    for character in value:
+        if character.isspace() or unicodedata.category(character) == "Cc":
+            return True
+    return False
+
+
 def require_declared_source_url(source_url):
     """Accept a missing URL or an HTTP(S) URL with a host and no userinfo.
 
-    ``None`` means ``--source-url`` was omitted. An empty string, a URL with
-    no host (``http://``, ``https:///path``), a scheme other than ``http`` or
-    ``https`` (``ftp://x``), and a URL that carries a username or password
-    raise ``AISInputError``. This does not fetch the URL and does not change
-    ``rights_status``.
+    ``None`` means ``--source-url`` was omitted. The same ``AISInputError``
+    is raised, and the URL is not included in the message, when:
+
+    - the raw value contains whitespace or a control character (C0, DEL, C1),
+      including characters ``urlsplit`` would remove;
+    - the host contains whitespace;
+    - ``.port`` raises ``ValueError`` (a non-integer port, or a port outside
+      0..65535) — that read sits inside the ``ValueError`` guard;
+    - the scheme is not ``http`` or ``https``, there is no host, or a
+      username or password is present.
+
+    An omitted port and an empty port (``http://example.org:``, where
+    ``.port`` is ``None``) are accepted. Port 0 and port 65535 are the
+    inclusive bounds ``urlsplit`` returns without ``ValueError``.
+
+    A query string is still accepted. ``http://example.org:443/path?q=1`` is
+    a documented URL, so a rule that rejects every query would reject that
+    URL. A denylist of one name such as ``token`` would not match that URL
+    and would miss other names. Userinfo is the credential check. A query,
+    including ``?token=``, is stored as user-declared metadata and is not
+    fetched. ``rights_status`` stays ``review_required``.
     """
     if source_url is None:
         return
-    if not isinstance(source_url, str):
+    if not isinstance(source_url, str) or _raw_source_url_forbidden(source_url):
         raise AISInputError(_SOURCE_URL_MESSAGE)
     try:
         parts = urlsplit(source_url)
         # Reading these raises ``ValueError`` for an unbalanced IPv6 bracket
-        # such as ``http://[::1`` or ``http://[``. ``.port`` is not read: a
-        # port ``urlsplit`` accepts (including an out-of-range port) stays a
-        # later check and is not rejected here.
+        # such as ``http://[::1`` or ``http://[``. ``.port`` raises
+        # ``ValueError`` for a non-integer port and for a port outside
+        # 0..65535, such as ``:abc`` or ``:65536``.
         username = parts.username
         password = parts.password
+        port = parts.port
+        host = parts.hostname
     except ValueError:
         raise AISInputError(_SOURCE_URL_MESSAGE) from None
+    if host is not None and any(character.isspace() for character in host):
+        raise AISInputError(_SOURCE_URL_MESSAGE)
+    if port is not None and not 0 <= port <= 65535:
+        raise AISInputError(_SOURCE_URL_MESSAGE)
     if (parts.scheme not in ("https", "http") or not parts.netloc
             or username or password):
         raise AISInputError(_SOURCE_URL_MESSAGE)
@@ -190,13 +226,15 @@ def main():
     try:
         result = verify_manifest(args.manifest)
     except ManifestFormatError:
-        parser.error(f"manifest '{args.manifest}' is not a valid HarborLens manifest")
+        parser.error(escape_error_text(
+            f"manifest '{args.manifest}' is not a valid HarborLens manifest"
+        ))
     except OSError as exc:
         detail = exc.strerror if exc.strerror else type(exc).__name__
-        parser.error(
+        parser.error(escape_error_text(
             f"cannot read manifest '{args.manifest}' ({detail}). "
             "Give --manifest the manifest.json written by harborlens."
-        )
+        ))
     print(json.dumps(result, indent=2))
     if not result["ok"]:
         raise SystemExit(1)

@@ -23,7 +23,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.ais import (
     ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
 )
@@ -590,7 +590,7 @@ def main(argv=None):
             params=params_from_args(args),
         )
     except (AISInputError, FileExistsError) as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps(result, indent=2))
 
 

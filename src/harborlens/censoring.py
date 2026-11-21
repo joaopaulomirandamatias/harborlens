@@ -88,9 +88,17 @@ def sidecar_window(path, input_sha256):
     if side.stat().st_size > MAX_SIDECAR_BYTES:
         raise AnalysisWindowError(f"Acquisition sidecar is too large: {side.name}")
     try:
-        record = json.loads(side.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeError) as exc:
-        raise AnalysisWindowError(f"Acquisition sidecar is not valid JSON: {side.name}") from exc
+        text = side.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise AnalysisWindowError(
+            f"Acquisition sidecar is not valid UTF-8: {side.name}"
+        ) from exc
+    try:
+        record = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AnalysisWindowError(
+            f"Acquisition sidecar is not valid JSON: {side.name}"
+        ) from exc
     if not isinstance(record, dict):
         return None
     if record.get("source_type") == "local_noaa_daily_archive":
