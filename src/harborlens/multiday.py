@@ -25,8 +25,8 @@ from pathlib import Path
 
 from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.ais import (
-    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
-    _missing_directories, _remove_empty_created_directories,
+    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, OutputScope, header_alias,
+    parse_time, sha256,
 )
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
@@ -394,16 +394,12 @@ def run_multiday(
     if params is None:
         params = SegmentationParams(max_sog, min_duration_minutes, max_gap_minutes,
                                     max_radius_m, min_points, max_jump_knots)
-    out = Path(out).resolve()
-    created_out = not out.exists()
-    created = _missing_directories(out)
+    scope = OutputScope(out)
+    failed = True
     try:
-        out.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        _remove_empty_created_directories(created)
-        raise
-    files = _output_files(out)
-    try:
+        scope.ensure()
+        out = scope.directory
+        files = _output_files(out)
         if any(path in paths or path.exists() for path in files.values()):
             raise FileExistsError("Output files already exist or would overwrite a source")
 
@@ -420,6 +416,8 @@ def run_multiday(
                 censoring = _resolve_windows(paths, source_items, window_start, window_end,
                                              params.max_gap_minutes)
                 censoring.check_observed(first, last)
+                for name in ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson"):
+                    scope.note_new(files[name])
                 diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
                 db.commit()
                 meter.check()
@@ -455,26 +453,18 @@ def run_multiday(
                     },
                     "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
                 }
+                scope.note_new(files["manifest.json"])
                 files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                failed = False
                 return result
-            except Exception:
-                for target in files.values():
-                    target.unlink(missing_ok=True)
-                raise
             finally:
                 db.close()
-    except Exception:
-        # A failure during the load (unreadable file, bad header, row cap,
-        # header-only file) removes the directory this call created, then
-        # any parent directory this call created that is still empty.
-        # A pre-existing directory is not removed. No file is unlinked here.
-        if created_out:
-            try:
-                out.rmdir()
-            except OSError:
-                pass
-        _remove_empty_created_directories(created)
-        raise
+    finally:
+        # Any failure, including one that is not an AISInputError, removes
+        # only files this call created and then empty directories this call
+        # created. The original error propagates.
+        if failed:
+            scope.cleanup()
 
 
 class _SQLiteGroupStore:

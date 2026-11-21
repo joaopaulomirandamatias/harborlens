@@ -14,7 +14,6 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -28,6 +27,7 @@ from harborlens.labeling import (
     draw_sample, sample_main,
 )
 from harborlens.multiday import main as multiday_main
+from harborlens.sensitivity import main as sensitivity_main
 from harborlens.fr_timeline import main as fr_main
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import main as verify_main
@@ -1803,68 +1803,29 @@ class SourceUrlAndGeoJsonShapeTests(unittest.TestCase):
             self.assertFalse(broken.exists())
 
 
-_FROZEN_TODAY = date(2026, 11, 21)
-_WINDOW_START_AFTER_END = (
-    "--start (2024-01-02) is after --end (2023-07-01). "
-    "Use calendar dates YYYY-MM-DD, with start on or before end, "
-    "a span of at most 370 days, start in 1994 or later, and end not after today."
-)
-_WINDOW_BEFORE_1994 = (
-    "--start (1993-12-31) is before 1994-01-01, the earliest date this command accepts."
-)
-_WINDOW_END_AFTER_TODAY = (
-    "--end (2026-11-22) is after today (2026-11-21). "
-    "Use a historical end date on or before today."
-)
-_WINDOW_SPAN_371 = (
-    "--start and --end span 371 days; the maximum historical "
-    "publication window is 370 days."
-)
-
-
 class RequestedWindowTests(unittest.TestCase):
-    """The requested analysis window is refused before ingest or a directory."""
+    """AIS window rules run before ingest. Federal Register limits do not apply."""
 
-    def setUp(self):
-        self.assertEqual((date(2025, 1, 6) - date(2024, 1, 2)).days, 370)
-        self.assertEqual((date(2025, 1, 7) - date(2024, 1, 2)).days, 371)
-        self.clock = mock.patch("harborlens.fr_timeline._today", return_value=_FROZEN_TODAY)
-        self.clock.start()
-
-    def tearDown(self):
-        self.clock.stop()
-
-    def test_publication_rules_and_same_day_order(self):
+    def test_declared_window_keeps_the_analysis_rules_only(self):
         self.assertIsNone(declared_window())
         ordered = declared_window("2024-01-02T00:00:00Z", "2024-01-02T06:00:00Z")
         self.assertLess(ordered["start"], ordered["end"])
-        declared_window("1994-01-01T00:00:00Z", "1994-01-01T06:00:00Z")
-        declared_window("2026-11-21T00:00:00Z", "2026-11-21T06:00:00Z")
-        declared_window("2024-01-02T00:00:00Z", "2025-01-06T00:00:00Z")
-        shifted = declared_window("1993-12-31T20:00:00-05:00", "1994-01-01T12:00:00Z")
-        self.assertEqual(shifted["start"].date().isoformat(), "1994-01-01")
-
-        cases = (
-            ("2024-01-02T00:00:00Z", "2023-07-01T00:00:00Z", _WINDOW_START_AFTER_END),
-            ("1993-12-31T00:00:00Z", "1994-01-02T00:00:00Z", _WINDOW_BEFORE_1994),
-            ("2024-01-02T00:00:00Z", "2026-11-22T00:00:00Z", _WINDOW_END_AFTER_TODAY),
-            ("2024-01-02T00:00:00Z", "2025-01-07T00:00:00Z", _WINDOW_SPAN_371),
-            ("1994-01-01T02:00:00+03:00", "1994-01-02T00:00:00Z", _WINDOW_BEFORE_1994),
-        )
-        for start, end, message in cases:
-            with self.subTest(start=start, end=end):
-                with self.assertRaises(AnalysisWindowError) as caught:
-                    declared_window(start, end)
-                self.assertEqual(str(caught.exception), message)
-                self.assertNotIn("Traceback", str(caught.exception))
-        with self.assertRaisesRegex(AnalysisWindowError, "must precede its end"):
+        # A span far past 370 days, a start before 1994, and an end after
+        # today are accepted. Those limits belong to harborlens-fr-timeline.
+        long_window = declared_window("2022-01-01T00:00:00Z", "2024-01-03T00:00:00Z")
+        self.assertLess(long_window["start"], long_window["end"])
+        declared_window("1993-12-31T00:00:00Z", "1994-01-02T00:00:00Z")
+        declared_window("2024-01-02T00:00:00Z", "2099-01-01T00:00:00Z")
+        with self.assertRaisesRegex(AnalysisWindowError, "--window-start must precede --window-end"):
             declared_window("2024-01-02T06:00:00Z", "2024-01-02T00:00:00Z")
-        with self.assertRaisesRegex(AnalysisWindowError, "must precede its end"):
+        with self.assertRaisesRegex(AnalysisWindowError, "--window-start must precede --window-end"):
             declared_window("2024-01-02T00:00:00Z", "2024-01-02T00:00:00Z")
-        with self.assertRaisesRegex(AnalysisWindowError, "Provide both"):
+        with self.assertRaisesRegex(AnalysisWindowError, "Provide both --window-start and --window-end"):
             declared_window("2024-01-02T00:00:00Z", None)
+        with self.assertRaisesRegex(AnalysisWindowError, "--window-start must include a UTC offset or Z"):
+            declared_window("2024-01-02T00:00:00", "2024-01-02T06:00:00Z")
 
-    def _refuse(self, extra, message):
+    def test_cli_refuses_a_reversed_window_before_creating_parents(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             parent = root / "a"
@@ -1872,60 +1833,39 @@ class RequestedWindowTests(unittest.TestCase):
             (parent / "keep.txt").write_text("stay", encoding="utf-8")
             out = parent / "b" / "c"
             code, stdout, err = _invoke(harborlens_main, [
-                "harborlens", "--input", str(FIXTURE), "--out", str(out), *extra,
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                "--window-start", "2024-01-02T06:00:00Z",
+                "--window-end", "2024-01-02T00:00:00Z",
             ])
             self.assertEqual(code, 2)
             self.assertEqual(stdout, "")
-            self.assertIn(message, err)
+            self.assertIn("--window-start must precede --window-end", err)
+            self.assertNotIn("publication window", err)
             self.assertEqual(err.count("error:"), 1)
             self.assertNotIn("Traceback", err)
             self.assertFalse((parent / "b").exists())
             self.assertEqual((parent / "keep.txt").read_text(encoding="utf-8"), "stay")
-            self.assertFalse((out / "houston_clean.csv").exists())
 
-    def test_cli_refuses_each_rule_without_creating_parents(self):
-        cases = (
-            ("2024-01-02T00:00:00Z", "2023-07-01T00:00:00Z", _WINDOW_START_AFTER_END),
-            ("1993-12-31T00:00:00Z", "1994-01-02T00:00:00Z", _WINDOW_BEFORE_1994),
-            ("2024-01-02T00:00:00Z", "2026-11-22T00:00:00Z", _WINDOW_END_AFTER_TODAY),
-            ("2024-01-02T00:00:00Z", "2025-01-07T00:00:00Z", _WINDOW_SPAN_371),
-            ("2024-01-02T06:00:00Z", "2024-01-02T00:00:00Z", "must precede its end"),
-        )
-        for start, end, message in cases:
-            with self.subTest(start=start, end=end):
-                self._refuse(["--window-start", start, "--window-end", end], message)
-
-    def test_cli_debug_window_still_exits_2(self):
+    def test_long_window_still_succeeds_and_writes_the_nested_directory(self):
         with tempfile.TemporaryDirectory() as folder:
-            out = Path(folder) / "a" / "b" / "c"
-            code, stdout, err = _invoke(harborlens_main, [
-                "harborlens", "--input", str(FIXTURE), "--out", str(out), "--debug",
-                "--window-start", "2024-01-02T00:00:00Z",
-                "--window-end", "2023-07-01T00:00:00Z",
-            ])
-            self.assertEqual(code, 2)
-            self.assertEqual(stdout, "")
-            self.assertIn(_WINDOW_START_AFTER_END, err)
-            self.assertIn("Traceback", err)
-            self.assertLess(err.index("error:"), err.index("Traceback"))
-            self.assertFalse((Path(folder) / "a").exists())
-
-    def test_existing_output_directory_is_not_rewritten(self):
-        with tempfile.TemporaryDirectory() as folder:
-            out = Path(folder) / "out"
-            out.mkdir()
-            (out / "keep.txt").write_text("stay", encoding="utf-8")
+            root = Path(folder)
+            parent = root / "a"
+            parent.mkdir()
+            (parent / "keep.txt").write_text("stay", encoding="utf-8")
+            out = parent / "b" / "c"
             code, stdout, err = _invoke(harborlens_main, [
                 "harborlens", "--input", str(FIXTURE), "--out", str(out),
-                "--window-start", "2024-01-02T00:00:00Z",
-                "--window-end", "2026-11-22T00:00:00Z",
+                "--window-start", "2022-01-01T00:00:00Z",
+                "--window-end", "2024-01-03T00:00:00Z",
             ])
-            self.assertEqual(code, 2)
-            self.assertEqual(stdout, "")
-            self.assertIn(_WINDOW_END_AFTER_TODAY, err)
-            self.assertNotIn("Traceback", err)
-            self.assertEqual((out / "keep.txt").read_text(encoding="utf-8"), "stay")
-            self.assertFalse((out / "houston_clean.csv").exists())
+            self.assertEqual(code, 0, err)
+            self.assertEqual(err, "")
+            body = json.loads(stdout)
+            self.assertEqual(body["analysis_window"]["status"], "known")
+            self.assertEqual(body["analysis_window"]["blocks"][0]["start_utc"], "2022-01-01T00:00:00Z")
+            self.assertEqual(body["analysis_window"]["blocks"][0]["end_utc"], "2024-01-03T00:00:00Z")
+            self.assertTrue((out / "manifest.json").is_file())
+            self.assertEqual((parent / "keep.txt").read_text(encoding="utf-8"), "stay")
 
     def test_bad_header_does_not_leave_nested_parents(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -1946,33 +1886,7 @@ class RequestedWindowTests(unittest.TestCase):
             self.assertFalse((parent / "b").exists())
             self.assertEqual((parent / "keep.txt").read_text(encoding="utf-8"), "stay")
 
-    def test_accepted_window_writes_the_nested_directory(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            parent = root / "a"
-            parent.mkdir()
-            (parent / "keep.txt").write_text("stay", encoding="utf-8")
-            out = parent / "b" / "c"
-            code, stdout, err = _invoke(harborlens_main, [
-                "harborlens", "--input", str(FIXTURE), "--out", str(out),
-                "--window-start", "2024-01-02T00:00:00Z",
-                "--window-end", "2025-01-06T00:00:00Z",
-            ])
-            self.assertEqual(code, 0, err)
-            self.assertEqual(err, "")
-            self.assertNotIn("Traceback", err)
-            body = json.loads(stdout)
-            self.assertEqual(body["analysis_window"]["status"], "known")
-            self.assertEqual(body["analysis_window"]["blocks"], [{
-                "start_utc": "2024-01-02T00:00:00Z",
-                "end_utc": "2025-01-06T00:00:00Z",
-            }])
-            self.assertEqual(body["source_metadata"]["rights_status"], "review_required")
-            self.assertTrue((out / "houston_clean.csv").is_file())
-            self.assertTrue((out / "manifest.json").is_file())
-            self.assertEqual((parent / "keep.txt").read_text(encoding="utf-8"), "stay")
-
-    def test_multiday_invalid_window_exits_2_before_reading_inputs(self):
+    def test_multiday_reversed_window_exits_2_before_reading_inputs(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             parent = root / "a"
@@ -1990,13 +1904,174 @@ class RequestedWindowTests(unittest.TestCase):
             ])
             self.assertEqual(code, 2)
             self.assertEqual(stdout, "")
-            self.assertIn(_WINDOW_START_AFTER_END, err)
+            self.assertIn("--window-start must precede --window-end", err)
             self.assertNotIn("must exist", err)
+            self.assertNotIn("publication window", err)
             self.assertEqual(err.count("error:"), 1)
             self.assertNotIn("Traceback", err)
-            self.assertFalse(missing_a.exists())
             self.assertFalse((parent / "b").exists())
             self.assertEqual((parent / "keep.txt").read_text(encoding="utf-8"), "stay")
+
+    def test_sensitivity_accepts_a_multi_year_window_and_rejects_a_reversed_one(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            run_dir = root / "run"
+            code, _stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(run_dir),
+            ])
+            self.assertEqual(code, 0, err)
+            cleaned = run_dir / "houston_clean.csv"
+            accepted = root / "accepted.json"
+            code, stdout, err = _invoke(sensitivity_main, [
+                "harborlens-sensitivity",
+                "--cleaned", str(cleaned),
+                "--out", str(accepted),
+                "--window-start", "2022-01-01T00:00:00Z",
+                "--window-end", "2024-01-03T00:00:00Z",
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("Traceback", err)
+            self.assertTrue(accepted.is_file())
+            report = json.loads(accepted.read_text(encoding="utf-8"))
+            self.assertEqual(report["analysis_window"]["start_utc"], "2022-01-01T00:00:00Z")
+            self.assertEqual(report["analysis_window"]["end_utc"], "2024-01-03T00:00:00Z")
+            self.assertGreaterEqual(report["settings"][0]["stationary_candidates"], 0)
+
+            rejected = root / "rejected.json"
+            code, stdout, err = _invoke(sensitivity_main, [
+                "harborlens-sensitivity",
+                "--cleaned", str(cleaned),
+                "--out", str(rejected),
+                "--window-start", "2024-01-03T00:00:00Z",
+                "--window-end", "2022-01-01T00:00:00Z",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("--window-start must precede --window-end", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertNotIn("publication window", err)
+            self.assertFalse(rejected.exists())
+
+
+class OutputPathSafetyTests(unittest.TestCase):
+    """A failed run does not delete a pre-existing file or follow a symlink."""
+
+    def _bad(self, folder):
+        path = Path(folder) / "bad.csv"
+        path.write_text("not,a,valid,ais\n1,2,3,4\n", encoding="utf-8")
+        return path
+
+    def test_parent_dotdot_does_not_delete_preexisting_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            results = root / "results"
+            results.mkdir()
+            (results / "notes.txt").write_text("keep-notes", encoding="utf-8")
+            (results / "houston_clean.csv").write_text("keep-clean", encoding="utf-8")
+            (results / "manifest.json").write_text("keep-manifest", encoding="utf-8")
+            bad = self._bad(root)
+            previous = os.getcwd()
+            try:
+                os.chdir(root)
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(bad), "--out", "nope/../results",
+                ])
+                code_dot, stdout_dot, err_dot = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(bad), "--out", "nope/..",
+                ])
+            finally:
+                os.chdir(previous)
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", err)
+            self.assertEqual((results / "notes.txt").read_text(encoding="utf-8"), "keep-notes")
+            self.assertEqual((results / "houston_clean.csv").read_text(encoding="utf-8"), "keep-clean")
+            self.assertEqual((results / "manifest.json").read_text(encoding="utf-8"), "keep-manifest")
+            self.assertFalse((root / "nope").exists())
+            self.assertEqual(code_dot, 2)
+            self.assertEqual(stdout_dot, "")
+            self.assertNotIn("Traceback", err_dot)
+            self.assertEqual((results / "notes.txt").read_text(encoding="utf-8"), "keep-notes")
+            self.assertTrue((root / "bad.csv").is_file())
+            self.assertFalse((root / "nope").exists())
+
+    def test_foreign_file_in_a_created_directory_survives(self):
+        from harborlens.ais import OutputScope
+        original = OutputScope.ensure
+
+        def ensure(self):
+            original(self)
+            (self.directory / "notes.txt").write_text("foreign", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            bad = self._bad(root)
+            out = root / "a" / "b" / "c"
+            with mock.patch.object(OutputScope, "ensure", ensure):
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(bad), "--out", str(out),
+                ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", err)
+            self.assertEqual((out / "notes.txt").read_text(encoding="utf-8"), "foreign")
+            self.assertFalse((out / "houston_clean.csv").exists())
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory write bits")
+    def test_read_only_parent_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            parent = root / "locked"
+            parent.mkdir()
+            parent.chmod(0o555)
+            out = parent / "child"
+            bad = self._bad(root)
+            try:
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(bad), "--out", str(out),
+                ])
+                code_multi, stdout_multi, err_multi = _invoke(multiday_main, [
+                    "harborlens-multiday",
+                    "--input", str(bad), str(FIXTURE),
+                    "--out", str(parent / "multi"),
+                ])
+            finally:
+                parent.chmod(0o700)
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("cannot write output directory", err)
+            self.assertIn("Permission denied", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(out.exists())
+            self.assertEqual(code_multi, 2)
+            self.assertEqual(stdout_multi, "")
+            self.assertIn("cannot write output directory", err_multi)
+            self.assertIn("Permission denied", err_multi)
+            self.assertNotIn("Traceback", err_multi)
+            self.assertFalse((parent / "multi").exists())
+
+    def test_symlink_in_the_chain_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / "real"
+            target.mkdir()
+            (target / "notes.txt").write_text("keep", encoding="utf-8")
+            link = root / "link"
+            link.symlink_to(target, target_is_directory=True)
+            bad = self._bad(root)
+            out = link / "child"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(bad), "--out", str(out),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("symlink", err)
+            self.assertNotIn("Traceback", err)
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
+            self.assertFalse((target / "child").exists())
+            self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":

@@ -320,8 +320,7 @@ class MultiDayCensoringTests(unittest.TestCase):
                 window_start="2024-01-02T00:00:00Z",
                 window_end="2023-07-01T00:00:00Z",
             )
-        self.assertIn("2024-01-02", str(caught.exception))
-        self.assertIn("is after", str(caught.exception))
+        self.assertIn("--window-start must precede --window-end", str(caught.exception))
         self.assertNotIn("Traceback", str(caught.exception))
         self.assertFalse((self.root / "a" / "b").exists())
         self.assertEqual((self.root / "a" / "keep.txt").read_text(encoding="utf-8"), "stay")

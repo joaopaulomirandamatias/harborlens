@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from harborlens import __version__
-from harborlens.cli_usage import add_version_argument, escape_error_text
+from harborlens.cli_usage import add_version_argument, escape_error_text, escape_error_text
 from harborlens.io_safe import AISInputError
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
@@ -70,14 +70,28 @@ _SOURCE_URL_MESSAGE = (
 )
 
 
-# Variation selectors and the combining grapheme joiner. Fixed code points,
-# not a Unicode-category test: U+FE0F is Mn, and other Mn characters are not
-# in this set. Membership is a table lookup.
+# Default_Ignorable code points that are not already rejected as category Cc
+# or Cf, from Unicode 15.0.0 DerivedCoreProperties, plus U+180F (unassigned
+# on Unicode 13, Mn on Unicode 15) and U+2800 (braille blank, a blank
+# lookalike that is not Default_Ignorable). Combining marks in general,
+# such as U+0300 and U+0301, are not in this set and stay accepted.
+# Membership is a table lookup, not a runtime property scan.
 _SOURCE_URL_IGNORABLE_RANGES = (
-    (0xFE00, 0xFE0F),    # variation selectors
-    (0xE0100, 0xE01EF),  # variation selectors supplement
-    (0x180B, 0x180D),    # Mongolian free variation selectors
-    (0x034F, 0x034F),    # combining grapheme joiner
+    (0x034F, 0x034F),       # combining grapheme joiner
+    (0x115F, 0x1160),       # Hangul choseong/jungseong fillers
+    (0x17B4, 0x17B5),       # Khmer inherent vowels
+    (0x180B, 0x180F),       # Mongolian free variation selectors, including four
+    (0x2065, 0x2065),       # reserved default-ignorable
+    (0x2800, 0x2800),       # braille blank
+    (0x3164, 0x3164),       # Hangul filler
+    (0xFE00, 0xFE0F),       # variation selectors
+    (0xFFA0, 0xFFA0),       # halfwidth Hangul filler
+    (0xFFF0, 0xFFF8),       # reserved default-ignorable
+    (0xE0000, 0xE0000),     # reserved default-ignorable
+    (0xE0002, 0xE001F),     # reserved default-ignorable
+    (0xE0080, 0xE00FF),     # reserved default-ignorable
+    (0xE0100, 0xE01EF),     # variation selectors supplement
+    (0xE01F0, 0xE0FFF),     # reserved default-ignorable
 )
 _SOURCE_URL_IGNORABLE = frozenset(
     chr(code)
@@ -127,15 +141,27 @@ _CREDENTIAL_PARAMETER_NAMES = frozenset({
     "key",
     "x_goog_signature",
     "x_goog_credential",
+    "access_key",
+    "secret_key",
+    "api_token",
+    "session_id",
+    "x_api_key",
+    "oauth_token",
+    "private_key",
+    "csrf",
 })
 
 
-def _parameter_name_is_credential(name):
+def _credential_label(name):
+    """Normalized parameter name when it is on the heuristic, else None.
+
+    The label is the name only. The parameter value is never included.
+    """
     lowered = name.lower()
     normalized = lowered.replace("-", "_")
-    if normalized in _CREDENTIAL_PARAMETER_NAMES:
-        return True
-    return lowered.startswith("x-amz-") or normalized.startswith("x_amz_")
+    if normalized in _CREDENTIAL_PARAMETER_NAMES or normalized.startswith("x_amz_"):
+        return normalized
+    return None
 
 
 def _parameter_pairs(text):
@@ -158,14 +184,21 @@ def _decoded_parameter_names(name):
         yield again
 
 
-def _has_credential_parameter(parts):
-    """True when a query or fragment name is on the credential heuristic."""
+def _credential_parameter_name(parts):
+    """The first denylisted query or fragment name, or None.
+
+    The returned text is escaped and capped. It is never the parameter value.
+    """
     for text in (parts.query, parts.fragment):
         for name, _value in _parameter_pairs(text):
             for decoded in _decoded_parameter_names(name):
-                if _parameter_name_is_credential(decoded):
-                    return True
-    return False
+                label = _credential_label(decoded)
+                if label:
+                    shown = escape_error_text(label)
+                    if len(shown) > 80:
+                        shown = shown[:80] + "..."
+                    return shown
+    return None
 
 
 def require_declared_source_url(source_url):
@@ -222,8 +255,11 @@ def require_declared_source_url(source_url):
     if port is not None and not 1 <= port <= 65535:
         raise AISInputError(_SOURCE_URL_MESSAGE)
     if (parts.scheme not in ("https", "http") or not parts.netloc
-            or username or password or _has_credential_parameter(parts)):
+            or username or password):
         raise AISInputError(_SOURCE_URL_MESSAGE)
+    credential = _credential_parameter_name(parts)
+    if credential:
+        raise AISInputError(f"{_SOURCE_URL_MESSAGE} (parameter '{credential}')")
 
 
 def add_provenance(folder, manifest, source_url=None):

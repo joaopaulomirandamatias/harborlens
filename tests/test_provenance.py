@@ -126,6 +126,15 @@ class ProvenanceTests(unittest.TestCase):
             "http://example.org/path?x-goog-signature=example",
             "http://example.org/path?X-Goog-Credential=example",
             "http://example.org/path?access-token=example",
+            "http://example.org/path?access_key=sekrit-value",
+            "http://example.org/path?secret-key=sekrit-value",
+            "http://example.org/path?api_token=sekrit-value",
+            "http://example.org/path?session_id=sekrit-value",
+            "http://example.org/path?x-api-key=sekrit-value",
+            "http://example.org/path?oauth_token=sekrit-value",
+            "http://example.org/path?private_key=sekrit-value",
+            "http://example.org/path?csrf=sekrit-value",
+            "http://example.org/path?key=sekrit-value",
             "http://example.org/path?q=1;token=example",
             "http://example.org/path#q=1;jwt=example",
             "http://example.org/\u202e",
@@ -144,27 +153,76 @@ class ProvenanceTests(unittest.TestCase):
                 message = str(caught.exception)
                 self.assertIn("must name a host", message)
                 self.assertNotIn("Traceback", message)
+                if "sekrit-value" in rejected:
+                    self.assertIn("parameter '", message)
+                    self.assertNotIn("sekrit-value", message)
                 if rejected:
                     self.assertNotIn(rejected, message)
+                self.assertNotIn("sekrit-value", message)
                 self.assertFalse(self.out.exists())
 
     def test_source_url_ignorable_set_is_the_named_ranges(self):
+        import unicodedata
         expected = set()
         for start, end in _SOURCE_URL_IGNORABLE_RANGES:
             expected.update(chr(code) for code in range(start, end + 1))
         self.assertEqual(_SOURCE_URL_IGNORABLE, frozenset(expected))
-        self.assertEqual(len(_SOURCE_URL_IGNORABLE), 16 + 240 + 3 + 1)
-        self.assertIn("\ufe0f", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\ufe00", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\U000e0100", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\U000e01ef", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\u180b", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\u180d", _SOURCE_URL_IGNORABLE)
-        self.assertIn("\u034f", _SOURCE_URL_IGNORABLE)
-        # U+0301 is category Mn and is not in the fixed set.
+        for character in (
+            "\u115f", "\u1160", "\u3164", "\uffa0", "\u17b4", "\u17b5", "\u2800",
+            "\ufe0f", "\ufe00", "\U000e0100", "\U000e01ef", "\u180b", "\u180f",
+            "\u034f", "\u2065",
+        ):
+            self.assertIn(character, _SOURCE_URL_IGNORABLE)
+        # Combining marks in general stay accepted. U+0300 and U+0301 are Mn
+        # and are not default-ignorable.
+        self.assertNotIn("\u0300", _SOURCE_URL_IGNORABLE)
         self.assertNotIn("\u0301", _SOURCE_URL_IGNORABLE)
-        self.assertNotIn(chr(0xE01F0), _SOURCE_URL_IGNORABLE)
-        self.assertNotIn("\ufdff", _SOURCE_URL_IGNORABLE)
+        self.assertEqual(unicodedata.category("\u0300"), "Mn")
+        self.assertEqual(unicodedata.category("\u0301"), "Mn")
+        named_mn = set(range(0x034F, 0x0350))
+        named_mn.update(range(0x17B4, 0x17B6))
+        named_mn.update(range(0x180B, 0x1810))
+        named_mn.update(range(0xFE00, 0xFE10))
+        named_mn.update(range(0xE0100, 0xE01F0))
+        for character in _SOURCE_URL_IGNORABLE:
+            if unicodedata.category(character) == "Mn":
+                self.assertIn(ord(character), named_mn)
+
+    def test_non_cf_default_ignorables_are_in_the_fixed_set(self):
+        """Unicode 15.0.0 Default_Ignorable code points are rejected.
+
+        Category Cc and Cf are rejected by the category check, so they are
+        not repeated in the frozenset. Every other code point in this frozen
+        list, plus the braille blank U+2800, is in the set. A new non-Cf
+        default-ignorable has to be added to both lists.
+        """
+        import unicodedata
+        # Unicode 15.0.0 DerivedCoreProperties Default_Ignorable_Code_Point.
+        frozen = (
+            (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C),
+            (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F),
+            (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F),
+            (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+            (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3),
+            (0x1D173, 0x1D17A), (0xE0000, 0xE001F), (0xE0020, 0xE007F),
+            (0xE0080, 0xE00FF), (0xE0100, 0xE0FFF),
+        )
+        missing = []
+        for start, end in frozen:
+            for code in range(start, end + 1):
+                character = chr(code)
+                if character in _SOURCE_URL_IGNORABLE:
+                    continue
+                if unicodedata.category(character) in {"Cc", "Cf"}:
+                    continue
+                missing.append(f"U+{code:04X}")
+        self.assertEqual(missing, [])
+        self.assertIn("\u2800", _SOURCE_URL_IGNORABLE)
+        require_declared_source_url("http://example.org/a\u0300")
+        require_declared_source_url("http://example.org/a\u0301")
+        for character in ("\u115f", "\u2800", "\u3164", "\uffa0"):
+            with self.assertRaises(AISInputError):
+                require_declared_source_url(f"http://example.org/{character}")
 
     def test_whitespace_is_rejected_before_urlsplit_strips_it(self):
         raw = "http://example.org\t/ais.csv"

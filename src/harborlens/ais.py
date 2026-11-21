@@ -12,6 +12,7 @@ import itertools
 import json
 import math
 import os
+import stat
 import tempfile
 import zipfile
 from pathlib import Path
@@ -100,49 +101,129 @@ def _cannot_write_directory(directory, exc):
     detail=exc.strerror if exc.strerror else type(exc).__name__
     return AISInputError(f"cannot write output directory '{directory}' ({detail}).")
 
-def _missing_directories(path):
-    """Directories that do not exist yet, from ``path`` up to an existing ancestor.
+def _absolute_lexical(path):
+    """Absolute path with ``.`` and ``..`` collapsed. Symlinks are not resolved."""
+    return Path(os.path.abspath(path))
 
-    Deepest first. The existing ancestor is not included. A pre-existing
-    directory is never listed, so a later cleanup cannot remove it.
+def _lstat_or_none(path):
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+
+def _refuse_existing_component(path, requested):
+    """A symlink or a non-directory in the chain is not entered."""
+    info=_lstat_or_none(path)
+    if info is None:
+        raise AISInputError(f"cannot write output directory '{requested}' (missing).")
+    if stat.S_ISLNK(info.st_mode):
+        raise AISInputError(f"cannot write output directory '{requested}' (symlink).")
+    if not stat.S_ISDIR(info.st_mode):
+        raise AISInputError(f"cannot write output directory '{requested}' (not a directory).")
+
+def _unlink_regular_nofollow(path):
+    """Remove one regular file. A symlink is left in place, so its target stays."""
+    info=_lstat_or_none(path)
+    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        return
+
+def _rmdir_empty_nofollow(directory):
+    """Remove ``directory`` when it is a real empty directory. False if it stays.
+
+    ``os.rmdir`` does not follow a symlink. ``os.lstat`` rejects a symlink
+    before that call. A non-empty directory stops the caller.
     """
-    path=Path(path)
-    missing=[]
-    current=path
-    while not current.exists():
-        missing.append(current)
-        parent=current.parent
-        if parent==current:
-            break
-        current=parent
-    return missing
+    info=_lstat_or_none(directory)
+    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return True
+    try:
+        with os.scandir(directory) as found:
+            if any(True for _ in found):
+                return False
+        os.rmdir(directory)
+    except OSError:
+        return False
+    return True
 
-def _remove_empty_created_directories(created):
-    """Remove empty directories this run created. Never unlinks a file.
+class OutputScope:
+    """Directories this call created, and files this call created.
 
-    Deepest first. The first directory that is not empty stops the walk, so
-    a parent that still holds that directory stays. A path that is not a
-    directory is skipped.
+    The path is lexical (``os.path.abspath``), not ``Path.resolve()``, so
+    ``nope/../results`` is the existing ``results`` and not a new ``nope``.
+    Each component is created with ``os.mkdir`` on a parent opened with
+    ``O_NOFOLLOW``. ``FileExistsError`` means the component is not ours.
+    A symlink is not followed. Cleanup unlinks only files recorded here,
+    then ``rmdir`` of recorded directories that are still empty, deepest
+    first.
     """
-    for directory in created:
+
+    def __init__(self, directory):
+        self.directory=_absolute_lexical(directory)
+        self.created_dirs=[]
+        self.owned_files=[]
+
+    def ensure(self):
+        directory=self.directory
+        anchor=Path(directory.anchor)
+        relative=directory.relative_to(anchor)
+        created=[]
+        current=anchor
         try:
-            if not directory.is_dir():
-                continue
-            if any(directory.iterdir()):
-                return
-            directory.rmdir()
-        except OSError:
-            return
+            if str(relative)!=".":
+                for part in relative.parts:
+                    nxt=current/part
+                    try:
+                        parent_fd=os.open(current, os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+                    except OSError as exc:
+                        raise _cannot_write_directory(directory, exc) from exc
+                    try:
+                        try:
+                            os.mkdir(part, dir_fd=parent_fd)
+                        except FileExistsError:
+                            _refuse_existing_component(nxt, directory)
+                        except OSError as exc:
+                            raise _cannot_write_directory(directory, exc) from exc
+                        else:
+                            created.append(nxt)
+                    finally:
+                        os.close(parent_fd)
+                    current=nxt
+        except AISInputError:
+            for path in reversed(created):
+                if not _rmdir_empty_nofollow(path):
+                    break
+            raise
+        self.created_dirs=created
+        return self.directory
 
-def _publish(path, write):
+    def note_new(self, path):
+        """Record ``path`` when it does not exist yet, so a later create is ours."""
+        path=Path(path)
+        if _lstat_or_none(path) is None:
+            self.owned_files.append(path)
+
+    def cleanup(self):
+        for path in self.owned_files:
+            _unlink_regular_nofollow(path)
+        for directory in reversed(self.created_dirs):
+            if not _rmdir_empty_nofollow(directory):
+                return
+
+def _publish(path, write, owned_files=None):
     """Write ``path`` via a private temp file and ``os.replace`` this one file.
 
     The temp name is random (``tempfile.mkstemp``), so a pre-planted symlink
     at ``<name>.partial`` is not opened. The file mode is ``0o644`` before
     the replace. A failure deletes the temp file and leaves ``path`` in place.
-    This replaces one file, not the whole output set.
+    This replaces one file, not the whole output set. A path that did not
+    exist before the replace is appended to ``owned_files``.
     """
     path=Path(path)
+    existed=_lstat_or_none(path) is not None
     fd=None
     partial=None
     published=False
@@ -160,6 +241,8 @@ def _publish(path, write):
         os.chmod(partial, 0o644)
         os.replace(partial, path)
         published=True
+        if owned_files is not None and not existed:
+            owned_files.append(path)
     finally:
         if fd is not None:
             os.close(fd)
@@ -197,7 +280,7 @@ def parse_time(value):
     """
     return parse_observation_time(value)
 
-def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None):
+def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None, owned_files=None):
     if max_rows is not None and max_rows < 0:
         raise AISInputError("max_rows must not be negative")
     if len(bbox) != 4 or not all(math.isfinite(float(x)) for x in bbox):
@@ -287,7 +370,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=N
             # CSV is left byte-for-byte. The temp file is deleted by ``_publish``.
             if before_publish is not None:
                 before_publish(holder["result"])
-        _publish(output, write_cleaned)
+        _publish(output, write_cleaned, owned_files)
         return holder["result"]
     finally:
         row_iter.close()
@@ -384,7 +467,7 @@ def read_candidates_csv(path):
         return [{k:convert(k,v) for k,v in row.items() if k in EVENT_FIELDS}
                 for row in csv.DictReader(stream)]
 
-def write_events(events,out,params=None):
+def write_events(events,out,params=None,owned_files=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
 
@@ -402,20 +485,8 @@ def write_events(events,out,params=None):
         collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
         handle.write(json.dumps(collection,indent=2))
 
-    _publish(out/"stationary_candidates.csv", write_csv)
-    _publish(out/"stationary_candidates.geojson", write_geojson)
-
-def _discard_new_directory(path):
-    """Remove files this failed run wrote, then the directory it created."""
-    if not path.is_dir():
-        return
-    for child in list(path.iterdir()):
-        if child.is_file():
-            child.unlink()
-    try:
-        path.rmdir()
-    except OSError:
-        pass
+    _publish(out/"stationary_candidates.csv", write_csv, owned_files)
+    _publish(out/"stationary_candidates.geojson", write_geojson, owned_files)
 
 def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=None,window_end=None,
         params=None):
@@ -428,23 +499,21 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
     An invalid ``source_url`` is refused before any output file is written.
     A requested ``--window-start``/``--window-end`` is checked, with
     ``declared_window``, before any directory is created and before ingest.
-    An ``AISInputError`` removes the output directory when this call created
-    it, and removes parent directories this call created when they are still
-    empty. It does not delete a pre-existing directory or any pre-existing file.
+    On failure, only files this call created are removed, then only
+    directories this call created that are still empty. A pre-existing
+    file, including one inside a directory this call created, is not deleted.
+    The original error is re-raised.
     """
     params=params or SegmentationParams()
     require_declared_source_url(source_url)
     # No ingest, download, or write until the requested window is acceptable.
     declared_window(window_start, window_end)
     src=Path(src)
-    out=Path(out)
-    created_out=not out.exists()
-    created=_missing_directories(out)
+    scope=OutputScope(out)
+    failed=True
     try:
-        try:
-            out.mkdir(parents=True,exist_ok=True)
-        except OSError as exc:
-            raise _cannot_write_directory(out, exc) from exc
+        scope.ensure()
+        out=scope.directory
         cleaned=out/"houston_clean.csv"
 
         def before_publish(partial):
@@ -456,7 +525,8 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
                 WindowCensoring([pending],params.max_gap_minutes).check_observed(
                     parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
 
-        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish)
+        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish,
+                        owned_files=scope.owned_files)
         window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
         declaration=declaration_record(src.name,window)
         if window is not None and manifest["input_truncated"]:
@@ -467,19 +537,15 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
         if observed["start_utc"]:
             censoring.check_observed(parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
         events,stats=infer_candidates(cleaned,censoring=censoring,params=params)
-        write_events(events,out,params)
+        write_events(events,out,params,scope.owned_files)
         manifest["events"]=stats
         manifest["method_parameters"]=params.manifest()
         manifest["analysis_window"]=censoring.summary(observed)
         manifest = add_provenance(out, manifest, source_url=source_url)
         body=json.dumps(manifest,indent=2)
-        _publish(out/"manifest.json", lambda handle: handle.write(body))
+        _publish(out/"manifest.json", lambda handle: handle.write(body), scope.owned_files)
+        failed=False
         return manifest
-    except AISInputError:
-        if created_out:
-            try:
-                _discard_new_directory(out)
-            except OSError:
-                pass
-        _remove_empty_created_directories(created)
-        raise
+    finally:
+        if failed:
+            scope.cleanup()
