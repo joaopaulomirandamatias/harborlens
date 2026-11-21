@@ -122,19 +122,12 @@ def python_312_lock_is_explicit(workflow: str, requirements: str) -> bool:
     return versions == ["'3.12'"]
 
 
-def split_job_steps(text: str) -> list[str]:
-    """Return the raw step chunks of the first ``steps:`` block, in order."""
-    lines = text.splitlines(keepends=True)
-    start = None
-    base = None
-    for index, line in enumerate(lines):
-        match = re.match(r"^(\s+)steps:\s*$", line.rstrip("\n"))
-        if match:
-            start = index
-            base = len(match.group(1))
-            break
-    if start is None or base is None:
-        return []
+_KEY_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*:(.*)$")
+_BLOCK_MARK = re.compile(r"^([|>])([+-]?)(\d+)?$")
+_GUARD_DISABLERS = ("if", "continue-on-error", "shell")
+
+
+def _read_steps(lines: list[str], start: int, base: int) -> tuple[list[str], int]:
     step_column = base + 2
     end = len(lines)
     for index in range(start + 1, len(lines)):
@@ -162,24 +155,138 @@ def split_job_steps(text: str) -> list[str]:
             pending.append(line)
     if current:
         steps.append("".join(current))
+    return steps, end
+
+
+def iter_job_step_blocks(text: str) -> list[list[str]]:
+    """Return one step-chunk list for every ``steps:`` block, in file order."""
+    lines = text.splitlines(keepends=True)
+    jobs: list[list[str]] = []
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^(\s+)steps:\s*$", lines[index].rstrip("\n"))
+        if not match:
+            index += 1
+            continue
+        steps, index = _read_steps(lines, index, len(match.group(1)))
+        jobs.append(steps)
+    return jobs
+
+
+def split_job_steps(text: str) -> list[str]:
+    """Return every job's step chunks, in file order."""
+    steps: list[str] = []
+    for job in iter_job_step_blocks(text):
+        steps.extend(job)
     return steps
 
 
+def join_shell_continuations(text: str) -> str:
+    """Join lines that end in a backslash, the way a shell would."""
+    merged: list[str] = []
+    buffer = ""
+    continued = False
+    for line in text.split("\n"):
+        piece = line.lstrip() if continued else line
+        buffer = buffer + piece
+        if buffer.rstrip().endswith("\\"):
+            buffer = buffer.rstrip()[:-1].rstrip() + " "
+            continued = True
+            continue
+        merged.append(buffer)
+        buffer = ""
+        continued = False
+    if buffer:
+        merged.append(buffer)
+    return "\n".join(merged)
+
+
+def decode_block(marker: str, raw_lines: list[str]) -> str:
+    """Decode a ``|`` or ``>`` scalar, then join backslash continuations."""
+    style = marker[0]
+    indents = [len(line) - len(line.lstrip(" ")) for line in raw_lines if line.strip()]
+    strip_at = min(indents) if indents else 0
+    dedented: list[str] = []
+    for line in raw_lines:
+        if line.strip() == "":
+            dedented.append("")
+        elif len(line) >= strip_at:
+            dedented.append(line[strip_at:])
+        else:
+            dedented.append(line.lstrip(" "))
+    text = join_shell_continuations("\n".join(dedented))
+    if style == ">":
+        text = re.sub(r"[ \t]*\n[ \t]*", " ", text).strip()
+    return text
+
+
+def parse_step_keys(chunk: str) -> dict[str, str]:
+    """Return the step's own keys. Folded and literal ``run`` values are decoded."""
+    lines = chunk.splitlines()
+    if not lines:
+        return {}
+    dashed = re.match(r"^(\s*)-\s+(.*)$", lines[0])
+    if not dashed:
+        return {}
+    key_indent = len(dashed.group(1)) + 2
+    logical: list[tuple[int | None, str]] = [(key_indent, dashed.group(2))]
+    for line in lines[1:]:
+        if line.strip() == "":
+            logical.append((None, ""))
+        else:
+            logical.append((len(line) - len(line.lstrip(" ")), line))
+    keys: dict[str, str] = {}
+    index = 0
+    while index < len(logical):
+        indent, raw = logical[index]
+        if indent != key_indent:
+            index += 1
+            continue
+        matched = _KEY_LINE.match(raw.strip())
+        if not matched:
+            index += 1
+            continue
+        key = matched.group(1)
+        rest = matched.group(2).strip()
+        index += 1
+        block: list[str] = []
+        if rest == "" or _BLOCK_MARK.match(rest):
+            while index < len(logical):
+                nxt_indent, nxt_raw = logical[index]
+                if nxt_indent is None or nxt_indent > key_indent:
+                    block.append(nxt_raw)
+                    index += 1
+                    continue
+                break
+        if _BLOCK_MARK.match(rest):
+            keys[key] = decode_block(rest, block)
+        elif rest == "":
+            keys[key] = "\n".join(block)
+        else:
+            keys[key] = rest
+    return keys
+
+
 def step_scalar(chunk: str, key: str) -> str | None:
-    """Return a single-line ``key:`` value from one step chunk."""
-    for line in chunk.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- "):
-            stripped = stripped[2:].strip()
-        prefix = key + ":"
-        if stripped.startswith(prefix):
-            return stripped[len(prefix):].strip()
-    return None
+    """Return one step key, including a decoded block or folded scalar."""
+    return parse_step_keys(chunk).get(key)
 
 
 def step_runs_pip(chunk: str) -> bool:
     run = step_scalar(chunk, "run") or ""
     return bool(re.search(r"(^|[^\w])pip([^\w]|$)", run))
+
+
+def guard_step_is_enforcing(chunk: str) -> bool:
+    """A guard counts only when its command is exact and the step cannot skip it."""
+    keys = parse_step_keys(chunk)
+    if any(key in keys for key in _GUARD_DISABLERS):
+        return False
+    run = keys.get("run")
+    if run != EXPECTED_GUARD_RUN:
+        return False
+    code = python_c_source(run)
+    return bool(code and guard_accepts_only_python_312(code))
 
 
 def python_c_source(run: str) -> str | None:
@@ -237,27 +344,23 @@ def guard_accepts_only_python_312(code: str) -> bool:
 
 
 def python_312_guard_before_pip(text: str) -> bool:
-    """The extracted guard command runs before pip and accepts only Python 3.12."""
-    steps = split_job_steps(text)
-    pip_at = next((index for index, step in enumerate(steps) if step_runs_pip(step)), None)
-    if pip_at is None:
-        return False
-    found = False
-    for step in steps[:pip_at]:
-        run = step_scalar(step, "run")
-        if not run:
+    """Every job that runs pip has an unmodified 3.12 guard before that pip step."""
+    saw_pip = False
+    for steps in iter_job_step_blocks(text):
+        pip_indexes = [index for index, step in enumerate(steps) if step_runs_pip(step)]
+        if not pip_indexes:
             continue
-        code = python_c_source(run)
-        if code and guard_accepts_only_python_312(code):
-            if run != EXPECTED_GUARD_RUN:
-                return False
-            found = True
-    return found
+        saw_pip = True
+        if not any(guard_step_is_enforcing(step) for step in steps[:pip_indexes[0]]):
+            return False
+    return saw_pip
 
 
 def permissions_are_contents_read_only(text: str) -> bool:
-    """Every permissions block is ``contents: read``, and the trigger is not ``pull_request_target``."""
+    """Permissions stay ``contents: read``. ``pull_request_target`` and ``workflow_run`` are rejected."""
     if re.search(r"(?m)^[ \t]*pull_request_target\s*:", text):
+        return False
+    if re.search(r"(?m)^[ \t]*workflow_run\s*:", text):
         return False
     if "write-all" in text:
         return False
@@ -470,6 +573,62 @@ class LsaWorkflowPinTests(unittest.TestCase):
             "python -c \"import sys; raise SystemExit(1)\""
         )))
 
+    def test_guard_step_rejects_skip_and_custom_shell(self):
+        steps = split_job_steps(self.text)
+        guard = next(step for step in steps if step_scalar(step, "run") == EXPECTED_GUARD_RUN)
+        keys = parse_step_keys(guard)
+        self.assertNotIn("if", keys)
+        self.assertNotIn("continue-on-error", keys)
+        self.assertNotIn("shell", keys)
+        self.assertTrue(guard_step_is_enforcing(guard))
+
+        def with_key(line: str) -> str:
+            addition = "        " + line + "\n"
+            updated = guard if guard.endswith("\n") else guard + "\n"
+            return self.text.replace(guard, updated + addition, 1)
+
+        self.assertFalse(python_312_guard_before_pip(with_key("continue-on-error: true")))
+        self.assertFalse(python_312_guard_before_pip(with_key("if: false")))
+        self.assertFalse(python_312_guard_before_pip(with_key("if: ${{ false }}")))
+        self.assertFalse(python_312_guard_before_pip(
+            with_key('shell: bash --noprofile --norc -c "true"')
+        ))
+        self.assertFalse(python_312_guard_before_pip(
+            with_key("shell: bash --noprofile --norc {0} || true")
+        ))
+
+    def test_folded_pip_and_a_second_job_fail_the_guard(self):
+        folded = (
+            "      - name: Early unguarded pip\n"
+            "        run: |\n"
+            "          python -m pip \\\n"
+            "            install pypdf\n"
+        )
+        folded_flow = (
+            "      - name: Early unguarded pip\n"
+            "        run: >\n"
+            "          python -m pip \\\n"
+            "            install pypdf\n"
+        )
+        self.assertTrue(step_runs_pip(folded))
+        self.assertTrue(step_runs_pip(folded_flow))
+        self.assertNotIn("pip install", folded)
+        guard_header = "      - name: Require Python 3.12 for the hashed pypdf lock\n"
+        self.assertFalse(python_312_guard_before_pip(self.text.replace(guard_header, folded + guard_header, 1)))
+        self.assertFalse(python_312_guard_before_pip(self.text.replace(guard_header, folded_flow + guard_header, 1)))
+        second_job = (
+            "\n"
+            "  other:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - name: Unguarded install\n"
+            "        run: |\n"
+            "          python -m pip \\\n"
+            "            install pypdf\n"
+        )
+        self.assertFalse(python_312_guard_before_pip(self.text.rstrip() + second_job))
+        self.assertEqual(len(iter_job_step_blocks(self.text.rstrip() + second_job)), 2)
+
     def test_pdf_reader_uses_the_page_tree_limits(self):
         self.assertEqual(MAX_PDF_PAGES, 299)
         self.assertEqual(MAX_PDF_PAGE_DICTIONARY_ENTRIES, 1024)
@@ -586,6 +745,7 @@ class AllWorkflowPinTests(unittest.TestCase):
             self.assertNotIn("contents: write", text, path.name)
             self.assertNotIn("write-all", text, path.name)
             self.assertNotIn("pull_request_target", text, path.name)
+            self.assertNotIn("workflow_run", text, path.name)
             self.assertIsNone(re.search(r"@[vV]\d+", text), path.name)
 
     def test_extra_permission_and_wrong_sha_are_rejected(self):
@@ -629,8 +789,21 @@ class AllWorkflowPinTests(unittest.TestCase):
         self.assertFalse(permissions_are_contents_read_only(job_write))
         targeted = "on:\n  pull_request_target:\n" + pinned
         self.assertFalse(permissions_are_contents_read_only(targeted))
-        self.assertIn("pull_request:", (WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
-        self.assertTrue(permissions_are_contents_read_only((WORKFLOWS / "ci.yml").read_text(encoding="utf-8")))
+        workflow_run = "on:\n  workflow_run:\n" + pinned
+        self.assertFalse(permissions_are_contents_read_only(workflow_run))
+        ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        lsa = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pull_request:", ci)
+        self.assertNotIn("workflow_run:", ci)
+        self.assertNotIn("workflow_run:", lsa)
+        self.assertTrue(permissions_are_contents_read_only(ci))
+        self.assertTrue(permissions_are_contents_read_only(lsa))
+        self.assertFalse(permissions_are_contents_read_only(
+            ci.replace("  pull_request:\n", "  pull_request:\n  workflow_run:\n", 1)
+        ))
+        self.assertFalse(permissions_are_contents_read_only(
+            lsa.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  workflow_run:\n", 1)
+        ))
         dropped = pinned.replace(
             f"      {CHECKOUT_LINE}\n",
             f"      {CHECKOUT_LINE}\n        with:\n          persist-credentials: false\n",
