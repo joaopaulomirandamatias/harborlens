@@ -9,9 +9,15 @@ jobs:
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+      # .github/requirements/lsa-workflow.txt is valid only for Python 3.12.
+      # pypdf 7.1.1 needs typing_extensions on Python < 3.11, and that lock does not pin it.
+      - name: Require Python 3.12 for the hashed pypdf lock
+        run: python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 'lsa-workflow.txt is valid only for Python 3.12')"
       - name: Install PDF text reader
         run: python -m pip install --require-hashes -r .github/requirements/lsa-workflow.txt
       - name: Download official GovInfo December 2023 LSA PDF
@@ -45,43 +51,47 @@ jobs:
           python - <<'PY'
           import hashlib,io,json,os,re
           from pathlib import Path
-          from pypdf import PdfReader
+          from pypdf import PdfReader, apply_configuration
+
+          def inspect(raw, url):
+              document=PdfReader(io.BytesIO(raw),strict=True)
+              assert 10<len(document.pages)<300
+              pages=[]
+              for idx,page in enumerate(document.pages):
+                  extracted=page.extract_text() or ''
+                  pages.append(extracted)
+              alltext='\n'.join(pages)
+              starts=[(idx, re.search(r'TITLE\s*33\s*[-—_]?\s*NAVIGATION',txt,re.I))
+                      for idx,txt in enumerate(pages)]
+              found=[i for i,match in starts if match is not None]
+              assert found,'TITLE 33 start not found in official LSA PDF'
+              title_start=found[0]
+              end_candidates=[i for i in range(title_start,len(pages))
+                    if re.search(r'TITLE\s*34\s*[-—_]?\s*EDUCATION',pages[i],re.I)]
+              assert end_candidates,'TITLE 34 boundary not found'
+              title_end=end_candidates[0]
+              title_text='\n'.join(pages[title_start:title_end])
+              assert title_start<title_end and len(title_text)>300
+              direct=re.findall(r'(?<!\d)110\s*\.\s*197(?!\d)',title_text)
+              nearby=[line.strip()[:220] for line in title_text.splitlines()
+                      if re.match(r'^\s*110(?:\.\d+)?(?:\s|\.{2,})',line)][:20]
+              return {
+                  'official_source':url,
+                  'official_pdf_sha256':hashlib.sha256(raw).hexdigest(),
+                  'pdf_pages':len(pages),
+                  'title33_page_range_zero_based':[title_start,title_end-1],
+                  'title33_extracted_text_sha256':hashlib.sha256(title_text.encode()).hexdigest(),
+                  'target_110_197_direct_text_occurrences':len(direct),
+                  'title33_110_entry_samples':nearby,
+                  'lsa_scope':'July 3 to December 29, 2023 (annual July CFR refresh)',
+                  'full_legal_effect_review_complete':False,
+                  'legal_status_for_2024_01_02':'NOT_DETERMINED',
+                  'authorized_ais_joins':0
+              }
 
           url='https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf'
           raw=Path(os.environ['RUNNER_TEMP'],'LSA-2023-12.pdf').read_bytes()
-          document=PdfReader(io.BytesIO(raw),strict=True)
-          assert 10<len(document.pages)<300
-          pages=[]
-          for idx,page in enumerate(document.pages):
-              extracted=page.extract_text() or ''
-              pages.append(extracted)
-          alltext='\n'.join(pages)
-          starts=[(idx, re.search(r'TITLE\s*33\s*[-—_]?\s*NAVIGATION',txt,re.I))
-                  for idx,txt in enumerate(pages)]
-          found=[i for i,match in starts if match is not None]
-          assert found,'TITLE 33 start not found in official LSA PDF'
-          title_start=found[0]
-          end_candidates=[i for i in range(title_start,len(pages))
-                if re.search(r'TITLE\s*34\s*[-—_]?\s*EDUCATION',pages[i],re.I)]
-          assert end_candidates,'TITLE 34 boundary not found'
-          title_end=end_candidates[0]
-          title_text='\n'.join(pages[title_start:title_end])
-          assert title_start<title_end and len(title_text)>300
-          direct=re.findall(r'(?<!\d)110\s*\.\s*197(?!\d)',title_text)
-          nearby=[line.strip()[:220] for line in title_text.splitlines()
-                  if re.match(r'^\s*110(?:\.\d+)?(?:\s|\.{2,})',line)][:20]
-          result={
-              'official_source':url,
-              'official_pdf_sha256':hashlib.sha256(raw).hexdigest(),
-              'pdf_pages':len(pages),
-              'title33_page_range_zero_based':[title_start,title_end-1],
-              'title33_extracted_text_sha256':hashlib.sha256(title_text.encode()).hexdigest(),
-              'target_110_197_direct_text_occurrences':len(direct),
-              'title33_110_entry_samples':nearby,
-              'lsa_scope':'July 3 to December 29, 2023 (annual July CFR refresh)',
-              'full_legal_effect_review_complete':False,
-              'legal_status_for_2024_01_02':'NOT_DETERMINED',
-              'authorized_ais_joins':0
-          }
+          with apply_configuration(page_tree_maximum_entries=299, page_tree_maximum_page_entries=1024):
+              result=inspect(raw, url)
           print(json.dumps(result,indent=2))
           PY
