@@ -105,5 +105,6 @@
 ## Shared CSV formula hygiene
 
 - [x] Move neutralization into `src/harborlens/csv_safe.py`. Triggers include fullwidth forms and U+FEFF / U+200B before a trigger. The writer matches `^'*<ignorable>*<trigger>`. The reader removes exactly one apostrophe only for `^'+<ignorable>*<trigger>`. The previously accepted ambiguity is resolved. Package `0.2.0.dev17`. Refs #90 (stays open). Refs #85 (stays open).
+- [x] Replace the runtime whitespace test with the fixed frozenset `IGNORABLE`, including U+200C, U+200D, U+200E, U+200F, U+2060–U+2064, U+206A–U+206F, U+00AD, and U+180E before a trigger. The apostrophe rule stays symmetric. A Cf character that is neither ignorable nor named in the test's `EXCLUDED_CF` map fails. Package `0.2.0.dev19`. Evidence: `tests/test_csv_safe.py`. Refs #90 (stays open). Refs #85 (stays open).
 - [x] Apply the neutralizer to cleaned AIS text cells and stationary-candidate CSV text cells. Leave numeric columns, contract identifiers, `source_files_json`, and GeoJSON unprefixed. The release recount uses the reader and still counts raw MMSI values. `harborlens-verify-release` does not open the CSV.
 - [x] Tell annotators to import the sheet as text and re-validate it. A contract cell that comes back as a trigger without the apostrophe, and that fails its contract, exits 2 with no output.
