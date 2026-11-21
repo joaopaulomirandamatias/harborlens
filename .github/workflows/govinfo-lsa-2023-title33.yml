@@ -8,23 +8,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install PDF text reader
-        run: python -m pip install 'pypdf>=7.1.1,<8'
+        run: python -m pip install --require-hashes -r .github/requirements/lsa-workflow.txt
+      - name: Download official GovInfo December 2023 LSA PDF
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          url = 'https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf'
+          with urlopen(Request(url, headers={'User-Agent': 'HarborLens-open-research/0.1'}), timeout=60) as response:
+              raw = response.read(9 * 1048576 + 1)
+          assert 0 < len(raw) <= 9 * 1048576 and raw.startswith(b'%PDF-'), 'Missing or oversized official PDF'
+          Path(os.environ['RUNNER_TEMP'], 'LSA-2023-12.pdf').write_bytes(raw)
+          PY
+      - name: Check December 2023 LSA PDF SHA-256
+        run: |
+          python - <<'PY'
+          import hashlib, hmac, os, sys
+          from pathlib import Path
+          # Recorded December 2023 pin from
+          # docs/data/govinfo-lsa-2023-title33-source-smoke.md and
+          # src/harborlens/lsa_compare.py PINNED_LSA_PDFS['2023-12'].
+          pinned = 'c226121a7617f1b4578a0fcf79f58d4735696e0405c5522615699bdb5bab037d'
+          raw = Path(os.environ['RUNNER_TEMP'], 'LSA-2023-12.pdf').read_bytes()
+          digest = hashlib.sha256(raw).hexdigest()
+          if not hmac.compare_digest(digest, pinned):
+              sys.exit('Official PDF SHA-256 does not match the pinned December 2023 value')
+          PY
       - name: Inspect bounded official GovInfo December 2023 LSA PDF
         run: |
           python - <<'PY'
-          import hashlib,io,json,re
-          from urllib.request import Request,urlopen
+          import hashlib,io,json,os,re
+          from pathlib import Path
           from pypdf import PdfReader
 
           url='https://www.govinfo.gov/content/pkg/LSA-2023-12/pdf/LSA-2023-12.pdf'
-          with urlopen(Request(url,headers={'User-Agent':'HarborLens-open-research/0.1'}),timeout=60) as response:
-              raw=response.read(9*1048576+1)
-          assert 0<len(raw)<=9*1048576 and raw.startswith(b'%PDF-'), 'Missing or oversized official PDF'
+          raw=Path(os.environ['RUNNER_TEMP'],'LSA-2023-12.pdf').read_bytes()
           document=PdfReader(io.BytesIO(raw),strict=True)
           assert 10<len(document.pages)<300
           pages=[]
