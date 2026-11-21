@@ -124,7 +124,11 @@ def python_312_lock_is_explicit(workflow: str, requirements: str) -> bool:
 
 _KEY_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*:(.*)$")
 _BLOCK_MARK = re.compile(r"^([|>])([+-]?)(\d+)?$")
+# Any of these keys means the step is not a guard. `if: always()` and
+# `continue-on-error: false` are included on purpose: a step that can be
+# skipped, or whose failure can be ignored, does not enforce the pin.
 _GUARD_DISABLERS = ("if", "continue-on-error", "shell")
+_SECRET_REFERENCE = re.compile(r"secrets\s*\.|GITHUB_TOKEN")
 
 
 def _read_steps(lines: list[str], start: int, base: int) -> tuple[list[str], int]:
@@ -277,8 +281,33 @@ def step_runs_pip(chunk: str) -> bool:
     return bool(re.search(r"(^|[^\w])pip([^\w]|$)", run))
 
 
+def workflow_references_a_secret(text: str) -> bool:
+    """True when the workflow text names ``secrets.*`` or ``GITHUB_TOKEN``."""
+    return _SECRET_REFERENCE.search(text) is not None
+
+
+def pypdf_7_1_1_hashes_are_bound(text: str) -> bool:
+    """The active pin is ``pypdf==7.1.1`` and those two hashes belong to it.
+
+    A comment that still says ``pypdf==7.1.1`` does not count. Changing the
+    requirement line to another version and leaving the hashes in place fails.
+    """
+    active = active_requirement_lines(text)
+    if active != list(PYPDF_REQUIREMENT_LINES):
+        return False
+    version_lines = [line for line in active if line.lstrip().startswith("pypdf==")]
+    if version_lines != ["pypdf==7.1.1 \\"]:
+        return False
+    hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", "\n".join(active))
+    return hashes == list(PYPDF_7_1_1_HASHES)
+
+
 def guard_step_is_enforcing(chunk: str) -> bool:
-    """A guard counts only when its command is exact and the step cannot skip it."""
+    """A guard counts only when its command is exact and the step cannot skip it.
+
+    Rejecting every ``if:`` and every ``continue-on-error:`` key is
+    intentional, including ``if: always()`` and ``continue-on-error: false``.
+    """
     keys = parse_step_keys(chunk)
     if any(key in keys for key in _GUARD_DISABLERS):
         return False
@@ -481,6 +510,7 @@ class LsaWorkflowPinTests(unittest.TestCase):
         self.assertEqual(active_lines, list(PYPDF_REQUIREMENT_LINES))
         hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", requirements)
         self.assertEqual(hashes, list(PYPDF_7_1_1_HASHES))
+        self.assertTrue(pypdf_7_1_1_hashes_are_bound(requirements))
         for line in active_lines:
             if line.lstrip().startswith("--hash="):
                 self.assertRegex(line, HASH_LINE)
@@ -500,6 +530,15 @@ class LsaWorkflowPinTests(unittest.TestCase):
             self.assertIsNone(HASH_LINE.fullmatch(line), line)
         self.assertIsNotNone(HASH_LINE.fullmatch(PYPDF_REQUIREMENT_LINES[2]))
         self.assertIsNotNone(HASH_LINE.fullmatch(PYPDF_REQUIREMENT_LINES[3]))
+        requirements = REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertTrue(pypdf_7_1_1_hashes_are_bound(requirements))
+        bumped = requirements.replace("pypdf==7.1.1 \\", "pypdf==7.1.2 \\", 1)
+        self.assertIn("pypdf==7.1.1", bumped)
+        self.assertNotIn("pypdf==7.1.2 \\", requirements)
+        self.assertFalse(pypdf_7_1_1_hashes_are_bound(bumped))
+        flipped = requirements.replace(PYPDF_7_1_1_HASHES[0], "ab" * 32, 1)
+        self.assertIn("pypdf==7.1.1 \\", flipped)
+        self.assertFalse(pypdf_7_1_1_hashes_are_bound(flipped))
 
     def test_lock_file_is_valid_only_for_python_312(self):
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
@@ -750,7 +789,24 @@ class AllWorkflowPinTests(unittest.TestCase):
             self.assertNotIn("write-all", text, path.name)
             self.assertNotIn("pull_request_target", text, path.name)
             self.assertNotIn("workflow_run", text, path.name)
+            self.assertFalse(workflow_references_a_secret(text), path.name)
             self.assertIsNone(re.search(r"@[vV]\d+", text), path.name)
+
+    def test_secrets_and_github_token_are_rejected(self):
+        ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        lsa = WORKFLOW.read_text(encoding="utf-8")
+        self.assertFalse(workflow_references_a_secret(ci))
+        self.assertFalse(workflow_references_a_secret(lsa))
+        self.assertFalse(workflow_references_a_secret("permissions:\n  contents: read\n"))
+        secret = ci.replace(
+            "permissions:\n  contents: read\n",
+            "permissions:\n  contents: read\n\nenv:\n  TOKEN: ${{ secrets.FOO }}\n",
+            1,
+        )
+        self.assertTrue(workflow_references_a_secret(secret))
+        self.assertTrue(workflow_references_a_secret("TOKEN: ${{ secrets.GITHUB_TOKEN }}\n"))
+        self.assertTrue(workflow_references_a_secret("env:\n  GH_TOKEN: ${GITHUB_TOKEN}\n"))
+        self.assertTrue(workflow_references_a_secret(lsa + "\n  TOKEN: ${{ secrets.BAR }}\n"))
 
     def test_extra_permission_and_wrong_sha_are_rejected(self):
         pinned = (

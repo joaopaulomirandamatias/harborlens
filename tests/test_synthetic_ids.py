@@ -60,13 +60,21 @@ Exclusions are file-exact or context-based. Each one has a written reason.
   pins are a review check. They are not a tamper-proof seal. Every value
   is ``1990xxxxx``.
 
+An underscored numeric literal whose collapsed digits are longer than nine
+is every nine-digit window, so a PEP 515 grouping can be a hit even when
+the same digits with no underscore are one long run and are not a token.
+Write that constant without underscores. The test builds one example from
+the parts ``3``, ``_600``, ``_000``, and ``_000``.
+
 Known limits, written down so they are not silent. A Python ``0o`` or
 ``0x`` literal, ``chr()``, ``int()`` built from pieces, adjacent string
 literals, and base64 are not decoded. A hyphen, space, comma, dot,
 apostrophe, or NBSP inside the nine digits is not a separator. A
 hexadecimal run of exactly 64 characters, including nine digits at either
 edge, stays a SHA-256 trade-off. The scan reads file contents. A tracked
-file name is not a token.
+file name is not a token. Unicode 16 decimal-digit blocks are covered when
+the running interpreter classifies them as Nd. The Python 3.14 CI job runs
+that check. An older Unicode does not treat those code points as digits.
 
 The byte-identity proof starts from the dev9 goldens, applies
 ``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
@@ -145,6 +153,8 @@ def _digit_splitters():
         "\u2800"  # braille pattern blank
     )
     characters.update(_code_points(0xFE00, 0xFE0F))  # variation selectors
+    characters.update(_code_points(0xFE20, 0xFE2F))  # combining half marks
+    characters.update(_code_points(0xFFF9, 0xFFFB))  # interlinear annotation
     characters.update(_code_points(0xE0100, 0xE01EF))  # variation selectors supplement
     characters.update(_code_points(0xE0000, 0xE007F))  # tag characters
     return frozenset(characters)
@@ -2293,6 +2303,38 @@ class DeferredGuardTests(unittest.TestCase):
         self.assertEqual(text_hits("29." + "12_" + grouped), [])
         self.assertIn(planted, text_hits("id." + "12_" + grouped))
 
+    def test_underscored_numeric_literal_windows_are_hits(self):
+        """A PEP 515 literal longer than nine digits is every nine-digit window.
+
+        The parts join to an underscored literal. That text is not written
+        as one literal here, because this file is scanned too. The same
+        digits with no underscore are one run longer than nine and are not
+        a token. A grouping whose windows are outside 201-775 is not a hit.
+        """
+        literal = "3" + "_600" + "_000" + "_000"
+        plain = "3" + "600" + "000" + "000"
+        hits = text_hits(literal)
+        self.assertIn("360" + "000000", hits)
+        self.assertIn("600" + "000000", hits)
+        self.assertEqual(text_hits(plain), [])
+        seconds = "86" + "_400" + "_000" + "_000"
+        second_hits = text_hits(seconds)
+        self.assertIn("640" + "000000", second_hits)
+        self.assertIn("400" + "000000", second_hits)
+        self.assertEqual(text_hits("86" + "400" + "000" + "000"), [])
+        self.assertEqual(text_hits("8" + "_000" + "_000" + "_000"), [])
+
+    def test_half_marks_and_annotation_controls_are_splitters(self):
+        planted = "366" + "123456"
+        allowed = "199" + "080001"
+        short = "366" + "12345"
+        for code in (0xFE20, 0xFE27, 0xFE2F, 0xFFF9, 0xFFFA, 0xFFFB):
+            mark = chr(code)
+            self.assertIn(mark, DIGIT_SPLITTERS, hex(code))
+            self.assertEqual(text_hits(planted[:4] + mark + planted[4:]), [planted], hex(code))
+            self.assertEqual(text_hits(allowed[:4] + mark + allowed[4:]), [], hex(code))
+            self.assertEqual(text_hits(short[:4] + mark + short[4:]), [], hex(code))
+
     def test_combining_marks_between_or_after_digits_do_not_hide_an_identifier(self):
         planted = "366" + "123456"
         allowed = "199" + "080001"
@@ -2333,6 +2375,41 @@ class DeferredGuardTests(unittest.TestCase):
         expected = prefix + str(value)
         self.assertIn(expected, text_hits(prefix + character))
         self.assertEqual(_decimal_digit(character), str(value))
+
+    def test_unicode_16_digit_block_starts_are_covered_when_nd(self):
+        """Unicode 16 digit-block starts use the decimal fallback when Nd.
+
+        Python 3.14 (Unicode 16) classifies each start as Nd. The 3.14 CI
+        job runs this test and ``test_every_nd_code_point_maps_or_falls_back``,
+        which walks every Nd of that interpreter. An older Unicode does not
+        treat these code points as digits, and ``\\d`` does not either.
+        """
+        blocks = (
+            (0x10D40, "Garay"),
+            (0x116D0, "Myanmar Pao"),
+            (0x116DA, "Myanmar Eastern Pwo Karen"),
+            (0x11BF0, "Sunuwar"),
+            (0x16130, "Gurung Khema"),
+            (0x16D70, "Kirat Rai"),
+            (0x1CCF0, "Outlined digits"),
+            (0x1E5F1, "Ol Onal"),
+        )
+        covered = []
+        prefix = "366" + "12345"
+        for zero, name in blocks:
+            character = chr(zero)
+            if unicodedata.category(character) != "Nd":
+                self.assertIsNone(_decimal_digit(character), name)
+                continue
+            value = _decimal_digit(character)
+            self.assertEqual(value, "0", name)
+            self.assertIn(prefix + value, text_hits(prefix + character), name)
+            covered.append(name)
+        major = int(unicodedata.unidata_version.split(".", 1)[0])
+        if major >= 16:
+            self.assertEqual(covered, [name for _, name in blocks])
+        else:
+            self.assertEqual(covered, [])
 
     def test_nd_digit_without_a_decimal_value_is_still_a_hit(self):
         character = "\u0666"
