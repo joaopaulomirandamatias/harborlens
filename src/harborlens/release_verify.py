@@ -84,7 +84,9 @@ def _read_release(path):
             raw = stream.read(MAX_RELEASE_BYTES + 1)
         if len(raw) > MAX_RELEASE_BYTES:
             raise ReleaseVerificationError("Release exceeds bounded size")
-        text = raw.decode("utf-8")
+        # ``utf-8-sig`` strips a leading UTF-8 BOM, matching ``json.loads``
+        # on the original bytes. The depth check then sees that text.
+        text = raw.decode("utf-8-sig")
         if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
             raise ReleaseVerificationError("Release is unreadable or malformed")
         document = json.loads(

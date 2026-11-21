@@ -78,7 +78,9 @@ def _read_json(opener, url):
         if len(raw)>MAX_BYTES:
             raise PolygonSourceError("NOAA source response exceeds byte cap")
     try:
-        text=raw.decode("utf-8")
+        # ``utf-8-sig`` strips a leading UTF-8 BOM, matching ``json.loads``
+        # on the original bytes. The depth check then sees that text.
+        text=raw.decode("utf-8-sig")
     except UnicodeError as exc:
         raise PolygonSourceError("NOAA service returned non-JSON data") from exc
     if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:

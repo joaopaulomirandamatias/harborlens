@@ -33,9 +33,12 @@ def _load(path):
     if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
         raise ZoneContextError("Invalid GeoJSON document")
     try:
-        return json.loads(text)
+        document = json.loads(text)
     except (ValueError, RecursionError) as exc:
         raise ZoneContextError("Invalid GeoJSON document") from exc
+    if not isinstance(document, dict):
+        raise ZoneContextError("Invalid GeoJSON document")
+    return document
 
 
 def _digest(path):
