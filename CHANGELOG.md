@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-001: synthetic-ID guard Unicode 16 and scan time)
+- Package version stays `0.2.0.dev23`. Cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev15`: `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75`, `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05`, `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3`. `run_id` does not change because of this slice.
+- A decimal digit that is Nd on the running interpreter and is missing from `UNICODE_DIGIT_ZERO` uses `unicodedata.decimal`. U+10D46 is that path when the interpreter knows it, and the test skips when it does not. An Nd digit with no decimal value is still a hit. The suite checks every Nd code point of the running interpreter.
+- An underscore-joined run longer than nine digits is tested as every nine-digit window, so a leading digit group before an underscore-grouped identifier is a hit. A plain run of ten or more digits, with no underscore, is still not a token.
+- U+0301, U+20E3, U+17B4, U+17B5, and U+1D173 are splitters. A combining mark between or after digits does not hide an identifier.
+- `\N{name}`, octal `\ooo`, and HTML `&#NN;` / `&#xNN;` are decoded when the character is a digit, a splitter, or U+005F.
+- Planted-byte tests decode that file only. The tracked-tree scan stays on the repository test and the coverage test.
+- Known limits: a Python `0o` or `0x` literal, `chr()`, `int()` built from pieces, adjacent string literals, and base64 are not decoded. A hyphen, space, comma, dot, apostrophe, or NBSP inside the nine digits is not a separator. A hexadecimal run of exactly 64 characters, including nine digits at either edge, stays a SHA-256 trade-off. File names are not scanned.
+- No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #88 (stays open). Refs #84 (stays open).
+
 ### Changed (SPEC-001: synthetic-ID guard review fixes)
 - Package version stays `0.2.0.dev23`. This slice is still the guard and its documents. Cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev15`: `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75`, `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05`, `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3`. `run_id` does not change because of this slice.
 - Hits are the multiset union of the raw text and the normalized text. A dated name such as `track_2024_` plus an assigned MID, or an identifier followed by `_1`, stays a hit. Normalization no longer hides an identifier that the raw text already shows.

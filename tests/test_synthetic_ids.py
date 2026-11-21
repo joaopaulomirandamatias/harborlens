@@ -60,6 +60,14 @@ Exclusions are file-exact or context-based. Each one has a written reason.
   pins are a review check. They are not a tamper-proof seal. Every value
   is ``1990xxxxx``.
 
+Known limits, written down so they are not silent. A Python ``0o`` or
+``0x`` literal, ``chr()``, ``int()`` built from pieces, adjacent string
+literals, and base64 are not decoded. A hyphen, space, comma, dot,
+apostrophe, or NBSP inside the nine digits is not a separator. A
+hexadecimal run of exactly 64 characters, including nine digits at either
+edge, stays a SHA-256 trade-off. The scan reads file contents. A tracked
+file name is not a token.
+
 The byte-identity proof starts from the dev9 goldens, applies
 ``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
 ``hashlib``. It does not call the pipeline. ``mmsi_category`` changes from
@@ -75,6 +83,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -112,8 +121,8 @@ def _code_points(start, end):
 
 
 # Invisible characters removed wherever they sit. The csv_safe format
-# characters, plus the extra code points named below. Membership is a table
-# lookup. Do not call ``unicodedata.category``.
+# characters, plus the extra code points named below. The set itself is
+# fixed. ``unicodedata`` is not used to build it.
 def _digit_splitters():
     characters = set(
         "\ufeff\u200b\u200c\u200d\u200e\u200f"
@@ -124,6 +133,11 @@ def _digit_splitters():
         "\u202a\u202b\u202c\u202d\u202e"
         "\u2066\u2067\u2068\u2069"
         "\u034f"  # combining grapheme joiner
+        "\u0301"  # combining acute accent
+        "\u20e3"  # combining enclosing keycap
+        "\u17b4"  # Khmer vowel inherent AQ
+        "\u17b5"  # Khmer vowel inherent AA
+        "\U0001d173"  # musical symbol begin beam
         "\u180b\u180c\u180d"  # Mongolian free variation selectors
         "\u115f\u1160"  # Hangul choseong and jungseong fillers
         "\u3164"  # Hangul filler
@@ -137,9 +151,10 @@ def _digit_splitters():
 
 
 DIGIT_SPLITTERS = _digit_splitters()
-# First code point of each ten-digit decimal block, excluding ASCII.
-# The guard translates these to ASCII digits. It does not call
-# ``unicodedata``.
+# First code point of each ten-digit decimal block known when this table
+# was written, excluding ASCII. A decimal digit that a newer Unicode
+# assigns and that is missing here uses ``unicodedata.decimal``.
+# An Nd character with no decimal value is still a hit.
 UNICODE_DIGIT_ZERO = (
     0x0660,  # Arabic-Indic
     0x06F0,  # Extended Arabic-Indic
@@ -230,6 +245,14 @@ _ESCAPE_CODEPOINTS = (
 CODE_ESCAPE = re.compile(
     r"\\(?:U([0-9a-fA-F]{8})|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))"
 )
+NAME_ESCAPE = re.compile(r"\\N\{([^}]*)\}")
+OCTAL_ESCAPE = re.compile(r"\\([0-7]{1,3})")
+HTML_ESCAPE = re.compile(r"&#([xX][0-9A-Fa-f]{1,6}|[0-9]{1,7});")
+# An Nd digit whose value cannot be read. The token is still a hit.
+UNMAPPED_DIGIT = "unmapped-digit"
+# Digits joined by a single underscore. A longer collapsed run is scanned
+# as every nine-digit window. A plain digit run with no underscore is not.
+UNDERSCORE_RUN = re.compile(r"(?<!\d)(\d+(?:_\d+)+)(?!\d)")
 # Space and tab. A newline, CR, vertical tab, and form feed are not included.
 MMAP_HORIZONTAL_SPACE = frozenset(" \t")
 UTF32_LE_BOM = b"\xff\xfe\x00\x00"
@@ -410,67 +433,171 @@ def json_mmsi_hits(text):
     return hits
 
 
-def _ascii_token(token):
-    """ASCII digits for a token, or None when a character is not in the map."""
+def _decimal_digit(character):
+    """ASCII digit for one character, or None when it is not a decimal digit.
+
+    The fixed table wins. A decimal digit missing from that table uses
+    ``unicodedata.decimal``. ``UNMAPPED_DIGIT`` means the character is Nd
+    and that call failed: the token must still be a hit.
+    """
+    if character in ASCII_DIGITS:
+        return character
+    mapped = UNICODE_DIGIT_TO_ASCII.get(character)
+    if mapped is not None:
+        return mapped
+    if unicodedata.category(character) != "Nd":
+        return None
+    try:
+        return str(unicodedata.decimal(character))
+    except (ValueError, TypeError):
+        return UNMAPPED_DIGIT
+
+
+def _classify_digits(token):
+    """ASCII digits, ``UNMAPPED_DIGIT``, or None when a character is not a digit."""
     chars = []
     for character in token:
-        if character in ASCII_DIGITS:
-            chars.append(character)
-        elif character in UNICODE_DIGIT_TO_ASCII:
-            chars.append(UNICODE_DIGIT_TO_ASCII[character])
-        else:
+        value = _decimal_digit(character)
+        if value is None:
             return None
+        if value is UNMAPPED_DIGIT:
+            return UNMAPPED_DIGIT
+        chars.append(value)
     return "".join(chars)
 
 
 def _translate_unicode_digits(text):
-    if any(character in UNICODE_DIGIT_TO_ASCII for character in text):
-        return "".join(UNICODE_DIGIT_TO_ASCII.get(character, character) for character in text)
-    return text
+    if text.isascii():
+        return text
+    chars = []
+    for character in text:
+        value = _decimal_digit(character)
+        if value is None or value is UNMAPPED_DIGIT:
+            chars.append(character)
+        else:
+            chars.append(value)
+    return "".join(chars)
 
 
-def normalize_identifier_text(text):
-    """Collapse the fixed obfuscations, then return the text to scan.
+def _replacement_for(character):
+    """Decoded character when it is a digit, a splitter, or U+005F."""
+    if character in _ESCAPE_CODEPOINTS:
+        return character
+    value = _decimal_digit(character)
+    if value is None or value is UNMAPPED_DIGIT:
+        return None
+    return value
 
-    ``\\U`` (eight hex digits), ``\\u`` (four), and ``\\x`` (two) are decoded
-    only when the code point is an ASCII digit, a Unicode digit in
-    ``UNICODE_DIGIT_TO_ASCII``, a member of ``DIGIT_SPLITTERS``, or U+005F.
-    ``\\N`` and octal escapes stay as written. Splitter characters are then
-    removed. Unicode digits become ASCII digits. U+005F is removed only when
-    both neighbors are ASCII digits. A consecutive underscore, U+FF3F, and a
-    space stay in place.
+
+def _decode_identifier_escapes(text):
+    """Decode the fixed escape forms that can hide a digit.
+
+    ``\\U``, ``\\u``, ``\\x``, ``\\N{name}``, octal ``\\ooo``, and HTML
+    ``&#NN;`` / ``&#xNN;`` are replaced only for a digit, a splitter, or
+    U+005F. Python ``0o`` / ``0x`` literals, ``chr()``, adjacent string
+    literals, and base64 stay as written.
     """
 
-    def replace_escape(match):
+    def replace_code(match):
         hex_digits = next(group for group in match.groups() if group is not None)
         code = int(hex_digits, 16)
         if code > 0x10FFFF:
             return match.group(0)
-        character = chr(code)
-        if character in _ESCAPE_CODEPOINTS:
-            return character
-        return match.group(0)
+        replacement = _replacement_for(chr(code))
+        return match.group(0) if replacement is None else replacement
 
-    text = CODE_ESCAPE.sub(replace_escape, text)
+    def replace_name(match):
+        try:
+            character = unicodedata.lookup(match.group(1))
+        except KeyError:
+            return match.group(0)
+        replacement = _replacement_for(character)
+        return match.group(0) if replacement is None else replacement
+
+    def replace_octal(match):
+        replacement = _replacement_for(chr(int(match.group(1), 8)))
+        return match.group(0) if replacement is None else replacement
+
+    def replace_html(match):
+        body = match.group(1)
+        code = int(body[1:], 16) if body[:1] in "xX" else int(body, 10)
+        if code > 0x10FFFF:
+            return match.group(0)
+        replacement = _replacement_for(chr(code))
+        return match.group(0) if replacement is None else replacement
+
+    text = CODE_ESCAPE.sub(replace_code, text)
+    text = NAME_ESCAPE.sub(replace_name, text)
+    text = OCTAL_ESCAPE.sub(replace_octal, text)
+    return HTML_ESCAPE.sub(replace_html, text)
+
+
+def _strip_splitters(text):
     if any(character in DIGIT_SPLITTERS for character in text):
-        text = "".join(
-            character for character in text if character not in DIGIT_SPLITTERS
-        )
-    text = _translate_unicode_digits(text)
-    if any(character in DIGIT_UNDERSCORES for character in text):
-        kept = []
-        size = len(text)
-        for index, character in enumerate(text):
-            if (
-                character in DIGIT_UNDERSCORES
-                and 0 < index < size - 1
-                and text[index - 1] in ASCII_DIGITS
-                and text[index + 1] in ASCII_DIGITS
-            ):
-                continue
-            kept.append(character)
-        text = "".join(kept)
+        return "".join(character for character in text if character not in DIGIT_SPLITTERS)
     return text
+
+
+def _collapse_digit_underscores(text):
+    if not any(character in DIGIT_UNDERSCORES for character in text):
+        return text
+    kept = []
+    size = len(text)
+    for index, character in enumerate(text):
+        if (
+            character in DIGIT_UNDERSCORES
+            and 0 < index < size - 1
+            and text[index - 1] in ASCII_DIGITS
+            and text[index + 1] in ASCII_DIGITS
+        ):
+            continue
+        kept.append(character)
+    return "".join(kept)
+
+
+def _prepare_identifier_text(text):
+    """Escapes decoded, splitters removed, Unicode digits translated.
+
+    Underscores are still present, so a leading digit group can be told
+    apart from a plain run of eleven digits.
+    """
+    return _translate_unicode_digits(_strip_splitters(_decode_identifier_escapes(text)))
+
+
+def normalize_identifier_text(text):
+    """Prepared text with U+005F removed between ASCII digits.
+
+    A consecutive underscore, U+FF3F, and a space stay in place.
+    """
+    return _collapse_digit_underscores(_prepare_identifier_text(text))
+
+
+def _underscore_windows(text, relative):
+    """Nine-digit windows inside an underscore-joined digit run.
+
+    A leading digit group, an underscore, then an underscore-grouped
+    identifier has no nine contiguous digits. Collapsing the underscores
+    makes a longer run, which the ordinary token rule skips. Each
+    nine-digit window of that collapsed run is tested. A run of
+    exactly nine is left to that ordinary rule. A plain digit run with no
+    underscore is not a window. Nine digits after a digit and a dot stay
+    a decimal fraction.
+    """
+    hits = []
+    for match in UNDERSCORE_RUN.finditer(text):
+        start = match.start()
+        if start >= 2 and text[start - 1] == "." and text[start - 2] in ASCII_DIGITS:
+            continue
+        collapsed = match.group(1).replace("_", "")
+        if len(collapsed) <= 9:
+            continue
+        if relative == MMAP_EXCLUSION_PATH and start in _mmap_assignment_ends(text):
+            continue
+        for index in range(len(collapsed) - 8):
+            window = collapsed[index:index + 9]
+            if mid_is_assigned(window[:3]):
+                hits.append(window)
+    return hits
 
 
 def _mmap_assignment_ends(text):
@@ -546,34 +673,41 @@ def _scan_one(text, relative):
     hits = []
     mmap_values = _mmap_assignment_ends(text) if relative == MMAP_EXCLUSION_PATH else ()
     for match in TOKEN_9.finditer(text):
-        ascii_token = _ascii_token(match.group(1))
-        if ascii_token is None:
+        classified = _classify_digits(match.group(1))
+        if classified is None:
+            continue
+        if classified is UNMAPPED_DIGIT:
+            hits.append(match.group(1))
             continue
         if _excluded_hex_span(text, match.start(), match.end()):
             continue
         if match.start() in mmap_values:
             continue
-        if mid_is_assigned(ascii_token[:3]):
-            hits.append(ascii_token)
+        if mid_is_assigned(classified[:3]):
+            hits.append(classified)
     for match in FSTRING_PREFIX.finditer(text):
-        ascii_prefix = _ascii_token(match.group("prefix"))
-        if ascii_prefix is None:
+        classified = _classify_digits(match.group("prefix"))
+        if classified is None:
             continue
-        if mid_is_assigned(ascii_prefix[:3]):
-            hits.append(ascii_prefix + "{...}")
+        if classified is UNMAPPED_DIGIT:
+            hits.append(match.group("prefix") + "{...}")
+            continue
+        if mid_is_assigned(classified[:3]):
+            hits.append(classified + "{...}")
     return hits
 
 
 def text_hits(text, relative=None):
     """Assigned-MID tokens in any text.
 
-    The result is the multiset union of the raw text and
-    ``normalize_identifier_text``. A neighboring digit group that
-    normalization would glue onto an identifier does not hide the raw hit.
-    An underscore-grouped identifier that the raw text does not see is
-    still a hit. The MID is the first three ASCII digits after the fixed
-    Unicode-digit map. A leading-0 or leading-9 form does not move the MID
-    to digits 2-4.
+    The result is the multiset union of the raw text, the normalized text,
+    and every nine-digit window of an underscore-joined run longer than
+    nine digits. A neighboring digit group that normalization would glue
+    onto an identifier does not hide the raw hit. A leading digit group
+    before an underscore-grouped identifier is still a hit. The MID is the first
+    three ASCII digits after the fixed table or ``unicodedata.decimal``.
+    An Nd digit with no decimal value is a hit. A leading-0 or leading-9
+    form does not move the MID to digits 2-4.
 
     A nine-digit token inside a hex run of exactly 64 characters is not a
     vessel id (``hex-run-64-or-longer``). That exclusion includes nine
@@ -581,7 +715,11 @@ def text_hits(text, relative=None):
     token only when the token is strictly inside that run. The ``mmap_size``
     exclusion applies only to ``tests/multiday_memory_probe.py``.
     """
-    return _multiset_union(_scan_one(text, relative), _scan_one(normalize_identifier_text(text), relative))
+    raw = _scan_one(text, relative)
+    prepared = _prepare_identifier_text(text)
+    normalized = _collapse_digit_underscores(prepared)
+    found = _multiset_union(raw, _scan_one(normalized, relative))
+    return _multiset_union(found, _underscore_windows(prepared, relative))
 
 
 def python_source_hits(text, relative=None):
@@ -1298,12 +1436,9 @@ class GuardScanTests(unittest.TestCase):
         relative = extra.relative_to(ROOT).as_posix()
         extra.write_text(combined, encoding="utf-8")
         try:
-            hits, coverage = scan_repository()
+            matched, coverage = hits_for_bytes(combined.encode("utf-8"), relative)
             self.assertIn(relative, coverage["visited"])
-            self.assertEqual(
-                [item for item in hits if item[0] == relative],
-                [(relative, planted)],
-            )
+            self.assertEqual(matched, [(relative, planted)])
         finally:
             extra.unlink(missing_ok=True)
         self.assertIn("SHA-256", dict(CONTEXT_EXCLUSIONS)["hex-run-64-or-longer"])
@@ -1417,12 +1552,9 @@ class GuardCoverageTests(unittest.TestCase):
         self.assertFalse(path.exists(), relative)
         path.write_text(text, encoding="utf-8")
         try:
-            hits, coverage = scan_repository()
+            matched, coverage = hits_for_bytes(text.encode("utf-8"), relative)
             self.assertIn(relative, coverage["visited"])
-            self.assertEqual(
-                [item for item in hits if item[0] == relative],
-                [(relative, planted)],
-            )
+            self.assertEqual(matched, [(relative, planted)])
         finally:
             path.unlink(missing_ok=True)
 
@@ -1438,9 +1570,7 @@ class GuardCoverageTests(unittest.TestCase):
             path = Path(folder) / name
             path.write_text(text, encoding="utf-8")
             relative = relative_posix(path)
-            hits, coverage = scan_repository()
-            matched = [item for item in hits if item[0] == relative]
-            return relative, matched, coverage
+            return (relative, *hits_for_bytes(text.encode("utf-8"), relative))
 
     def test_planted_assigned_mid_inside_tests_is_reported(self):
         planted = "367" + "123456"
@@ -1549,15 +1679,16 @@ class GuardCoverageTests(unittest.TestCase):
         planted = "367" + "123456"
         extra = ROOT / "tests" / "_qa_binary_with_mmsi.bin"
         relative = extra.relative_to(ROOT).as_posix()
-        extra.write_bytes(planted.encode("ascii") + b"\0" + planted.encode("ascii"))
+        payload = planted.encode("ascii") + b"\0" + planted.encode("ascii")
+        extra.write_bytes(payload)
         try:
-            hits, coverage = scan_repository()
+            matched, coverage = hits_for_bytes(payload, relative)
             self.assertIn(relative, coverage["binaries"])
             self.assertEqual(coverage["binary_reasons"][relative], "nul-byte")
             self.assertIn(coverage["binary_reasons"][relative], BINARY_SKIP_REASONS)
             self.assertNotIn(relative, coverage["visited"])
             self.assertNotIn(relative, coverage["tracked"])
-            self.assertFalse(any(path == relative for path, _token in hits))
+            self.assertEqual(matched, [])
         finally:
             extra.unlink(missing_ok=True)
 
@@ -1574,11 +1705,12 @@ class GuardCoverageTests(unittest.TestCase):
             "manifest.json",
         ):
             self.assertTrue(path_is_excluded(DEV9 / name), name)
-        extra.write_text(f'mmsi = "{planted}"\n', encoding="utf-8")
+        body = f'mmsi = "{planted}"\n'
+        extra.write_text(body, encoding="utf-8")
         try:
-            hits, coverage = scan_repository()
+            matched, coverage = hits_for_bytes(body.encode("utf-8"), relative)
             self.assertIn(relative, coverage["visited"])
-            self.assertIn((relative, planted), hits)
+            self.assertIn((relative, planted), matched)
         finally:
             extra.unlink(missing_ok=True)
 
@@ -1729,18 +1861,41 @@ def _other_script_digits(digits, zero):
     return "".join(chr(zero + int(character)) for character in digits)
 
 
-def scan_temp_bytes(parent, name, data):
-    """Write ``data`` under a temporary directory inside ``parent`` and scan.
+def hits_for_bytes(data, relative):
+    """Hits for one file's bytes. The tracked tree is not read."""
+    views, skip_reason, bom_failed = text_views(data)
+    if skip_reason == "nul-byte":
+        coverage = {
+            "visited": [],
+            "binaries": [relative],
+            "binary_reasons": {relative: skip_reason},
+            "tracked": [],
+        }
+        return [], coverage
+    found = [UNDECODABLE_BOM] if bom_failed else []
+    for view in views:
+        found = _multiset_union(found, text_hits(view, relative=relative))
+    coverage = {
+        "visited": [relative],
+        "binaries": [],
+        "binary_reasons": {},
+        "tracked": [],
+    }
+    return [(relative, hit) for hit in found], coverage
 
-    The directory is removed before this function returns. ``parent`` is
-    inside the work tree so ``git ls-files --others`` sees the file.
+
+def scan_temp_bytes(parent, name, data):
+    """Decode ``data`` as one planted file. The repository is not scanned.
+
+    The path is still created under ``parent`` so the relative name matches
+    a file inside the work tree. ``scan_repository`` stays on the repository
+    test and the coverage test.
     """
     with tempfile.TemporaryDirectory(dir=parent) as folder:
         path = Path(folder) / name
         path.write_bytes(data)
         relative = relative_posix(path)
-        hits, coverage = scan_repository()
-        matched = [item for item in hits if item[0] == relative]
+        matched, coverage = hits_for_bytes(data, relative)
         return relative, matched, coverage
 
 
@@ -1779,7 +1934,8 @@ class DeferredGuardTests(unittest.TestCase):
         expected = "367" + "123456"
         self.assertEqual(text_hits("_".join("367" + "12345")), [])
         self.assertEqual(text_hits("_".join(expected)), [expected])
-        self.assertEqual(text_hits("_".join(expected + "7")), [])
+        self.assertIn(expected, text_hits("_".join(expected + "7")))
+        self.assertEqual(text_hits(expected + "7"), [])
         self.assertEqual(text_hits("367" + "__" + "123456"), [])
         self.assertEqual(text_hits("367" + "\uff3f" + "123456"), [])
         self.assertEqual(text_hits("367" + " " + "123456"), [])
@@ -1840,8 +1996,14 @@ class DeferredGuardTests(unittest.TestCase):
         self.assertEqual(text_hits("\\x31" + "99080001"), [])
         self.assertEqual(text_hits("\\u0041" + planted), [])
         self.assertEqual(text_hits("\\u003" + "67123456"), [])
-        self.assertEqual(text_hits("\\N{DIGIT THREE}" + "67123456"), [])
-        self.assertEqual(text_hits("\\063" + "67123456"), [])
+        self.assertEqual(text_hits("\\N{DIGIT THREE}" + "67123456"), [planted])
+        self.assertEqual(text_hits("\\063" + "67123456"), [planted])
+        self.assertEqual(text_hits("&#51;" + "67123456"), [planted])
+        self.assertEqual(text_hits("&#x33;" + "67123456"), [planted])
+        self.assertEqual(text_hits("&#X33;" + "67123456"), [planted])
+        self.assertEqual(text_hits("\\N{DIGIT ONE}" + "99080001"), [])
+        self.assertEqual(text_hits("&#49;" + "99080001"), [])
+        self.assertEqual(text_hits("\\N{LATIN CAPITAL LETTER A}" + "67123456"), [])
 
     def test_utf16_le_and_be_bom_assigned_mid_is_reported(self):
         planted = "367" + "123456"
@@ -2050,9 +2212,9 @@ class DeferredGuardTests(unittest.TestCase):
         for sample in samples:
             self.assertIn(planted, text_hits(sample), sample)
         allowed = "199" + "080001"
-        self.assertEqual(text_hits("2024_" + allowed), [])
+        self.assertEqual(text_hits("2024" + allowed), [])
         self.assertEqual(text_hits("1_" + "366" + "12345"), [])
-        self.assertEqual(text_hits("366" + "1234567" + "_1"), [])
+        self.assertIn("366" + "123456", text_hits("366" + "1234567" + "_1"))
 
     def test_bom_prefixed_ascii_is_still_a_hit(self):
         planted = "366" + "123456"
@@ -2120,6 +2282,79 @@ class DeferredGuardTests(unittest.TestCase):
                 [],
                 name,
             )
+
+    def test_leading_digit_group_before_an_underscore_grouped_identifier(self):
+        planted = "366" + "123456"
+        grouped = "366" + "_" + "123" + "_" + "456"
+        self.assertIn(planted, text_hits("12_" + grouped))
+        self.assertIn(planted, text_hits("ts_2024_" + grouped))
+        self.assertEqual(text_hits("12" + planted), [])
+        self.assertEqual(text_hits("8_" + "199" + "_" + "080" + "_" + "001"), [])
+        self.assertEqual(text_hits("29." + "12_" + grouped), [])
+        self.assertIn(planted, text_hits("id." + "12_" + grouped))
+
+    def test_combining_marks_between_or_after_digits_do_not_hide_an_identifier(self):
+        planted = "366" + "123456"
+        allowed = "199" + "080001"
+        for mark in ("\u0301", "\u20e3", "\u17b4", "\u17b5", "\U0001d173"):
+            self.assertEqual(text_hits(planted[:4] + mark + planted[4:]), [planted], hex(ord(mark)))
+            self.assertEqual(text_hits(planted + mark), [planted], hex(ord(mark)))
+            self.assertEqual(text_hits(allowed[:4] + mark + allowed[4:]), [], hex(ord(mark)))
+            self.assertEqual(text_hits(("366" + "12345")[:4] + mark + "1234"), [], hex(ord(mark)))
+
+    def test_every_nd_code_point_maps_or_falls_back(self):
+        """Every decimal digit of this interpreter has a value.
+
+        The fixed table or ``unicodedata.decimal`` must accept it. A newer
+        Unicode that adds an Nd character without a decimal value fails
+        this test instead of being skipped.
+        """
+        for code in range(0x110000):
+            character = chr(code)
+            if unicodedata.category(character) != "Nd":
+                continue
+            if character in ASCII_DIGITS or character in UNICODE_DIGIT_TO_ASCII:
+                self.assertEqual(len(_decimal_digit(character)), 1, hex(code))
+                continue
+            value = unicodedata.decimal(character)
+            self.assertIn(value, range(10), hex(code))
+            self.assertEqual(_decimal_digit(character), str(value), hex(code))
+
+    def test_garay_digit_uses_the_decimal_fallback_when_present(self):
+        character = chr(0x10D46)
+        if unicodedata.category(character) != "Nd":
+            self.skipTest("U+10D46 is not a decimal digit on this interpreter")
+        try:
+            value = unicodedata.decimal(character)
+        except (ValueError, TypeError):
+            self.skipTest("U+10D46 has no decimal value on this interpreter")
+        self.assertNotIn(character, UNICODE_DIGIT_TO_ASCII)
+        prefix = "366" + "12345"
+        expected = prefix + str(value)
+        self.assertIn(expected, text_hits(prefix + character))
+        self.assertEqual(_decimal_digit(character), str(value))
+
+    def test_nd_digit_without_a_decimal_value_is_still_a_hit(self):
+        character = "\u0666"
+        saved = UNICODE_DIGIT_TO_ASCII.pop(character)
+        real_decimal = unicodedata.decimal
+
+        def decimal(char, default=None):
+            if char == character:
+                if default is None:
+                    raise ValueError("no decimal value")
+                return default
+            if default is None:
+                return real_decimal(char)
+            return real_decimal(char, default)
+
+        token = "366" + "12345" + character
+        try:
+            with mock.patch("unicodedata.decimal", decimal):
+                self.assertIn(token, text_hits(token))
+                self.assertIs(_classify_digits(token), UNMAPPED_DIGIT)
+        finally:
+            UNICODE_DIGIT_TO_ASCII[character] = saved
 
 
 if __name__ == "__main__":
