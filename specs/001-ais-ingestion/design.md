@@ -34,3 +34,7 @@ The guard in `tests/test_synthetic_ids.py` scans every text file `git ls-files` 
 ## Timestamp and download-date grammar (NFR-003, NFR-004, FR-002)
 
 `ais.parse_time` and `harborlens-download-noaa --date` do not call `fromisoformat`. Observation timestamps are ASCII `YYYY-MM-DD`, then `T` or one space, then `HH:MM:SS`, with no fraction or 1 to 6 fractional digits. A missing offset is UTC. `Z` and `±HH:MM` are accepted, and a non-UTC offset is converted to UTC. `--date` is a real `YYYY-MM-DD` calendar date only. Week dates and `YYYYMMDD` are rejected, and a rejected date exits 2 before any network call. Evidence: `tests/test_timeparse.py`. Package `0.2.0.dev13`.
+
+## Federal Register CLI date errors (FR-002, FR-011, NFR-003, NFR-004, NFR-009, NFR-010, NFR-015, BR-009, BR-018)
+
+`harborlens-fr-timeline` `main` calls `_date` on `--start` and `--end` before `save_scan`. `FederalRegisterAuditError` from that call is passed to `parser.error`, so the process exits 2 with no traceback and no `urlopen`. A bare `ValueError` and `KeyboardInterrupt` are not caught. A start date after the end date still fails in `initial_url` with `Use a historical publication window of at most 370 days` and is not converted to exit 2. Valid dates use the existing scan. Package `0.2.0.dev18`. On `tests/fixtures/synthetic_ais.csv` the three artifacts stay the `0.2.0.dev15` bytes. Evidence: `tests/test_fr_timeline.py`. Found during the #78/#81 review. Refs #82 (stays open).

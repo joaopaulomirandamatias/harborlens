@@ -46,3 +46,4 @@
 ## Timestamp parity (issue #78)
 
 - [x] Parse NOAA observation timestamps and `harborlens-download-noaa --date` without `fromisoformat`, with the same acceptance on Python 3.10 and 3.12 (`tests/test_timeparse.py`, FR-002, NFR-003, NFR-004). Refs #78 (stays open).
+- [x] `harborlens-fr-timeline` exits 2, with the `FederalRegisterAuditError` message and no traceback, when `--start` or `--end` is not a real ASCII `YYYY-MM-DD` date. No network client is created. A start date after the end date stays the existing window error. Package `0.2.0.dev18`. Evidence: `tests/test_fr_timeline.py`. Found during the #78/#81 review. Refs #82 (stays open).
