@@ -1,11 +1,14 @@
 # Hashed install for .github/workflows/govinfo-lsa-2023-title33.yml.
+# This file is valid only for Python 3.12. It is not a Python 3.10 lock.
 # Resolved on Python 3.12.3 from PyPI for pypdf==7.1.1 (2026-11-21).
 # python3 -m pip download pypdf==7.1.1
 # python3 -m pip download pypdf==7.1.1 --no-binary=:all:
 # python3 -m pip hash on the saved wheel and sdist.
 # That download selected no other distribution. pypdf 7.1.1 declares
-# typing_extensions>=4.0 only when python_version < "3.11". This workflow
-# uses Python 3.12, so that marker does not install a transitive package.
+# typing_extensions>=4.0 only when python_version < "3.11". Those hashes
+# are absent. Installing this file with --require-hashes on Python 3.10
+# does not supply that dependency. The only consumer sets python-version
+# to 3.12 and refuses any other minor version before pip runs.
 --require-hashes
 pypdf==7.1.1 \
     --hash=sha256:04c5680d4b4cfa04ab505b09393fc949860c34a4dad6565284d11a2f5c3ce8b1 \

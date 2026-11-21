@@ -298,14 +298,25 @@ def _proposed_part110_pages(text: str) -> tuple[str, ...]:
 
 
 def _pdf_reader(content: bytes):
+    """Build a strict ``PdfReader`` inside the page-tree limits.
+
+    ``apply_configuration`` is active for construction. ``_parse_with_page_tree_limit``
+    keeps the same limits active while pages are counted and text is extracted.
+    The limits are ``page_tree_maximum_entries`` (``MAX_PDF_PAGES``) and
+    ``page_tree_maximum_page_entries`` (``MAX_PDF_PAGE_DICTIONARY_ENTRIES``).
+    """
     try:
-        from pypdf import PdfReader
+        from pypdf import PdfReader, apply_configuration
     except ImportError as exc:
         raise LSAComparisonError(
             "Install optional dependency: pip install 'harborlens[lsa]'"
         ) from exc
     try:
-        return PdfReader(io.BytesIO(content), strict=True)
+        with apply_configuration(
+            page_tree_maximum_entries=MAX_PDF_PAGES,
+            page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,
+        ):
+            return PdfReader(io.BytesIO(content), strict=True)
     except LSAComparisonError:
         raise
     except Exception as exc:
