@@ -12,6 +12,7 @@ import json
 import os
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.request import Request, urlopen
 
@@ -23,13 +24,6 @@ MAX_RECORDS = 300
 MAX_BYTES = 2 * 1048576
 MAX_WINDOW_DAYS = 370
 EARLIEST_PUBLICATION = date(1994, 1, 1)
-
-# One line each. The span rule keeps the historical 370-day sentence.
-# The other three rules used to share that sentence, which is wrong for them.
-MSG_START_AFTER_END = "Start date must be on or before the end date"
-MSG_END_AFTER_TODAY = "End date must be on or before today"
-MSG_START_BEFORE_1994 = "Start date must be on or after 1994-01-01"
-MSG_WINDOW_SPAN = "Use a historical publication window of at most 370 days"
 
 
 class FederalRegisterAuditError(ValueError):
@@ -50,40 +44,59 @@ def _date(value):
 
 
 def _today():
-    """Local calendar day for the publication window.
+    """UTC calendar day for the publication window.
 
-    Tests replace this. Production uses ``date.today()``.
+    Tests replace this. Production uses ``datetime.now(timezone.utc).date()``.
     """
-    return date.today()
+    return datetime.now(timezone.utc).date()
 
 
-def validate_window(start, end, today=None):
+def _window_date(value):
+    if isinstance(value, date):
+        return value
+    return _date(value)
+
+
+def validate_publication_window(start, end, today=None):
     """Apply the four publication-window rules. No network.
 
-    Order is start after end, end after today, start before 1994-01-01,
-    then a span of more than 370 days. The first broken rule wins.
-    ``today`` defaults to ``_today()``. A span of exactly 370 days, a start
-    equal to the end, an end equal to today, and a start equal to
-    1994-01-01 all pass.
+    The first true rule wins: start after end, start before 1994-01-01,
+    end after today, then a span of more than 370 days. ``today`` defaults
+    to ``_today()``. A span of exactly 370 days, a start equal to the end,
+    an end equal to today, and a start equal to 1994-01-01 all pass.
     """
-    a, b = _date(start), _date(end)
+    a, b = _window_date(start), _window_date(end)
     if today is None:
         today = _today()
     if a > b:
-        raise FederalRegisterAuditError(MSG_START_AFTER_END)
-    if b > today:
-        raise FederalRegisterAuditError(MSG_END_AFTER_TODAY)
+        raise FederalRegisterAuditError(
+            f"--start ({a.isoformat()}) is after --end ({b.isoformat()}). "
+            "Use calendar dates YYYY-MM-DD, with start on or before end, "
+            "a span of at most 370 days, start in 1994 or later, and end not after today."
+        )
     if a < EARLIEST_PUBLICATION:
-        raise FederalRegisterAuditError(MSG_START_BEFORE_1994)
-    if (b - a).days > MAX_WINDOW_DAYS:
-        raise FederalRegisterAuditError(MSG_WINDOW_SPAN)
+        raise FederalRegisterAuditError(
+            f"--start ({a.isoformat()}) is before {EARLIEST_PUBLICATION.isoformat()}, "
+            "the earliest date this command accepts."
+        )
+    if b > today:
+        raise FederalRegisterAuditError(
+            f"--end ({b.isoformat()}) is after today ({today.isoformat()}). "
+            "Use a historical end date on or before today."
+        )
+    span = (b - a).days
+    if span > MAX_WINDOW_DAYS:
+        raise FederalRegisterAuditError(
+            f"--start and --end span {span} days; the maximum historical "
+            f"publication window is {MAX_WINDOW_DAYS} days."
+        )
     return a, b
 
 
 def initial_url(start, end, per_page=100, today=None):
     # Defense in depth: ``main`` checks the window before any Request.
     # Building this URL checks the same rules again and does not open a socket.
-    validate_window(start, end, today)
+    validate_publication_window(start, end, today=today)
     if not (1 <= per_page <= 100):
         raise FederalRegisterAuditError("Page size must be between 1 and 100")
     return API + "?" + urlencode({
@@ -115,13 +128,18 @@ def _fetch(opener, url):
         "User-Agent": "HarborLens-open-research/0.1",
         "Accept": "application/json",
     })
-    with opener(request, timeout=45) as response:
-        declared = getattr(response, "headers", {}).get("Content-Length")
-        if declared is not None and int(declared) > MAX_BYTES:
-            raise FederalRegisterAuditError("Response exceeds download byte limit")
-        raw = response.read(MAX_BYTES+1)
-        if len(raw) > MAX_BYTES:
-            raise FederalRegisterAuditError("Response exceeds download byte limit")
+    try:
+        with opener(request, timeout=45) as response:
+            declared = getattr(response, "headers", {}).get("Content-Length")
+            if declared is not None and int(declared) > MAX_BYTES:
+                raise FederalRegisterAuditError("Response exceeds download byte limit")
+            raw = response.read(MAX_BYTES+1)
+            if len(raw) > MAX_BYTES:
+                raise FederalRegisterAuditError("Response exceeds download byte limit")
+    except FederalRegisterAuditError:
+        raise
+    except (URLError, TimeoutError, OSError) as exc:
+        raise FederalRegisterAuditError("Federal Register download failed") from exc
     try:
         obj = json.loads(raw)
     except (ValueError, UnicodeError) as exc:
@@ -240,14 +258,18 @@ def main():
     parser.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    # Calendar text and the four window rules exit 2 here, before save_scan
-    # builds a Request or calls urlopen. Catch only FederalRegisterAuditError.
-    # A bare ValueError and KeyboardInterrupt propagate.
+    # Parse the calendar text, then the window, before save_scan builds a
+    # Request or calls urlopen. Later FederalRegisterAuditError values from
+    # that path (download failure, existing output) use the same exit.
+    # Catch only FederalRegisterAuditError. A bare ValueError and
+    # KeyboardInterrupt propagate.
     try:
-        validate_window(args.start, args.end)
+        _date(args.start)
+        _date(args.end)
+        validate_publication_window(args.start, args.end)
+        result = save_scan(args.out, args.start, args.end)
     except FederalRegisterAuditError as exc:
         parser.error(str(exc))
-    result = save_scan(args.out, args.start, args.end)
     print(json.dumps({
         "documents_for_review": result["count"],
         "query_pages": len(result["query_pages"]),
