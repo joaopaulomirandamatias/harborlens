@@ -87,10 +87,11 @@ from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
 # ASCII major.minor.micro, no leading zeros. ``re.fullmatch`` plus ``\Z``
-# rejects a trailing newline. ``$`` matches before one trailing newline, so
-# it is not used here. JSON Schema patterns are ECMA-262 and have no ``\Z``;
-# ``schemas/v1/label-sample.schema.json`` puts a negative lookahead for a
-# line terminator before ``$``.
+# rejects a trailing newline. Python ``re`` ``$`` matches before a final
+# newline, so it is not used here. JSON Schema patterns are ECMA-262 and
+# have no ``\Z``. Node v24 rejects a trailing newline with ``$`` alone.
+# The schema still puts a negative lookahead before ``$`` so the pattern
+# stays strict in every validator, including Python ``re``.
 _SAMPLING_PYTHON_VERSION = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z"
 )
