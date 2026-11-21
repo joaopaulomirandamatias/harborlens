@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.rights import PURPOSES, rights_receipt
 
 LAYER = "https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0"
@@ -77,8 +78,14 @@ def _read_json(opener, url):
         if len(raw)>MAX_BYTES:
             raise PolygonSourceError("NOAA source response exceeds byte cap")
     try:
-        data=json.loads(raw)
-    except (UnicodeError,ValueError) as exc:
+        text=raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise PolygonSourceError("NOAA service returned non-JSON data") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise PolygonSourceError("NOAA service returned non-JSON data")
+    try:
+        data=json.loads(text)
+    except (UnicodeError,ValueError,RecursionError) as exc:
         raise PolygonSourceError("NOAA service returned non-JSON data") from exc
     if not isinstance(data,dict) or "error" in data:
         raise PolygonSourceError("NOAA source returned an error response")
@@ -222,9 +229,13 @@ def main():
     p.add_argument("--rights-register", type=Path, default=None)
     p.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a=p.parse_args()
-    print(json.dumps(save_polygons(a.out,a.bbox,a.max_features,
-                                   rights_register=a.rights_register,
-                                   rights_purpose=a.rights_purpose),indent=2))
+    try:
+        result=save_polygons(a.out,a.bbox,a.max_features,
+                             rights_register=a.rights_register,
+                             rights_purpose=a.rights_purpose)
+    except PolygonSourceError as exc:
+        p.exit(2, str(exc) + "\n")
+    print(json.dumps(result,indent=2))
 
 if __name__=="__main__":
     main()

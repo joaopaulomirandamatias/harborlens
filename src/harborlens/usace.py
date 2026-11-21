@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.rights import PURPOSES, rights_receipt
 
 LAYER = "https://services7.arcgis.com/n1YM8pTrFmm7L4hs/ArcGIS/rest/services/Docks/FeatureServer/0"
@@ -75,8 +76,14 @@ def _read_json(response):
     if len(data) > MAX_RESPONSE_BYTES:
         raise FacilityDataError("USACE response exceeds byte cap")
     try:
-        parsed = json.loads(data)
-    except (UnicodeError, ValueError) as exc:
+        text = data.decode("utf-8")
+    except UnicodeError as exc:
+        raise FacilityDataError("USACE service returned non-JSON content") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise FacilityDataError("USACE service returned non-JSON content")
+    try:
+        parsed = json.loads(text)
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise FacilityDataError("USACE service returned non-JSON content") from exc
     if not isinstance(parsed, dict) or "error" in parsed:
         raise FacilityDataError("USACE service returned an error response")
@@ -211,10 +218,14 @@ def main():
     parser.add_argument("--rights-register", type=Path, default=None)
     parser.add_argument("--rights-purpose", choices=PURPOSES, default="research")
     a = parser.parse_args()
-    print(json.dumps(save_catalog(a.out, bbox=a.bbox, page_size=a.page_size,
-                                  max_features=a.max_features,
-                                  rights_register=a.rights_register,
-                                  rights_purpose=a.rights_purpose), indent=2))
+    try:
+        result = save_catalog(a.out, bbox=a.bbox, page_size=a.page_size,
+                              max_features=a.max_features,
+                              rights_register=a.rights_register,
+                              rights_purpose=a.rights_purpose)
+    except FacilityDataError as exc:
+        parser.exit(2, str(exc) + "\n")
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

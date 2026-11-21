@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import digests_equal
 from harborlens.publication import (
     CAUTION,
@@ -83,10 +84,13 @@ def _read_release(path):
             raw = stream.read(MAX_RELEASE_BYTES + 1)
         if len(raw) > MAX_RELEASE_BYTES:
             raise ReleaseVerificationError("Release exceeds bounded size")
+        text = raw.decode("utf-8")
+        if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+            raise ReleaseVerificationError("Release is unreadable or malformed")
         document = json.loads(
-            raw, object_pairs_hook=_unique_pairs, parse_constant=_reject_nonfinite
+            text, object_pairs_hook=_unique_pairs, parse_constant=_reject_nonfinite
         )
-    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+    except (OSError, UnicodeError, ValueError, TypeError, RecursionError) as exc:
         if isinstance(exc, ReleaseVerificationError):
             raise
         raise ReleaseVerificationError("Release is unreadable or malformed") from exc

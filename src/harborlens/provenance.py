@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 from harborlens import __version__
 from harborlens.cli_usage import add_version_argument, escape_error_text, escape_error_text
 from harborlens.io_safe import AISInputError
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
 
@@ -298,9 +299,13 @@ def verify_manifest(path, preloaded=None):
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise ManifestFormatError("Invalid artifact manifest") from exc
+    # Counted before ``json.loads``. Above ``MAX_JSON_NESTING`` the
+    # message is the same one a malformed manifest already uses.
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise ManifestFormatError("Invalid artifact manifest")
     try:
         record = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise ManifestFormatError("Invalid artifact manifest") from exc
     items = record.get("artifacts") if isinstance(record, dict) else None
     if not isinstance(items, dict) or set(items) != set(FILES):

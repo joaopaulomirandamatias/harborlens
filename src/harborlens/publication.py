@@ -20,6 +20,7 @@ from pathlib import Path
 
 from harborlens.ais import interpret_cleaned_row
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import checksum, digests_equal, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
@@ -66,8 +67,11 @@ def _json_file(path):
             raw = handle.read(MAX_DOCUMENT_BYTES + 1)
         if len(raw) > MAX_DOCUMENT_BYTES:
             raise ReleaseDenied("Input JSON exceeds bounded size")
-        data = json.loads(raw)
-    except (OSError, UnicodeError, ValueError) as exc:
+        text = raw.decode("utf-8")
+        if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+            raise ReleaseDenied("Missing or invalid JSON evidence")
+        data = json.loads(text)
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
         if isinstance(exc, ReleaseDenied):
             raise
         raise ReleaseDenied("Missing or invalid JSON evidence") from exc

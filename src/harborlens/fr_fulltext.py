@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 
 DOCUMENTS = (
     ("2023-15652", "2023-07-25"),
@@ -73,8 +74,14 @@ def inspect_documents(opener=None):
         metadata_url=_validate(f"https://www.federalregister.gov/api/v1/documents/{number}.json",number,published,"meta")
         raw_meta,meta_sha=_fetch(client,metadata_url,MAX_METADATA)
         try:
-            meta=json.loads(raw_meta.decode("utf-8"))
-        except (ValueError,UnicodeError) as exc:
+            text_meta=raw_meta.decode("utf-8")
+        except UnicodeError as exc:
+            raise FullTextAuditError("Official document metadata was not valid JSON") from exc
+        if max_container_depth(text_meta, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+            raise FullTextAuditError("Official document metadata was not valid JSON")
+        try:
+            meta=json.loads(text_meta)
+        except (ValueError, RecursionError) as exc:
             raise FullTextAuditError("Official document metadata was not valid JSON") from exc
         if not isinstance(meta,dict) or meta.get("document_number")!=number or meta.get("publication_date")!=published:
             raise FullTextAuditError("Official document metadata ID/date mismatch")
@@ -154,7 +161,10 @@ def main():
     add_version_argument(parser)
     parser.add_argument("--out",type=Path,required=True)
     args=parser.parse_args()
-    result=save_review(args.out)
+    try:
+        result=save_review(args.out)
+    except FullTextAuditError as exc:
+        parser.exit(2, str(exc) + "\n")
     print(json.dumps({
         "documents_fetched":result["document_count"],
         "section_110_197_mentions":sum(d["text_mentions_110_197"] for d in result["documents"]),

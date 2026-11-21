@@ -20,6 +20,7 @@ from pathlib import Path
 
 from harborlens.ais import parse_time
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.io_safe import AISInputError, stream_rows
 from harborlens.provenance import checksum, digests_equal
 from harborlens.segmentation import SegmentationParams
@@ -48,8 +49,14 @@ def _json_document(path):
     if not path.is_file() or not 0 < path.stat().st_size <= MAX_GEOJSON_BYTES:
         raise TrackEvidenceError("Missing, empty or oversized GeoJSON/provenance input")
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise TrackEvidenceError("Invalid JSON input") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise TrackEvidenceError("Invalid JSON input")
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError) as exc:
         raise TrackEvidenceError("Invalid JSON input") from exc
 
 
@@ -380,8 +387,12 @@ def main():
     p.add_argument("--max-points",type=int,default=MAX_AIS_POINTS)
     p.add_argument("--scratch-mib",type=int,default=MAX_SQLITE_MIB)
     a=p.parse_args()
-    print(json.dumps(run_track_context(a.cleaned,a.candidates,a.polygons,a.out,
-                                      a.polygon_receipt,a.max_points,a.scratch_mib),indent=2))
+    try:
+        result=run_track_context(a.cleaned,a.candidates,a.polygons,a.out,
+                                 a.polygon_receipt,a.max_points,a.scratch_mib)
+    except TrackEvidenceError as exc:
+        p.exit(2, str(exc) + "\n")
+    print(json.dumps(result,indent=2))
 
 
 if __name__=="__main__":
