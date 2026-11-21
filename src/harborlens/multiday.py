@@ -25,7 +25,8 @@ from pathlib import Path
 
 from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.ais import (
-    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
+    ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, OutputScope, header_alias,
+    parse_time, sha256,
 )
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
@@ -374,7 +375,11 @@ def run_multiday(
     when ``soft_heap_limit_enforced`` is true. Scratch disk may grow until
     ``max_scratch_mib``. Python keeps counters and one open candidate.
     ``Segmenter.feed`` still rejects a descending (mmsi, timestamp) key.
+    A requested window is checked before any directory is created and before
+    any input is read.
     """
+    # The analysis-window check. No directory and no ingest yet.
+    declared_window(window_start, window_end)
     paths = tuple(sorted((Path(p).resolve() for p in inputs), key=str))
     if not 2 <= len(paths) <= MAX_FILES or len(set(paths)) != len(paths):
         raise AISInputError(f"Provide 2–{MAX_FILES} distinct AIS files")
@@ -389,11 +394,14 @@ def run_multiday(
     if params is None:
         params = SegmentationParams(max_sog, min_duration_minutes, max_gap_minutes,
                                     max_radius_m, min_points, max_jump_knots)
-    out = Path(out).resolve()
-    created_out = not out.exists()
-    out.mkdir(parents=True, exist_ok=True)
-    files = _output_files(out)
+    scope = OutputScope(out)
+    failed = True
     try:
+        scope.ensure()
+        out = scope.directory
+        files = _output_files(out)
+        for path in files.values():
+            scope.refuse_artifact_symlink(path)
         if any(path in paths or path.exists() for path in files.values()):
             raise FileExistsError("Output files already exist or would overwrite a source")
 
@@ -410,7 +418,15 @@ def run_multiday(
                 censoring = _resolve_windows(paths, source_items, window_start, window_end,
                                              params.max_gap_minutes)
                 censoring.check_observed(first, last)
-                diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+                scope.verify_created()
+                try:
+                    diagnostics = _write_outputs(
+                        db, files, source_items, params, max_export_mib, censoring, meter, scope
+                    )
+                except PermissionError as exc:
+                    raise AISInputError(
+                        f"cannot write output directory '{out}' ({exc.strerror})."
+                    ) from exc
                 db.commit()
                 meter.check()
                 diagnostics["censoring"] = censoring.event_summary()
@@ -445,24 +461,23 @@ def run_multiday(
                     },
                     "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
                 }
-                files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                try:
+                    with scope.open_exclusive(files["manifest.json"]) as handle:
+                        handle.write(json.dumps(result, indent=2))
+                except PermissionError as exc:
+                    raise AISInputError(
+                        f"cannot write output directory '{out}' ({exc.strerror})."
+                    ) from exc
+                failed = False
                 return result
-            except Exception:
-                for target in files.values():
-                    target.unlink(missing_ok=True)
-                raise
             finally:
                 db.close()
-    except Exception:
-        # A failure during the load (unreadable file, bad header, row cap,
-        # header-only file) used to leave the directory mkdir created.
-        # Parent directories created with parents=True are left in place.
-        if created_out:
-            try:
-                out.rmdir()
-            except OSError:
-                pass
-        raise
+    finally:
+        # Any failure, including one that is not an AISInputError, removes
+        # only files this call created and then empty directories this call
+        # created. The original error propagates.
+        if failed:
+            scope.cleanup()
 
 
 class _SQLiteGroupStore:
@@ -481,17 +496,21 @@ class _SQLiteGroupStore:
             "JOIN observations o ON o.id=g.observation_id WHERE g.group_id=?", (group_id,)))
 
 
-def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter):
-    """Stream sorted observations through the shared engine and write exports."""
+def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter, scope):
+    """Stream sorted observations through the shared engine and write exports.
+
+    Each artifact is created with ``O_CREAT|O_EXCL`` and recorded before the
+    first byte, so a cap error still removes the partial files.
+    """
     max_bytes = export_cap_mib * 1048576
     # Release insert cache before the ordered scan. The scan uses
     # observations_by_vessel_time, so it does not build an in-memory sort.
     db.execute("PRAGMA shrink_memory")
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
-    with (files["houston_clean.csv"].open("w", newline="", encoding="utf-8") as clean,
-          files["stationary_candidates.csv"].open("w", newline="", encoding="utf-8") as events,
-          files["stationary_candidates.geojson"].open("w", encoding="utf-8") as geo):
+    with (scope.open_exclusive(files["houston_clean.csv"]) as clean,
+          scope.open_exclusive(files["stationary_candidates.csv"]) as events,
+          scope.open_exclusive(files["stationary_candidates.geojson"]) as geo):
         normalized = CsvDictWriter(clean, CLEAN_FIELDS, lineterminator="\n")
         candidate_writer = CsvDictWriter(events, MULTIDAY_FIELDS, lineterminator="\n")
         geo.write('{"type":"FeatureCollection","harborlens_method":'

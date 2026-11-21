@@ -49,10 +49,11 @@ PINNED_LSA_PDFS = {
 }
 MAX_SOURCE_BYTES = 10 * 1048576
 MAX_TITLE33_CHARS = 500_000
-# Inclusive page ceiling. pypdf counts page-tree nodes with
-# page_tree_maximum_entries, so that limit is MAX_PDF_PAGES and a larger
-# tree fails before the whole tree is flattened. page_tree_maximum_page_entries
-# counts copied dictionary keys, not pages; the pinned December PDF needs 586.
+# page_tree_maximum_entries counts page-tree nodes, including intermediate
+# /Pages nodes, not PDF pages. MAX_PDF_PAGES is 299 nodes. A nested tree can
+# fail that cap with fewer than 299 pages. page_tree_maximum_page_entries
+# counts copied page-dictionary keys, not pages. At about five keys per page
+# the 1024 cap binds around 204 pages. The pinned December PDF needs 586 keys.
 MIN_PDF_PAGES = 26
 MAX_PDF_PAGES = 299
 MAX_PDF_PAGE_DICTIONARY_ENTRIES = 1024
@@ -298,14 +299,27 @@ def _proposed_part110_pages(text: str) -> tuple[str, ...]:
 
 
 def _pdf_reader(content: bytes):
+    """Build a strict ``PdfReader`` inside the page-tree limits.
+
+    This context ends when the reader is returned, so it does not by itself
+    limit a later lazy page walk. ``_parse_with_page_tree_limit`` applies the
+    same limits and keeps them active while pages are counted and text is
+    extracted. The limits are ``page_tree_maximum_entries`` (``MAX_PDF_PAGES``,
+    a node count, not a page count) and ``page_tree_maximum_page_entries``
+    (``MAX_PDF_PAGE_DICTIONARY_ENTRIES``).
+    """
     try:
-        from pypdf import PdfReader
+        from pypdf import PdfReader, apply_configuration
     except ImportError as exc:
         raise LSAComparisonError(
             "Install optional dependency: pip install 'harborlens[lsa]'"
         ) from exc
     try:
-        return PdfReader(io.BytesIO(content), strict=True)
+        with apply_configuration(
+            page_tree_maximum_entries=MAX_PDF_PAGES,
+            page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,
+        ):
+            return PdfReader(io.BytesIO(content), strict=True)
     except LSAComparisonError:
         raise
     except Exception as exc:

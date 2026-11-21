@@ -701,7 +701,7 @@ class GovInfoLSATests(unittest.TestCase):
     def test_page_tree_limit_is_active_while_pages_are_counted(self):
         import pypdf
 
-        state = {"entered": 0, "kwargs": None, "during_len": None}
+        state = {"entered": 0, "kwargs": None, "calls": [], "during_len": None}
 
         class Context:
             def __enter__(self):
@@ -713,6 +713,7 @@ class GovInfoLSATests(unittest.TestCase):
                 return False
 
         def apply_configuration(**kwargs):
+            state["calls"].append(dict(kwargs))
             state["kwargs"] = kwargs
             return Context()
 
@@ -739,16 +740,125 @@ class GovInfoLSATests(unittest.TestCase):
         finally:
             pypdf.apply_configuration = original_apply
             pypdf.PdfReader = original_reader
-        self.assertEqual(
-            state["kwargs"],
-            {
-                "page_tree_maximum_entries": MAX_PDF_PAGES,
-                "page_tree_maximum_page_entries": lsa_compare.MAX_PDF_PAGE_DICTIONARY_ENTRIES,
-            },
-        )
+        self.assertEqual(len(state["calls"]), 4)
+        extraction_limits = {
+            "page_tree_maximum_entries": 299,
+            "page_tree_maximum_page_entries": 1024,
+        }
+        # Each month calls apply_configuration in _parse_with_page_tree_limit
+        # before _pdf_reader calls it again. The even calls are the extraction path.
+        self.assertEqual(state["calls"][0], extraction_limits)
+        self.assertEqual(state["calls"][2], extraction_limits)
+        self.assertNotEqual(state["calls"][0]["page_tree_maximum_entries"], 300)
+        self.assertNotEqual(state["calls"][0]["page_tree_maximum_page_entries"], 2_000_000)
+        self.assertNotEqual(state["calls"][0]["page_tree_maximum_page_entries"], 2000000)
+        self.assertEqual(state["kwargs"], extraction_limits)
         self.assertEqual(state["during_len"], 1)
         self.assertEqual(state["entered"], 0)
         self.assertEqual(report["legal_effect_on_study_date"], "NOT_DETERMINED")
+
+    def test_extraction_path_pins_the_page_tree_limits(self):
+        source = Path(lsa_compare.__file__).read_text(encoding="utf-8")
+        start = source.index("def _parse_with_page_tree_limit")
+        body = source[start:source.index("\ndef ", start + 1)]
+        self.assertIn("page_tree_maximum_entries=MAX_PDF_PAGES,", body)
+        self.assertIn("page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,", body)
+        self.assertIn("page-tree nodes", source)
+        self.assertIn("not PDF pages", source)
+        self.assertIn("around 204 pages", source)
+
+        def mutated(old: str, new: str) -> str:
+            changed = body.replace(old, new, 1)
+            self.assertNotEqual(changed, body)
+            return changed
+
+        entries_300 = mutated(
+            "page_tree_maximum_entries=MAX_PDF_PAGES,",
+            "page_tree_maximum_entries=300,",
+        )
+        self.assertNotIn("page_tree_maximum_entries=MAX_PDF_PAGES,", entries_300)
+        keys_huge = mutated(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,",
+            "page_tree_maximum_page_entries=2_000_000,",
+        )
+        self.assertNotIn(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,",
+            keys_huge,
+        )
+        keys_plain = mutated(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,",
+            "page_tree_maximum_page_entries=2000000,",
+        )
+        self.assertNotIn(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES,",
+            keys_plain,
+        )
+
+    def test_pdf_reader_source_constructs_inside_apply_configuration(self):
+        source = Path(lsa_compare.__file__).read_text(encoding="utf-8")
+        start = source.index("def _pdf_reader")
+        body = source[start:source.index("\ndef ", start + 1)]
+        self.assertLess(body.index("apply_configuration("), body.index("PdfReader("))
+        self.assertIn("page_tree_maximum_entries=MAX_PDF_PAGES", body)
+        self.assertIn(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES",
+            body,
+        )
+        bare = "def _pdf_reader(content):\n    return PdfReader(io.BytesIO(content), strict=True)\n"
+        self.assertNotIn("apply_configuration(", bare)
+        early = "return PdfReader(io.BytesIO(content), strict=True)\n    with apply_configuration(\n"
+        self.assertGreater(early.index("apply_configuration("), early.index("PdfReader("))
+        literal_300 = body.replace(
+            "page_tree_maximum_entries=MAX_PDF_PAGES",
+            "page_tree_maximum_entries=300",
+        )
+        self.assertNotIn("page_tree_maximum_entries=MAX_PDF_PAGES", literal_300)
+        literal_1023 = body.replace(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES",
+            "page_tree_maximum_page_entries=1023",
+        )
+        self.assertNotIn(
+            "page_tree_maximum_page_entries=MAX_PDF_PAGE_DICTIONARY_ENTRIES",
+            literal_1023,
+        )
+
+    @unittest.skipUnless(_PYPDF is not None, "optional harborlens[lsa] extra is not installed")
+    def test_pdf_reader_construction_sees_the_page_tree_limits(self):
+        import pypdf
+
+        outside_entries = pypdf.get_configuration().page_tree_maximum_entries
+        outside_page_entries = pypdf.get_configuration().page_tree_maximum_page_entries
+        self.assertGreater(outside_entries, MAX_PDF_PAGES)
+        self.assertGreater(outside_page_entries, lsa_compare.MAX_PDF_PAGE_DICTIONARY_ENTRIES)
+        self.assertNotEqual(outside_entries, MAX_PDF_PAGES - 1)
+        seen = {}
+
+        class Reader:
+            def __init__(self, stream, strict=True):
+                config = pypdf.get_configuration()
+                seen["entries"] = config.page_tree_maximum_entries
+                seen["page_entries"] = config.page_tree_maximum_page_entries
+                self.pages = []
+
+        original = pypdf.PdfReader
+        pypdf.PdfReader = Reader
+        try:
+            reader = lsa_compare._pdf_reader(b"%PDF-synthetic")
+        finally:
+            pypdf.PdfReader = original
+        self.assertIsInstance(reader, Reader)
+        self.assertEqual(seen["entries"], MAX_PDF_PAGES)
+        self.assertEqual(seen["entries"], 299)
+        self.assertNotEqual(seen["entries"], 298)
+        self.assertNotEqual(seen["entries"], 300)
+        self.assertEqual(seen["page_entries"], lsa_compare.MAX_PDF_PAGE_DICTIONARY_ENTRIES)
+        self.assertEqual(seen["page_entries"], 1024)
+        self.assertNotEqual(seen["page_entries"], 1023)
+        self.assertNotEqual(seen["page_entries"], 1025)
+        restored = pypdf.get_configuration()
+        self.assertEqual(restored.page_tree_maximum_entries, outside_entries)
+        self.assertEqual(restored.page_tree_maximum_page_entries, outside_page_entries)
+        self.assertNotEqual(restored.page_tree_maximum_entries, MAX_PDF_PAGES)
 
     def test_lsa_extra_requires_pypdf_7_1_1(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
