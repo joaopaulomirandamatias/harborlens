@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed (SPEC-001: synthetic-ID guard review fixes)
+- Package version stays `0.2.0.dev23`. This slice is still the guard and its documents. Cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev15`: `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75`, `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05`, `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3`. `run_id` does not change because of this slice.
+- Hits are the multiset union of the raw text and the normalized text. A dated name such as `track_2024_` plus an assigned MID, or an identifier followed by `_1`, stays a hit. Normalization no longer hides an identifier that the raw text already shows.
+- `\\U` (eight hex digits) and `\\x` (two hex digits) are decoded on the same rule as `\\u`, only for a digit, a splitter, or U+005F. `\\N{...}` and octal escapes stay literal. That remaining set, plus HTML numeric references, percent-encoding, base64, adjacent string literals, `chr()` builders, and scientific notation, is a documented follow-up.
+- `DIGIT_SPLITTERS` also contains U+034F, U+FE00–U+FE0F, U+E0100–U+E01EF, U+180B–U+180D, U+E0000–U+E007F, U+115F, U+1160, U+3164, U+FFA0, and U+2800. Unicode digits in the fixed `UNICODE_DIGIT_TO_ASCII` table become ASCII digits, including when an ASCII underscore sits between them.
+- Each file is the union of a UTF-16 or UTF-32 BOM decode when that BOM is present, UTF-8 with `surrogateescape`, and ISO-8859-1. An ASCII identifier after the two bytes `FF FE` is a hit. One invalid UTF-8 byte does not hide a Unicode-digit identifier. A NUL byte with no BOM is still reason `nul-byte`, and a tracked file in that state fails the coverage test.
+- The `mmap_size` exclusion applies only to `tests/multiday_memory_probe.py`. The same assignment in any other file is a hit.
+- A hexadecimal run of exactly 64 characters remains a SHA-256 exclusion, including nine digits at either edge. A longer run excludes a nine-digit span only when the span is strictly inside the run. That is a trade-off: a digest can contain nine digits, and an identifier that fills the first or last nine of a 64-character hex run is inside the digest.
+- `SYNTHETIC_ID_RULES_SHA256` and `SYNTHETIC_ID_MAP_HITS_SHA256` live in `tests/test_synthetic_ids.py`, beside the guard. A map edit updates the pins in the same change. They are a review check. They are not a tamper-proof seal.
+- No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #88 (stays open). Refs #84 (stays open).
+
 ### Changed (SPEC-001: synthetic-ID guard deferred gaps)
 - Package version stays `0.2.0.dev23`. This slice is the guard in `tests/test_synthetic_ids.py` and the documents that describe it. Cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay byte-identical to `0.2.0.dev15`: `4cd3986411530eef4296bcc2a964ab978f11925468bce8e67600c11c4aad1b75`, `69989a5c0f6f53961ca2ce3987ba06d3381a6f92490fd16773e709d824a3fc05`, `0e3127c834035c27546b209d024f3c9ba8b7ae9e249200abb8fa8dee010008d3`. `run_id` does not change because of this slice. Schemas are unchanged.
 - The guard removes U+005F when it sits between ASCII digits, so an underscore-grouped assigned MID matches. A consecutive underscore, U+FF3F, and a space do not join digits. An eight-digit group and a ten-digit group do not match. An unassigned MID 199 group does not match.

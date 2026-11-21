@@ -5,15 +5,17 @@ The guard fails when a nine-digit token's MID is in the assigned range 201-775.
 
 The scan reads every text file ``git ls-files`` tracks, plus untracked files
 that are not gitignored, so a planted negative uses the same path. Paths are
-classified relative to the repository root. Before the token scan, the text
-is normalized with fixed sets: U+005F between ASCII digits is removed,
-``DIGIT_SPLITTERS`` (zero-width and other invisible format characters) are
-removed wherever they sit, and a ``\\u`` escape of four hex digits is decoded
-only when the code point is an ASCII digit, a splitter, or U+005F. A UTF-16
-or UTF-32 BOM is decoded and scanned. A file that is not UTF-8 and has no
-NUL is decoded as ISO-8859-1 after those splitter bytes are removed. A NUL
-byte with no UTF-16 or UTF-32 BOM is skipped with reason ``nul-byte``. A
-tracked file in that state fails the coverage test.
+classified relative to the repository root. Hits are the multiset union of
+the raw text and the normalized text, so a neighboring digit group cannot
+hide an identifier that the raw text still shows. Normalization uses fixed
+sets: U+005F between digits is removed, ``DIGIT_SPLITTERS`` are removed
+wherever they sit, Unicode digits in ``UNICODE_DIGIT_TO_ASCII`` become
+ASCII digits, and ``\\U``, ``\\u``, and ``\\x`` escapes are decoded only
+for a digit, a splitter, or U+005F. Each file is also the union of a BOM
+decode when a UTF-16 or UTF-32 BOM is present, UTF-8 with
+``surrogateescape``, and ISO-8859-1. A NUL byte with no such BOM is
+skipped with reason ``nul-byte``. A tracked file in that state fails the
+coverage test.
 
 A candidate is nine digits bounded by a non-digit. A run of eight digits
 does not match, because it is shorter than nine. A run of ten or more
@@ -47,16 +49,16 @@ Exclusions are file-exact or context-based. Each one has a written reason.
   span only when the span is strictly inside the run. A span that starts
   or ends a longer run is an identifier glued on with no separator, and
   it still fails. A standalone token in the same file still fails.
-* The value assigned by a whole-word ``mmap_size`` is ignored. In
-  ``tests/multiday_memory_probe.py`` that value is a 256 MiB byte count
-  (``PRAGMA mmap_size=`` or ``mmap_size =``). The character before
-  ``mmap_size`` must be in ``MMAP_PREFIX``. Only U+0020 and U+0009 may
-  sit around the ``=``. Only the token that starts immediately after that
-  spacing is ignored. A newline does not carry the exclusion. The same
-  digits anywhere else fail.
-* ``tests/synthetic_id_map.py`` is excluded by exact path, and its rule
-  tuple and the assigned-MID tokens in that file are pinned. A new
-  assigned-MID literal there fails the pin. Every value is ``1990xxxxx``.
+* The 256 MiB value assigned by ``mmap_size`` is ignored only in
+  ``tests/multiday_memory_probe.py``. The character before ``mmap_size``
+  must be in ``MMAP_PREFIX``. Only U+0020 and U+0009 may sit around the
+  ``=``. A newline does not carry the exclusion. The same assignment in
+  any other file fails.
+* ``tests/synthetic_id_map.py`` is excluded by exact path. SHA-256 pins of
+  the rule tuple and of the tokens in that file live in this module, next
+  to the guard. Updating the map updates the pins in the same change. The
+  pins are a review check. They are not a tamper-proof seal. Every value
+  is ``1990xxxxx``.
 
 The byte-identity proof starts from the dev9 goldens, applies
 ``SYNTHETIC_ID_MAP``, then recomputes only the ID-derived fields with
@@ -104,21 +106,130 @@ HEX_BLOB = re.compile(r"[0-9a-fA-F]{64,}")
 ASCII_DIGITS = frozenset("0123456789")
 # PEP 515 numeric separator. U+005F only. U+FF3F is not in this set.
 DIGIT_UNDERSCORES = frozenset("_")
-# Invisible format characters that can sit between digits. The same format
-# characters ``csv_safe.IGNORABLE`` names, without its whitespace. Membership
-# is a table lookup. Do not call ``unicodedata.category``.
-DIGIT_SPLITTERS = frozenset(
-    "\ufeff\u200b\u200c\u200d\u200e\u200f"
-    "\u2060\u2061\u2062\u2063\u2064"
-    "\u206a\u206b\u206c\u206d\u206e\u206f"
-    "\u00ad\u180e"
-    "\u061c"
-    "\u202a\u202b\u202c\u202d\u202e"
-    "\u2066\u2067\u2068\u2069"
+def _code_points(start, end):
+    """Inclusive code-point range. The bounds are fixed integers."""
+    return tuple(chr(code) for code in range(start, end + 1))
+
+
+# Invisible characters removed wherever they sit. The csv_safe format
+# characters, plus the extra code points named below. Membership is a table
+# lookup. Do not call ``unicodedata.category``.
+def _digit_splitters():
+    characters = set(
+        "\ufeff\u200b\u200c\u200d\u200e\u200f"
+        "\u2060\u2061\u2062\u2063\u2064"
+        "\u206a\u206b\u206c\u206d\u206e\u206f"
+        "\u00ad\u180e"
+        "\u061c"
+        "\u202a\u202b\u202c\u202d\u202e"
+        "\u2066\u2067\u2068\u2069"
+        "\u034f"  # combining grapheme joiner
+        "\u180b\u180c\u180d"  # Mongolian free variation selectors
+        "\u115f\u1160"  # Hangul choseong and jungseong fillers
+        "\u3164"  # Hangul filler
+        "\uffa0"  # halfwidth Hangul filler
+        "\u2800"  # braille pattern blank
+    )
+    characters.update(_code_points(0xFE00, 0xFE0F))  # variation selectors
+    characters.update(_code_points(0xE0100, 0xE01EF))  # variation selectors supplement
+    characters.update(_code_points(0xE0000, 0xE007F))  # tag characters
+    return frozenset(characters)
+
+
+DIGIT_SPLITTERS = _digit_splitters()
+# First code point of each ten-digit decimal block, excluding ASCII.
+# The guard translates these to ASCII digits. It does not call
+# ``unicodedata``.
+UNICODE_DIGIT_ZERO = (
+    0x0660,  # Arabic-Indic
+    0x06F0,  # Extended Arabic-Indic
+    0x07C0,  # N'Ko
+    0x0966,  # Devanagari
+    0x09E6,  # Bengali
+    0x0A66,  # Gurmukhi
+    0x0AE6,  # Gujarati
+    0x0B66,  # Oriya
+    0x0BE6,  # Tamil
+    0x0C66,  # Telugu
+    0x0CE6,  # Kannada
+    0x0D66,  # Malayalam
+    0x0DE6,  # Sinhala
+    0x0E50,  # Thai
+    0x0ED0,  # Lao
+    0x0F20,  # Tibetan
+    0x1040,  # Myanmar
+    0x1090,  # Myanmar Shan
+    0x17E0,  # Khmer
+    0x1810,  # Mongolian
+    0x1946,  # Limbu
+    0x19D0,  # New Tai Lue
+    0x1A80,  # Tai Tham Hora
+    0x1A90,  # Tai Tham Tham
+    0x1B50,  # Balinese
+    0x1BB0,  # Sundanese
+    0x1C40,  # Lepcha
+    0x1C50,  # Ol Chiki
+    0xA620,  # Vai
+    0xA8D0,  # Saurashtra
+    0xA900,  # Kayah Li
+    0xA9D0,  # Javanese
+    0xA9F0,  # Myanmar Tai Laing
+    0xAA50,  # Cham
+    0xABF0,  # Meetei Mayek
+    0xFF10,  # Fullwidth
+    0x104A0,  # Osmanya
+    0x10D30,  # Hanifi Rohingya
+    0x11066,  # Brahmi
+    0x110F0,  # Sora Sompeng
+    0x11136,  # Chakma
+    0x111D0,  # Sharada
+    0x112F0,  # Khudawadi
+    0x11450,  # Newa
+    0x114D0,  # Tirhuta
+    0x11650,  # Modi
+    0x116C0,  # Takri
+    0x11730,  # Ahom
+    0x118E0,  # Warang Citi
+    0x11950,  # Dives Akuru
+    0x11C50,  # Bhaiksuki
+    0x11D50,  # Masaram Gondi
+    0x11DA0,  # Gunjala Gondi
+    0x11F50,  # Kawi
+    0x16A60,  # Mro
+    0x16AC0,  # Tangsa
+    0x16B50,  # Pahawh Hmong
+    0x1D7CE,  # Mathematical bold
+    0x1D7D8,  # Mathematical double-struck
+    0x1D7E2,  # Mathematical sans-serif
+    0x1D7EC,  # Mathematical sans-serif bold
+    0x1D7F6,  # Mathematical monospace
+    0x1E140,  # Nyiakeng Puachue Hmong
+    0x1E2F0,  # Wancho
+    0x1E4F0,  # Nag Mundari
+    0x1E950,  # Adlam
+    0x1FBF0,  # Segmented
 )
-# ``\u`` plus four hex digits is decoded only for these code points.
-_ESCAPE_CODEPOINTS = ASCII_DIGITS | DIGIT_SPLITTERS | DIGIT_UNDERSCORES
-UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def _unicode_digit_map():
+    mapping = {}
+    for zero in UNICODE_DIGIT_ZERO:
+        for offset, ascii_digit in enumerate("0123456789"):
+            mapping[chr(zero + offset)] = ascii_digit
+    return mapping
+
+
+UNICODE_DIGIT_TO_ASCII = _unicode_digit_map()
+# ``\U``, ``\u``, and ``\x`` are decoded only for these code points.
+_ESCAPE_CODEPOINTS = (
+    ASCII_DIGITS
+    | DIGIT_SPLITTERS
+    | DIGIT_UNDERSCORES
+    | frozenset(UNICODE_DIGIT_TO_ASCII)
+)
+CODE_ESCAPE = re.compile(
+    r"\\(?:U([0-9a-fA-F]{8})|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))"
+)
 # Space and tab. A newline, CR, vertical tab, and form feed are not included.
 MMAP_HORIZONTAL_SPACE = frozenset(" \t")
 UTF32_LE_BOM = b"\xff\xfe\x00\x00"
@@ -129,7 +240,9 @@ BINARY_SKIP_REASONS = frozenset({"nul-byte"})
 UNDECODABLE_BOM = "undecodable-bom"
 # SHA-256 of ``repr(SYNTHETIC_ID_RULES)`` and of the sorted ``text_hits`` of
 # ``tests/synthetic_id_map.py``. A new rule or a new assigned-MID literal
-# changes one of these. The digests are not the identifiers.
+# changes one of these. The digests live in this module, beside the guard,
+# and a map edit updates them in the same change. They are a review check,
+# not a tamper-proof seal. The digests are not the identifiers.
 SYNTHETIC_ID_RULES_SHA256 = "4f6c26654d87b3609570f13fd21bd81e93fd48032d537a39e421b80253a83d66"
 SYNTHETIC_ID_MAP_HITS_SHA256 = "cc8bf798b6833e5d9ea1cb2fd98b18ede51574d3bc4b48f9d48ec0ad7c744d8f"
 SYNTHETIC_ID_MAP_SIZE = 940
@@ -188,15 +301,17 @@ CONTEXT_EXCLUSIONS = (
     ),
     (
         "mmap-size-assignment",
-        "The nine-digit value assigned by a whole-word mmap_size is a byte "
-        "count. Only U+0020 and U+0009 may sit around the equals sign, and "
-        "only the token that starts immediately after that spacing is "
-        "ignored. A newline, CR, vertical tab, or form feed does not carry "
-        "the exclusion. In tests/multiday_memory_probe.py that value is "
-        "256 MiB. The same digits in not_mmap_size, earlier on the line, or "
-        "in any other assignment still fail.",
+        "The nine-digit value assigned by mmap_size in "
+        "tests/multiday_memory_probe.py is a 256 MiB byte count. The "
+        "exclusion is that exact path only. Only U+0020 and U+0009 may sit "
+        "around the equals sign, and the character before mmap_size must be "
+        "in MMAP_PREFIX. A newline, CR, vertical tab, or form feed does not "
+        "carry the exclusion. The same assignment in any other file fails.",
     ),
 )
+
+# The mmap exclusion is this path and no other.
+MMAP_EXCLUSION_PATH = "tests/multiday_memory_probe.py"
 
 # Files harborlens-verify hashes, and the cleaned CSV the release recount reads.
 VERIFY_ARTIFACTS = (
@@ -295,27 +410,53 @@ def json_mmsi_hits(text):
     return hits
 
 
+def _ascii_token(token):
+    """ASCII digits for a token, or None when a character is not in the map."""
+    chars = []
+    for character in token:
+        if character in ASCII_DIGITS:
+            chars.append(character)
+        elif character in UNICODE_DIGIT_TO_ASCII:
+            chars.append(UNICODE_DIGIT_TO_ASCII[character])
+        else:
+            return None
+    return "".join(chars)
+
+
+def _translate_unicode_digits(text):
+    if any(character in UNICODE_DIGIT_TO_ASCII for character in text):
+        return "".join(UNICODE_DIGIT_TO_ASCII.get(character, character) for character in text)
+    return text
+
+
 def normalize_identifier_text(text):
     """Collapse the fixed obfuscations, then return the text to scan.
 
-    A ``\\u`` escape of four hex digits is decoded only when the code point
-    is an ASCII digit, a member of ``DIGIT_SPLITTERS``, or U+005F. ``\\U``
-    and ``\\x`` stay as written. Splitter characters are then removed
-    wherever they sit. U+005F is removed only when both neighbors are ASCII
-    digits. A consecutive underscore, U+FF3F, and a space stay in place.
+    ``\\U`` (eight hex digits), ``\\u`` (four), and ``\\x`` (two) are decoded
+    only when the code point is an ASCII digit, a Unicode digit in
+    ``UNICODE_DIGIT_TO_ASCII``, a member of ``DIGIT_SPLITTERS``, or U+005F.
+    ``\\N`` and octal escapes stay as written. Splitter characters are then
+    removed. Unicode digits become ASCII digits. U+005F is removed only when
+    both neighbors are ASCII digits. A consecutive underscore, U+FF3F, and a
+    space stay in place.
     """
 
     def replace_escape(match):
-        character = chr(int(match.group(1), 16))
+        hex_digits = next(group for group in match.groups() if group is not None)
+        code = int(hex_digits, 16)
+        if code > 0x10FFFF:
+            return match.group(0)
+        character = chr(code)
         if character in _ESCAPE_CODEPOINTS:
             return character
         return match.group(0)
 
-    text = UNICODE_ESCAPE.sub(replace_escape, text)
+    text = CODE_ESCAPE.sub(replace_escape, text)
     if any(character in DIGIT_SPLITTERS for character in text):
         text = "".join(
             character for character in text if character not in DIGIT_SPLITTERS
         )
+    text = _translate_unicode_digits(text)
     if any(character in DIGIT_UNDERSCORES for character in text):
         kept = []
         size = len(text)
@@ -385,46 +526,67 @@ def _excluded_hex_span(text, start, end):
     return False
 
 
-def text_hits(text):
-    """Assigned-MID tokens in any text.
+def _multiset_union(left, right):
+    """Max count of each token. Raw hits are kept, then normalized-only hits."""
+    result = list(left)
+    counts = Counter(left)
+    for token, count in Counter(right).items():
+        extra = count - counts.get(token, 0)
+        if extra > 0:
+            result.extend([token] * extra)
+    return result
 
-    The MID is the first three digits. A leading-0 or leading-9 form does not
-    move the MID to digits 2-4; the previous guard did not do that.
 
-    ``normalize_identifier_text`` runs first. A nine-digit token inside a
-    hex run of exactly 64 characters is not a vessel id
-    (``hex-run-64-or-longer``). A longer run excludes a token only when
-    the token is strictly inside that run. A token that starts or ends a
-    longer run is an identifier glued on with no separator, and it fails.
-    The token that starts immediately after a whole-word ``mmap_size``
-    assignment is a byte count (``mmap-size-assignment``). The spacing
-    around ``=`` is ``MMAP_HORIZONTAL_SPACE`` only. The same digits outside
-    that value are a hit. An f-string prefix whose first three digits are
-    an assigned MID is a hit even when the format field completes the nine
-    digits at runtime. The prefix may be ``f`` or ``F``, with an optional
-    ``r`` on either side, and the quote may be single or triple.
+def _scan_one(text, relative):
+    """Hits in one string. No normalization.
+
+    The ``mmap_size`` exclusion runs only when ``relative`` is
+    ``MMAP_EXCLUSION_PATH``.
     """
-    text = normalize_identifier_text(text)
     hits = []
-    mmap_values = _mmap_assignment_ends(text)
+    mmap_values = _mmap_assignment_ends(text) if relative == MMAP_EXCLUSION_PATH else ()
     for match in TOKEN_9.finditer(text):
-        token = match.group(1)
+        ascii_token = _ascii_token(match.group(1))
+        if ascii_token is None:
+            continue
         if _excluded_hex_span(text, match.start(), match.end()):
             continue
         if match.start() in mmap_values:
             continue
-        if mid_is_assigned(token[:3]):
-            hits.append(token)
+        if mid_is_assigned(ascii_token[:3]):
+            hits.append(ascii_token)
     for match in FSTRING_PREFIX.finditer(text):
-        prefix = match.group("prefix")
-        if mid_is_assigned(prefix[:3]):
-            hits.append(prefix + "{...}")
+        ascii_prefix = _ascii_token(match.group("prefix"))
+        if ascii_prefix is None:
+            continue
+        if mid_is_assigned(ascii_prefix[:3]):
+            hits.append(ascii_prefix + "{...}")
     return hits
 
 
-def python_source_hits(text):
+def text_hits(text, relative=None):
+    """Assigned-MID tokens in any text.
+
+    The result is the multiset union of the raw text and
+    ``normalize_identifier_text``. A neighboring digit group that
+    normalization would glue onto an identifier does not hide the raw hit.
+    An underscore-grouped identifier that the raw text does not see is
+    still a hit. The MID is the first three ASCII digits after the fixed
+    Unicode-digit map. A leading-0 or leading-9 form does not move the MID
+    to digits 2-4.
+
+    A nine-digit token inside a hex run of exactly 64 characters is not a
+    vessel id (``hex-run-64-or-longer``). That exclusion includes nine
+    digits at either edge of those 64 characters. A longer run excludes a
+    token only when the token is strictly inside that run. The ``mmap_size``
+    exclusion applies only to ``tests/multiday_memory_probe.py``.
+    """
+    return _multiset_union(_scan_one(text, relative), _scan_one(normalize_identifier_text(text), relative))
+
+
+def python_source_hits(text, relative=None):
     """Earlier name for ``text_hits``. The repository scan calls ``text_hits``."""
-    return text_hits(text)
+    return text_hits(text, relative=relative)
 
 
 def relative_posix(path, root=ROOT):
@@ -470,38 +632,43 @@ def _git_ls_files(root, others=False):
     return [item.decode("utf-8") for item in listed.split(b"\0") if item]
 
 
-def read_tracked_text(path):
-    """Return ``(text, kind)``.
+def _latin1_view(data):
+    """ISO-8859-1 view, with UTF-8 splitter sequences removed first."""
+    cleaned = data
+    for sequence in SPLITTER_UTF8:
+        if sequence in cleaned:
+            cleaned = cleaned.replace(sequence, b"")
+    return cleaned.decode("latin-1")
 
-    ``utf-32`` is checked before ``utf-16`` because a UTF-32 LE BOM starts
-    with the UTF-16 LE BOM. A BOM that does not decode returns
-    ``(None, "undecodable-bom")`` and the scan records a hit. A NUL byte
-    with no such BOM returns ``(None, "nul-byte")`` and the scan skips the
-    file. Bytes that are not UTF-8 and contain no NUL are decoded as
-    ISO-8859-1 after the UTF-8 sequences in ``SPLITTER_UTF8`` are removed,
-    so an ASCII digit run split by those bytes is still visible.
+
+def text_views(data):
+    """Return ``(views, skip_reason, bom_failed)``.
+
+    ``views`` is every decoding the scan unions. A UTF-32 BOM is checked
+    before a UTF-16 BOM because a UTF-32 LE BOM starts with the UTF-16 LE
+    BOM. A BOM decode is one view. UTF-8 with ``surrogateescape`` and
+    ISO-8859-1 are always added, including when a BOM is present, so an
+    ASCII identifier after a two-byte prefix is still visible. A NUL byte
+    with no BOM returns skip reason ``nul-byte`` and no views. A BOM that
+    does not decode sets ``bom_failed``.
     """
-    data = Path(path).read_bytes()
+    views = []
+    bom_failed = False
     if data.startswith(UTF32_LE_BOM) or data.startswith(UTF32_BE_BOM):
         try:
-            return data.decode("utf-32"), "utf-32"
+            views.append(data.decode("utf-32"))
         except UnicodeDecodeError:
-            return None, UNDECODABLE_BOM
-    if data.startswith(UTF16_LE_BOM) or data.startswith(UTF16_BE_BOM):
+            bom_failed = True
+    elif data.startswith(UTF16_LE_BOM) or data.startswith(UTF16_BE_BOM):
         try:
-            return data.decode("utf-16"), "utf-16"
+            views.append(data.decode("utf-16"))
         except UnicodeDecodeError:
-            return None, UNDECODABLE_BOM
-    if b"\0" in data:
-        return None, "nul-byte"
-    try:
-        return data.decode("utf-8"), "utf-8"
-    except UnicodeDecodeError:
-        cleaned = data
-        for sequence in SPLITTER_UTF8:
-            if sequence in cleaned:
-                cleaned = cleaned.replace(sequence, b"")
-        return cleaned.decode("latin-1"), "latin-1"
+            bom_failed = True
+    elif b"\0" in data:
+        return [], "nul-byte", False
+    views.append(data.decode("utf-8", errors="surrogateescape"))
+    views.append(_latin1_view(data))
+    return views, None, bom_failed
 
 
 def extension_key(relative):
@@ -516,8 +683,10 @@ def scan_repository(root=ROOT):
     ``git ls-files`` supplies the tracked set. ``git ls-files --others
     --exclude-standard`` adds a file a test just wrote, so a planted negative
     uses this function. File-exact exclusions are skipped before the read.
-    A ``nul-byte`` file is skipped and recorded under ``binaries`` and
-    ``binary_reasons``. An undecodable BOM is a hit, not a skip.
+    A ``nul-byte`` file with no UTF-16 or UTF-32 BOM is skipped and recorded
+    under ``binaries`` and ``binary_reasons``. Every other file is the union
+    of its text views. An undecodable BOM is a hit, not a skip. The
+    ``mmap_size`` exclusion is passed the relative path.
 
     Returns ``(hits, coverage)``. ``hits`` are ``(relative path, token)``.
     ``coverage`` has ``visited`` (text files searched), ``binaries``,
@@ -536,16 +705,16 @@ def scan_repository(root=ROOT):
         path = root / relative
         if not path.is_file():
             continue
-        text, kind = read_tracked_text(path)
-        if kind == "nul-byte":
+        views, skip_reason, bom_failed = text_views(path.read_bytes())
+        if skip_reason == "nul-byte":
             binaries.append(relative)
-            binary_reasons[relative] = kind
-            continue
-        if text is None:
-            hits.append((relative, kind))
+            binary_reasons[relative] = skip_reason
             continue
         visited.append(relative)
-        for hit in text_hits(text):
+        found = [UNDECODABLE_BOM] if bom_failed else []
+        for view in views:
+            found = _multiset_union(found, text_hits(view, relative=relative))
+        for hit in found:
             hits.append((relative, hit))
     return hits, {
         "visited": visited,
@@ -1090,12 +1259,14 @@ class GuardScanTests(unittest.TestCase):
         token = str(256 * 1024 * 1024)
         probe = (ROOT / "tests" / "multiday_memory_probe.py").read_text(encoding="utf-8")
         self.assertIn(token, probe)
-        self.assertNotIn(token, python_source_hits(probe))
+        self.assertNotIn(token, text_hits(probe, relative=MMAP_EXCLUSION_PATH))
+        self.assertIn(token, text_hits(probe))
         self.assertEqual(
-            python_source_hits(f'db.execute("PRAGMA mmap_size={token}")'),
+            text_hits(f'db.execute("PRAGMA mmap_size={token}")', relative=MMAP_EXCLUSION_PATH),
             [],
         )
-        self.assertEqual(python_source_hits(f"mmap_size = {token}\n"), [])
+        self.assertEqual(text_hits(f"mmap_size = {token}\n", relative=MMAP_EXCLUSION_PATH), [])
+        self.assertEqual(text_hits(f"mmap_size = {token}\n"), [token])
         # The assigned value is exempt. These three are not that value.
         other = "367" + "123456"
         self.assertEqual(text_hits("not_mmap_size = " + other), [other])
@@ -1545,6 +1716,19 @@ def unicode_escapes(digits):
     return "".join("\\u%04x" % ord(character) for character in digits)
 
 
+def escape_code_point(character):
+    """``\\u`` or ``\\U`` escape. Non-BMP code points use eight hex digits."""
+    code = ord(character)
+    if code > 0xFFFF:
+        return "\\U%08x" % code
+    return "\\u%04x" % code
+
+
+def _other_script_digits(digits, zero):
+    """Map ASCII digits onto one explicit decimal block."""
+    return "".join(chr(zero + int(character)) for character in digits)
+
+
 def scan_temp_bytes(parent, name, data):
     """Write ``data`` under a temporary directory inside ``parent`` and scan.
 
@@ -1614,7 +1798,7 @@ class DeferredGuardTests(unittest.TestCase):
                 [expected],
                 hex(ord(splitter)),
             )
-            escaped = "\\u%04x" % ord(splitter)
+            escaped = escape_code_point(splitter)
             self.assertEqual(text_hits(left + escaped + right), [expected], escaped)
 
     def test_splitter_between_an_unassigned_mid_is_not_a_hit(self):
@@ -1650,10 +1834,14 @@ class DeferredGuardTests(unittest.TestCase):
         self.assertEqual(text_hits(unicode_escapes(planted + "7")), [])
         self.assertEqual(text_hits("\\u0033" + "6712345"), [])
         self.assertEqual(text_hits("\\u0033" + "67123456" + "7"), [])
-        self.assertEqual(text_hits("\\U00000033" + "67123456"), [])
-        self.assertEqual(text_hits("\\x33" + "67123456"), [])
+        self.assertEqual(text_hits("\\U00000033" + "67123456"), [planted])
+        self.assertEqual(text_hits("\\x33" + "67123456"), [planted])
+        self.assertEqual(text_hits("\\x33" + "671234"), [])
+        self.assertEqual(text_hits("\\x31" + "99080001"), [])
         self.assertEqual(text_hits("\\u0041" + planted), [])
         self.assertEqual(text_hits("\\u003" + "67123456"), [])
+        self.assertEqual(text_hits("\\N{DIGIT THREE}" + "67123456"), [])
+        self.assertEqual(text_hits("\\063" + "67123456"), [])
 
     def test_utf16_le_and_be_bom_assigned_mid_is_reported(self):
         planted = "367" + "123456"
@@ -1723,7 +1911,7 @@ class DeferredGuardTests(unittest.TestCase):
         relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
         self.assertEqual(matched, [(relative, UNDECODABLE_BOM)])
         self.assertNotIn(relative, coverage["binaries"])
-        self.assertNotIn(relative, coverage["visited"])
+        self.assertIn(relative, coverage["visited"])
 
     def test_non_utf8_assigned_mid_is_scanned(self):
         planted = "367" + "123456"
@@ -1812,16 +2000,126 @@ class DeferredGuardTests(unittest.TestCase):
 
     def test_mmap_size_same_line_space_and_tab_stay_excluded(self):
         token = str(256 * 1024 * 1024)
-        self.assertEqual(text_hits("mmap_size = " + token), [])
-        self.assertEqual(text_hits("mmap_size\t=\t" + token), [])
-        self.assertEqual(text_hits("mmap_size=" + token), [])
-        self.assertEqual(text_hits('db.execute("PRAGMA mmap_size=' + token + '")'), [])
-        self.assertEqual(text_hits(".mmap_size = " + token), [])
+        probe_path = MMAP_EXCLUSION_PATH
+        self.assertEqual(text_hits("mmap_size = " + token, relative=probe_path), [])
+        self.assertEqual(text_hits("mmap_size\t=\t" + token, relative=probe_path), [])
+        self.assertEqual(text_hits("mmap_size=" + token, relative=probe_path), [])
+        self.assertEqual(
+            text_hits('db.execute("PRAGMA mmap_size=' + token + '")', relative=probe_path),
+            [],
+        )
+        self.assertEqual(text_hits(".mmap_size = " + token, relative=probe_path), [])
+        self.assertEqual(text_hits("mmap_size = " + token), [token])
+        self.assertEqual(text_hits("mmap_size = " + token, relative="src/harborlens/multiday.py"), [token])
         planted = "367" + "123456"
-        self.assertEqual(text_hits("\u00e9mmap_size = " + planted), [planted])
-        self.assertEqual(text_hits("not_mmap_size = " + planted), [planted])
+        self.assertEqual(text_hits("mmap_size = " + planted), [planted])
+        self.assertEqual(text_hits("mmap_size = " + planted, relative=probe_path), [])
+        self.assertEqual(text_hits("\u00e9mmap_size = " + planted, relative=probe_path), [planted])
+        self.assertEqual(text_hits("not_mmap_size = " + planted, relative=probe_path), [planted])
         probe = (ROOT / "tests" / "multiday_memory_probe.py").read_text(encoding="utf-8")
-        self.assertNotIn(token, text_hits(probe))
+        self.assertNotIn(token, text_hits(probe, relative=probe_path))
+
+    def test_neighboring_digit_group_does_not_hide_an_identifier(self):
+        """Raw hits survive normalization that would glue a neighbor on."""
+        planted = "366" + "123456"
+        samples = (
+            "track_2024_" + planted + ".csv",
+            "20240101_" + planted + ".csv",
+            "data/20240101_" + planted,
+            "vessel_1_" + planted,
+            "mmsi_2_" + planted,
+            "run1_" + planted,
+            "x2_" + planted,
+            "v2_" + planted + "_v3",
+            "2024_01_" + planted,
+            "step_3_" + planted + "_end",
+            planted + "_1",
+            planted + "_2024",
+            "MMSI=3_" + planted,
+            "prefix_9_" + planted + "_9",
+            "2024" + "\u200b" + planted,
+            planted + "\u200b" + "2024",
+            "2024" + "\\u200b" + planted,
+            "1_" + planted,
+            planted + "_1",
+            "12_" + planted + "_34",
+            "9" + "\u200b" + planted,
+            planted + "\u200b" + "8",
+            "id_" + planted,
+        )
+        for sample in samples:
+            self.assertIn(planted, text_hits(sample), sample)
+        allowed = "199" + "080001"
+        self.assertEqual(text_hits("2024_" + allowed), [])
+        self.assertEqual(text_hits("1_" + "366" + "12345"), [])
+        self.assertEqual(text_hits("366" + "1234567" + "_1"), [])
+
+    def test_bom_prefixed_ascii_is_still_a_hit(self):
+        planted = "366" + "123456"
+        payload = b"note " + planted.encode("ascii") + b" end"
+        data = b"\xff\xfe" + payload
+        if len(data) % 2:
+            data += b" "
+        self.assertEqual(len(data) % 2, 0)
+        relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
+        self.assertIn((relative, planted), matched)
+        self.assertNotIn(relative, coverage["binaries"])
+        self.assertIn(relative, coverage["visited"])
+        allowed = b"\xff\xfe" + ("199" + "080001").encode("ascii")
+        if len(allowed) % 2:
+            allowed += b" "
+        relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", allowed)
+        self.assertEqual(matched, [])
+        self.assertIn(relative, coverage["visited"])
+
+    def test_invalid_utf8_byte_does_not_hide_unicode_digits(self):
+        planted = "366" + "123456"
+        for zero in (0xFF10, 0x0660, 0x0966):
+            rendered = _other_script_digits(planted, zero)
+            data = b"\xff " + rendered.encode("utf-8")
+            relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
+            self.assertIn((relative, planted), matched, hex(zero))
+            self.assertIn(relative, coverage["visited"])
+            self.assertNotIn(relative, coverage["binaries"])
+        allowed = _other_script_digits("199" + "080001", 0xFF10)
+        data = b"\xff " + allowed.encode("utf-8")
+        relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
+        self.assertEqual(matched, [])
+        short = _other_script_digits("366" + "12345", 0xFF10)
+        data = b"\xff " + short.encode("utf-8")
+        relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
+        self.assertEqual(matched, [])
+        long = _other_script_digits(planted + "7", 0xFF10)
+        data = b"\xff " + long.encode("utf-8")
+        relative, matched, coverage = scan_temp_bytes(ROOT / "tests", "plant.txt", data)
+        self.assertEqual(matched, [])
+
+    def test_unicode_digits_joined_by_an_underscore_match(self):
+        planted = "366" + "123456"
+        allowed = "199" + "080001"
+        blocks = (
+            (0xFF10, "fullwidth"),
+            (0x0660, "arabic-indic"),
+            (0x0966, "devanagari"),
+            (0x09E6, "bengali"),
+            (0x0E50, "thai"),
+            (0x1D7CE, "mathematical-bold"),
+        )
+        for zero, name in blocks:
+            rendered = _other_script_digits(planted, zero)
+            grouped = (
+                _other_script_digits(planted[:3], zero)
+                + "_"
+                + _other_script_digits(planted[3:], zero)
+            )
+            self.assertEqual(text_hits(rendered), [planted], name)
+            self.assertEqual(text_hits(grouped), [planted], name)
+            self.assertEqual(text_hits(_other_script_digits(allowed, zero)), [], name)
+            self.assertEqual(
+                text_hits(_other_script_digits("366" + "12345", zero) + "_"),
+                [],
+                name,
+            )
 
 
 if __name__ == "__main__":
