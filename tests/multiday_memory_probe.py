@@ -78,8 +78,8 @@ def main(argv):
     observed = {}
     original = multiday._write_outputs
 
-    def wrapped(db, files, sources, params, export_cap_mib, censoring, meter):
-        stats = original(db, files, sources, params, export_cap_mib, censoring, meter)
+    def wrapped(db, files, sources, params, export_cap_mib, censoring, meter, scope):
+        stats = original(db, files, sources, params, export_cap_mib, censoring, meter, scope)
         # The connection is still open, so the scratch mapping is still resident.
         observed["sqlite_mapped_rss_bytes"] = sqlite_mapped_rss_bytes(meter.db_path)
         observed["scratch_file_bytes"] = meter.db_path.stat().st_size if meter.db_path.exists() else 0

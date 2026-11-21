@@ -175,9 +175,24 @@ class SingleFileCensoringTests(unittest.TestCase):
                 window_end="2024-01-02T12:00:00Z")
 
     def test_observations_outside_declared_window_fail(self):
+        nested = self.root / "a" / "b" / "out"
+        (self.root / "a").mkdir()
+        (self.root / "a" / "keep.txt").write_text("stay", encoding="utf-8")
         with self.assertRaisesRegex(AnalysisWindowError, "outside the declared analysis window"):
-            run(self.src, self.root / "out", window_start="2024-01-02T01:00:00Z",
+            run(self.src, nested, window_start="2024-01-02T01:00:00Z",
                 window_end="2024-01-02T06:00:00Z")
+        self.assertFalse((self.root / "a" / "b").exists())
+        self.assertEqual((self.root / "a" / "keep.txt").read_text(encoding="utf-8"), "stay")
+        self.assertFalse(nested.exists())
+        existing = self.root / "existing"
+        existing.mkdir()
+        (existing / "keep.txt").write_text("stay", encoding="utf-8")
+        with self.assertRaisesRegex(AnalysisWindowError, "outside the declared analysis window"):
+            run(self.src, existing, window_start="2024-01-02T01:00:00Z",
+                window_end="2024-01-02T06:00:00Z")
+        self.assertEqual((existing / "keep.txt").read_text(encoding="utf-8"), "stay")
+        self.assertFalse((existing / "houston_clean.csv").exists())
+        self.assertFalse((existing / "manifest.json").exists())
 
     def test_invalid_window_declarations_fail(self):
         for start, end in (("2024-01-02T00:00:00Z", None), ("2024-01-02T00:00:00", "2024-01-02T06:00:00Z"),
@@ -293,6 +308,23 @@ class MultiDayCensoringTests(unittest.TestCase):
         sources = sorted(d["source"] for d in manifest["analysis_window"]["declarations"])
         self.assertEqual(sources, ["extraction_sidecar", "none"])
         self.assertEqual({e["left_censoring"] for e in by_mmsi(self.root / "out").values()}, {"unknown"})
+
+    def test_invalid_requested_window_creates_no_nested_directory(self):
+        nested = self.root / "a" / "b" / "out"
+        (self.root / "a").mkdir()
+        (self.root / "a" / "keep.txt").write_text("stay", encoding="utf-8")
+        before = self.a.read_bytes()
+        with self.assertRaises(AnalysisWindowError) as caught:
+            run_multiday(
+                [self.a, self.b], nested,
+                window_start="2024-01-02T00:00:00Z",
+                window_end="2023-07-01T00:00:00Z",
+            )
+        self.assertIn("--window-start must precede --window-end", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
+        self.assertFalse((self.root / "a" / "b").exists())
+        self.assertEqual((self.root / "a" / "keep.txt").read_text(encoding="utf-8"), "stay")
+        self.assertEqual(self.a.read_bytes(), before)
 
     def test_explicit_window_with_sidecars_is_rejected(self):
         self.sidecars()
