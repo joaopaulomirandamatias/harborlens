@@ -19,6 +19,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from harborlens.ais import interpret_cleaned_row
+from harborlens.cli_usage import add_version_argument
 from harborlens.provenance import checksum, digests_equal, verify_manifest
 from harborlens.rights import APPROVED_STATUSES, PURPOSES, rights_receipt
 from harborlens.review_signatures import ReviewSignatureError, verify_review_signature
@@ -469,6 +470,7 @@ def main(argv=None):
             "are a fixed clock-skew allowance."
         )
     )
+    add_version_argument(parser)
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--source-file", required=True, type=Path)
     parser.add_argument("--rights-register", required=True, type=Path)

@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from urllib.request import Request,urlopen
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.io_safe import AISInputError
 from harborlens.timeparse import parse_calendar_date
 from harborlens.vintages import vintage_for
@@ -17,6 +18,7 @@ def _day(value):
 
 def main():
     p=argparse.ArgumentParser(description="Experimental NOAA AIS daily downloader")
+    add_version_argument(p)
     p.add_argument("--date",required=True,help="YYYY-MM-DD calendar date; not a week date or YYYYMMDD")
     p.add_argument("--directory",default="data")
     p.add_argument("--max-mib",type=int,default=1024)

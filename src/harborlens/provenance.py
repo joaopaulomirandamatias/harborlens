@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from harborlens import __version__
+from harborlens.cli_usage import add_version_argument
 from urllib.parse import urlsplit
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
@@ -123,10 +124,27 @@ def verify_manifest(path, preloaded=None):
     return {"ok": all(x == "verified" for x in results.values()), "artifacts": results}
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify local HarborLens export bytes")
-    parser.add_argument("--manifest", required=True, type=Path)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Verify SHA-256 and sizes of a HarborLens run against manifest.json. "
+            "This checks local bytes only; it does not prove source authenticity, "
+            "data rights, or verified events."
+        )
+    )
+    add_version_argument(parser)
+    parser.add_argument(
+        "--manifest", required=True, type=Path,
+        help="path to the manifest.json written by harborlens (required)",
+    )
     args = parser.parse_args()
-    result = verify_manifest(args.manifest)
+    try:
+        result = verify_manifest(args.manifest)
+    except OSError as exc:
+        detail = exc.strerror if exc.strerror else type(exc).__name__
+        parser.error(
+            f"cannot read manifest '{args.manifest}' ({detail}). "
+            "Give --manifest the manifest.json written by harborlens."
+        )
     print(json.dumps(result, indent=2))
     if not result["ok"]:
         raise SystemExit(1)

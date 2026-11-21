@@ -23,6 +23,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.ais import (
     ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
 )
@@ -237,7 +238,7 @@ def _load_files(db, inputs, bbox, max_points, meter):
         for row in stream_rows(path):
             if columns is None:
                 columns = {
-                    key: header_alias(list(row), key, required=key not in OPTIONAL_COLUMNS)
+                    key: header_alias(list(row), key, required=key not in OPTIONAL_COLUMNS, source=path)
                     for key in ALIASES
                 }
             file_rows += 1
@@ -565,6 +566,7 @@ def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter)
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Historical multi-day AIS stationary-candidate reconstruction")
+    add_version_argument(parser)
     parser.add_argument("--input", nargs="+", required=True, type=Path,
                         help=f"Two to {MAX_FILES} local AIS subsets")
     parser.add_argument("--out", required=True, type=Path)

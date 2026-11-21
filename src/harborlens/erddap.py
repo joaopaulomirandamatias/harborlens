@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.rights import PURPOSES, rights_receipt
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -159,6 +160,7 @@ def fetch_subset(start, end, bbox, output, max_mib=8, opener=None,
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch a bounded historical NOAA PMEL AIS2024 subset")
+    add_version_argument(parser)
     parser.add_argument("--start", required=True,
                         help="YYYY-MM-DDTHH:MM:SSZ or ±HH:MM; 0-6 fraction digits; no surrounding space")
     parser.add_argument("--end", required=True,

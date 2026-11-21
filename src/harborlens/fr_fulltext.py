@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 
+from harborlens.cli_usage import add_version_argument
+
 DOCUMENTS = (
     ("2023-15652", "2023-07-25"),
     ("2023-28652", "2023-12-28"),
@@ -149,6 +151,7 @@ def save_review(path,opener=None):
 
 def main():
     parser=argparse.ArgumentParser(description="Triage four official 2023 Federal Register Part 110 full texts")
+    add_version_argument(parser)
     parser.add_argument("--out",type=Path,required=True)
     args=parser.parse_args()
     result=save_review(args.out)

@@ -17,6 +17,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from harborlens.cli_usage import add_version_argument
+
 SOURCE_URL = "https://www.govinfo.gov/content/pkg/CFR-2024-title33-vol1/html/CFR-2024-title33-vol1.htm"
 AMENDMENT_URL = "https://www.govinfo.gov/content/pkg/FR-2018-04-27/pdf/2018-08873.pdf"
 REFERENCE_DATE = date(2024, 7, 1)
@@ -173,6 +175,7 @@ def save_audit(output: Path, study_date: str = "2024-07-01"):
 
 def main():
     parser = argparse.ArgumentParser(description="Audit 2024 CFR anchorage coordinates; NO AIS matching or navigation")
+    add_version_argument(parser)
     parser.add_argument("--study-date",default="2024-07-01")
     parser.add_argument("--out",required=True,type=Path)
     args = parser.parse_args()

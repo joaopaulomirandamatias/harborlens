@@ -16,6 +16,7 @@ from urllib.error import URLError
 from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.request import Request, urlopen
 
+from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
 from harborlens.timeparse import parse_calendar_date
 
 API = "https://www.federalregister.gov/api/v1/documents.json"
@@ -253,10 +254,12 @@ def save_scan(out, start="2023-07-01", end="2024-01-02", opener=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Screen official FR 33 CFR Part 110 publication index; no legal conclusions")
+    add_version_argument(parser)
     parser.add_argument("--start", default="2023-07-01",
                    help="YYYY-MM-DD calendar date; week dates and YYYYMMDD are rejected")
     parser.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
     parser.add_argument("--out", type=Path, required=True)
+    add_debug_argument(parser)
     args = parser.parse_args()
     # Parse the calendar text, then the window, before save_scan builds a
     # Request or calls urlopen. Later FederalRegisterAuditError values from
@@ -269,7 +272,7 @@ def main():
         validate_publication_window(args.start, args.end)
         result = save_scan(args.out, args.start, args.end)
     except FederalRegisterAuditError as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc, args.debug)
     print(json.dumps({
         "documents_for_review": result["count"],
         "query_pages": len(result["query_pages"]),
