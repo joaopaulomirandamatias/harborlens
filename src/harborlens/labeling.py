@@ -4,8 +4,11 @@
 stationary candidates and negative (movement) intervals from one verified run.
 Candidates are stratified by duration band, censoring, vessel group and AIS
 transceiver class (A, B, or absent/unknown). Negatives are stratified by
-vessel group and transceiver class. ``harborlens-label-agreement`` compares
-two annotators' sheets.
+vessel group and transceiver class. The same seed and the same inputs
+reproduce the sheet and the sampling manifest only on the same Python minor
+version. The manifest records ``python_version`` as ``major.minor.micro``
+from ``sys.version_info``. ``harborlens-label-agreement`` compares two
+annotators' sheets.
 
 Agreement between annotators is NOT accuracy of the method, and an L2 label is
 expert review of AIS, not independent ground truth. Nothing here upgrades a
@@ -62,6 +65,7 @@ import math
 import os
 import random
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import timedelta
 from pathlib import Path
@@ -79,6 +83,27 @@ from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
+
+
+def sampling_python_version():
+    """Interpreter release triple recorded on a labeling-sample manifest.
+
+    The value is ``major.minor.micro`` from ``sys.version_info``. The release
+    level, serial, build date, and compiler are omitted, so one CPython micro
+    release records one string. ``platform.python_version()`` parses
+    ``sys.version`` and is the same triple on a final release. The tuple is
+    the source of that parse and does not depend on the ``platform`` module's
+    version-string grammar.
+
+    The blinded sheet and the sampling manifest are reproducible for the same
+    seed and the same inputs only on the same Python minor version. CPython
+    3.11 changed ``random.sample``. This field records which interpreter drew
+    the sample. Byte identity stops at that minor version.
+    """
+    major, minor, micro = sys.version_info[:3]
+    return f"{major}.{minor}.{micro}"
+
+
 AGREEMENT_SCHEMA = "label-agreement-v0.1"
 # Closed stratum tokens. Anything other than A or B is absent_or_unknown and stays in the sample.
 TRANSCEIVER_STRATA = ("A", "B", "absent_or_unknown")
@@ -618,6 +643,7 @@ def draw_sample(run_dir, sheet, seed, candidates=70, negatives=30, min_negative_
             "method_version": params.manifest()["method_version"],
             "parameter_set": params.parameter_set,
             "seed": seed,
+            "python_version": sampling_python_version(),
             "requested": {"candidates": candidates, "negatives": negatives,
                           "min_negative_minutes": min_negative_minutes},
             "frame": {"candidates": {k: len(v) for k, v in sorted(strata.items())},
@@ -774,11 +800,21 @@ def agreement(sheet_a, sheet_b, out, sampling=None):
 
 
 def sample_main():
-    parser = argparse.ArgumentParser(description="Blinded, stratified labeling sample of unvalidated AIS intervals")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Blinded, stratified labeling sample of unvalidated AIS intervals. "
+            "The same seed and the same inputs reproduce the sheet and the sampling "
+            "manifest only on the same Python minor version. The manifest records "
+            "python_version as major.minor.micro from sys.version_info."
+        )
+    )
     add_version_argument(parser)
     parser.add_argument("--run", type=Path, required=True, help="Run directory with manifest.json and outputs")
     parser.add_argument("--sheet", type=Path, required=True, help="New CSV labeling sheet")
-    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument(
+        "--seed", type=int, required=True,
+        help="Integer seed. With the same inputs, reproducible only on the same Python minor version.",
+    )
     parser.add_argument("--candidates", type=int, default=70)
     parser.add_argument("--negatives", type=int, default=30)
     parser.add_argument("--min-negative-minutes", type=float, default=30)

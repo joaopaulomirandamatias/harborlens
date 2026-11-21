@@ -2,10 +2,13 @@
 import csv
 import json
 import random
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -14,7 +17,7 @@ from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
     ANNOTATION_FIELDS, SAMPLE_SCHEMA, SAMPLE_SCHEMA_V01, SHEET_FIELDS, TRANSCEIVER_STRATA,
     VESSEL_GROUPS, _allocate, agreement, cohen_kappa, draw_sample, parse_stratum,
-    transceiver_stratum, vessel_group,
+    sample_main, sampling_python_version, transceiver_stratum, vessel_group,
 )
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas" / "v1"
@@ -296,9 +299,66 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual({r["sample_id"] for r in sheet}, {k["sample_id"] for k in record["key"]})
         self.assertEqual(record["drawn"], {"candidates": 6, "negatives": 4})
         self.assertEqual(record["parameter_set"], self.manifest["method_parameters"]["parameter_set"])
+        expected = "{}.{}.{}".format(*sys.version_info[:3])
+        self.assertEqual(record["python_version"], expected)
+        self.assertEqual(again["python_version"], expected)
+        self.assertEqual(record["python_version"], sampling_python_version())
+        on_disk = json.loads((self.root / "sheet.csv.sampling.json").read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["python_version"], expected)
         schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(record)
+
+    def test_schema_rejects_missing_or_malformed_python_version(self):
+        """The published schema is the check for python_version.
+
+        harborlens-verify reads the run manifest and does not open the sampling
+        file. A missing field, a non-string, a minor-only value, a pre-release
+        suffix, and a leading zero fail. The smallest triple and a two-digit
+        major match the pattern. The writer emits the running triple.
+        """
+        record, _ = self.sheet(candidates=2, negatives=1, name="schema.csv")
+        schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())
+        Draft202012Validator.check_schema(schema)
+        checker = Draft202012Validator(schema, format_checker=FormatChecker())
+        checker.validate(record)
+        running = "{}.{}.{}".format(*sys.version_info[:3])
+        self.assertEqual(record["python_version"], running)
+        self.assertRegex(running, schema["properties"]["python_version"]["pattern"])
+
+        missing = dict(record)
+        del missing["python_version"]
+        self.assertFalse(checker.is_valid(missing))
+        self.assertTrue(any(
+            err.validator == "required" and "python_version" in err.message
+            for err in checker.iter_errors(missing)
+        ))
+
+        rejected = {
+            "minor only": "3.10",
+            "pre-release suffix": "3.12.3rc1",
+            "v prefix": "v3.12.3",
+            "empty": "",
+            "leading zero on major": "03.10.0",
+            "leading zero on micro": "3.10.00",
+            "trailing space": "3.10.0 ",
+            "four components": "3.10.0.1",
+            "integer": 312,
+            "null": None,
+        }
+        for name, value in rejected.items():
+            with self.subTest(name=name):
+                broken = dict(record)
+                broken["python_version"] = value
+                self.assertFalse(checker.is_valid(broken))
+                self.assertTrue(any(list(err.path) == ["python_version"] for err in checker.iter_errors(broken)))
+
+        for name, value in (("smallest triple", "0.0.0"), ("two-digit major", "10.0.0")):
+            with self.subTest(name=name):
+                accepted = dict(record)
+                accepted["python_version"] = value
+                checker.validate(accepted)
+                self.assertNotEqual(record["python_version"], value)
 
     def test_every_non_empty_stratum_is_represented(self):
         record, _ = self.sheet(candidates=100, negatives=100)
@@ -393,6 +453,17 @@ class SamplerTests(unittest.TestCase):
         self.assertIsNone(cohen_kappa([]))
         self.assertIsNone(cohen_kappa([("transit", "transit")] * 3))
         self.assertEqual(cohen_kappa([("a", "a"), ("b", "b")]), 1.0)
+
+    def test_help_states_the_minor_version_limit(self):
+        buf = StringIO()
+        with patch("sys.argv", ["harborlens-label-sample", "--help"]), patch("sys.stdout", buf):
+            with self.assertRaises(SystemExit) as caught:
+                sample_main()
+        self.assertEqual(caught.exception.code, 0)
+        text = " ".join(buf.getvalue().split())
+        self.assertIn("only on the same Python minor version", text)
+        self.assertIn("python_version", text)
+        self.assertIn("major.minor.micro", text)
 
 
 if __name__ == "__main__":
