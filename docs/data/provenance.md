@@ -1,6 +1,6 @@
 # Local File Provenance (research feature)
 
-The `harborlens` CLI writes SHA-256 digests for its input and three output files. An optional `--source-url` is a user-declared value, **not** an authenticated government claim. Data rights always remain `review_required`.
+The `harborlens` CLI writes SHA-256 digests for its input and three output files. An optional `--source-url` is a user-declared value, **not** an authenticated government claim. Data rights always remain `review_required`. An empty value, a URL with no host, a scheme other than `http` or `https`, or a URL that includes a username or password exits 2 before any output file is written. The command does not fetch that URL.
 
 ```bash
 harborlens --input tests/fixtures/synthetic_ais.csv --out results

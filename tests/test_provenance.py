@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from harborlens.ais import run
-from harborlens.provenance import digests_equal, verify_manifest
+from harborlens.io_safe import AISInputError
+from harborlens.provenance import digests_equal, require_declared_source_url, verify_manifest
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_ais.csv"
 
@@ -32,8 +33,48 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(check["artifacts"]["stationary_candidates.csv"], "mismatch")
 
     def test_rejects_non_http_source(self):
-        with self.assertRaisesRegex(ValueError, "HTTP"):
+        with self.assertRaises(AISInputError) as caught:
             run(FIXTURE, self.out, source_url="file:///private/archive")
+        self.assertIn("must name a host", str(caught.exception))
+        self.assertFalse(self.out.exists())
+
+    def test_source_url_accepts_http_and_rejects_empty_host_and_credentials(self):
+        require_declared_source_url(None)
+        for accepted in (
+            "http://example.org",
+            "https://example.org/ais.csv",
+            "HTTP://example.org",
+            "http://example.org:443/path?q=1",
+        ):
+            with self.subTest(url=accepted):
+                require_declared_source_url(accepted)
+        for rejected in (
+            "ftp://x",
+            "",
+            "   ",
+            "http://",
+            "https:///",
+            "https://user@example.org",
+            "https://user:secret@example.org",
+            "http://[::1",
+            "http://[",
+        ):
+            with self.subTest(url=rejected):
+                with self.assertRaises(AISInputError) as caught:
+                    run(FIXTURE, self.out, source_url=rejected)
+                self.assertIn("must name a host", str(caught.exception))
+                self.assertNotIn("Traceback", str(caught.exception))
+                self.assertFalse(self.out.exists())
+
+    def test_invalid_source_url_does_not_replace_an_existing_directory(self):
+        self.out.mkdir()
+        marker = self.out / "keep.txt"
+        marker.write_text("previous", encoding="utf-8")
+        with self.assertRaises(AISInputError):
+            run(FIXTURE, self.out, source_url="ftp://x")
+        self.assertEqual(marker.read_text(encoding="utf-8"), "previous")
+        self.assertFalse((self.out / "houston_clean.csv").exists())
+        self.assertFalse((self.out / "manifest.json").exists())
 
     def test_digests_equal_normalizes_hex_and_rejects_a_mismatch(self):
         pin = "ab" * 32

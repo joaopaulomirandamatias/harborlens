@@ -318,9 +318,11 @@ class SamplerTests(unittest.TestCase):
         file. A missing field, a non-string, a minor-only value, a pre-release
         suffix, a leading zero, a trailing newline, a +local suffix, and
         Unicode digits fail. The smallest triple and a two-digit major match.
-        The writer emits the running triple. The schema pattern is ECMA-262:
-        it has no \\Z, and a negative lookahead before $ rejects a trailing
-        line terminator. The Python check uses re.fullmatch and \\Z.
+        The writer emits the running triple. The schema pattern is ECMA-262
+        and has no \\Z. Python re and some engines let $ match before a final
+        newline; Node v24 rejects that newline with $ alone. The lookahead
+        keeps the pattern strict in every validator. The Python check uses
+        re.fullmatch and \\Z.
         """
         record, _ = self.sheet(candidates=2, negatives=1, name="schema.csv")
         schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())

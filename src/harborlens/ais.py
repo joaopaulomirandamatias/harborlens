@@ -19,7 +19,7 @@ from harborlens.cli_usage import escape_error_text
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell, recover_text_cell
 from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
-from harborlens.provenance import add_provenance
+from harborlens.provenance import add_provenance, require_declared_source_url
 from harborlens.censoring import (
     WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
 )
@@ -386,9 +386,11 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
     verified acquisition sidecar next to ``src``. A run truncated by
     ``max_rows`` reports censoring as unknown, because its effective end is unknown.
     ``params`` (SegmentationParams) defaults to the documented BR-003 thresholds.
+    An invalid ``source_url`` is refused before any output file is written.
     An ``AISInputError`` removes the output directory when this call created it.
     """
     params=params or SegmentationParams()
+    require_declared_source_url(source_url)
     src=Path(src)
     out=Path(out)
     created_out=not out.exists()

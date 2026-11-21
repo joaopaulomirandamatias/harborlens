@@ -74,7 +74,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, parse_time, sha256
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.censoring import CENSORED, NOT_CENSORED, UNKNOWN, WindowCensoring
 from harborlens.csv_safe import (
     matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
@@ -87,13 +87,47 @@ from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
 # ASCII major.minor.micro, no leading zeros. ``re.fullmatch`` plus ``\Z``
-# rejects a trailing newline. ``$`` matches before one trailing newline, so
-# it is not used here. JSON Schema patterns are ECMA-262 and have no ``\Z``;
-# ``schemas/v1/label-sample.schema.json`` puts a negative lookahead for a
-# line terminator before ``$``.
+# rejects a trailing newline. Python ``re`` ``$`` matches before a final
+# newline, so it is not used here. JSON Schema patterns are ECMA-262 and
+# have no ``\Z``. Node v24 rejects a trailing newline with ``$`` alone.
+# The schema still puts a negative lookahead before ``$`` so the pattern
+# stays strict in every validator, including Python ``re``.
 _SAMPLING_PYTHON_VERSION = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z"
 )
+
+
+def _json_number(value):
+    """True for a JSON number. ``bool`` is an ``int`` subclass and is rejected."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def candidate_feature_collection(document, path):
+    """Return the features of a parsed candidate GeoJSON document.
+
+    ``document`` is already decoded JSON. A file that is not a JSON object,
+    whose ``features`` value is not a list, or whose feature lacks a geometry
+    object with a coordinates list of at least two JSON numbers, raises
+    ``AISInputError``. The message says the file is valid JSON but has the
+    wrong shape. It does not say the file is not valid JSON.
+    """
+    message = f"candidate GeoJSON '{path}' is valid JSON but has the wrong shape"
+    if not isinstance(document, dict):
+        raise AISInputError(message)
+    features = document.get("features")
+    if not isinstance(features, list):
+        raise AISInputError(message)
+    for feature in features:
+        if not isinstance(feature, dict):
+            raise AISInputError(message)
+        geometry = feature.get("geometry")
+        coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+        if (not isinstance(coordinates, list) or len(coordinates) < 2
+                or not _json_number(coordinates[0]) or not _json_number(coordinates[1])):
+            raise AISInputError(message)
+        if not isinstance(feature.get("properties"), dict):
+            raise AISInputError(message)
+    return features
 
 
 def matches_sampling_python_version(value):
@@ -450,15 +484,41 @@ def _load_run(run_dir):
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
-    geo = json.loads((run_dir / "stationary_candidates.geojson").read_text(encoding="utf-8"))
+    geo_path = run_dir / "stationary_candidates.geojson"
+    geo_not_json = f"candidate GeoJSON '{geo_path}' is not valid JSON"
+    try:
+        geo_text = geo_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(geo_not_json) from exc
+    except OSError as exc:
+        detail = exc.strerror if exc.strerror else type(exc).__name__
+        raise AISInputError(
+            f"cannot read candidate GeoJSON '{geo_path}' ({detail})."
+        ) from exc
+    try:
+        geo = json.loads(geo_text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise AISInputError(geo_not_json) from exc
     candidates = []
-    for feature in geo.get("features", []):
+    shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
+    for feature in candidate_feature_collection(geo, geo_path):
         props = feature["properties"]
+        event_id = props.get("event_id")
+        start_raw = props.get("start_utc")
+        end_raw = props.get("end_utc")
+        if (not isinstance(event_id, str) or not event_id or "mmsi" not in props
+                or not isinstance(start_raw, str) or not isinstance(end_raw, str)):
+            raise AISInputError(shape)
+        try:
+            start = parse_time(start_raw)
+            end = parse_time(end_raw)
+        except (TypeError, ValueError) as exc:
+            raise AISInputError(shape) from exc
         if not digests_equal(props.get("parameter_set"), params.parameter_set):
             raise AISInputError("Candidate parameter_set differs from the run manifest")
         candidates.append({**props, "lon": feature["geometry"]["coordinates"][0],
                            "lat": feature["geometry"]["coordinates"][1],
-                           "start": parse_time(props["start_utc"]), "end": parse_time(props["end_utc"])})
+                           "start": start, "end": end})
     rows, unparsable = load_cleaned(run_dir / "houston_clean.csv")
     return manifest_path, manifest, params, candidates, rows, unparsable
 
@@ -849,7 +909,7 @@ def sample_main():
         record = draw_sample(args.run, args.sheet, args.seed, args.candidates, args.negatives,
                              args.min_negative_minutes)
     except AISInputError as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps({k: record[k] for k in ("parameter_set", "seed", "drawn", "allocation", "sheet_sha256")},
                      indent=2))
 
@@ -864,6 +924,6 @@ def agreement_main():
     try:
         report = agreement(args.sheets[0], args.sheets[1], args.out, args.sampling)
     except AISInputError as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps({k: report[k] for k in ("units", "raw_agreement", "kappa_labels", "kappa_collapsed")},
                      indent=2))

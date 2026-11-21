@@ -10,10 +10,11 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from harborlens import __version__
 from harborlens.cli_usage import add_version_argument
-from urllib.parse import urlsplit
+from harborlens.io_safe import AISInputError
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
 
@@ -63,11 +64,41 @@ def code_version():
             "git_commit": commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None}
 
 
-def add_provenance(folder, manifest, source_url=None):
-    if source_url is not None:
+_SOURCE_URL_MESSAGE = (
+    "source URL must be http or https, must name a host, and must not include credentials"
+)
+
+
+def require_declared_source_url(source_url):
+    """Accept a missing URL or an HTTP(S) URL with a host and no userinfo.
+
+    ``None`` means ``--source-url`` was omitted. An empty string, a URL with
+    no host (``http://``, ``https:///path``), a scheme other than ``http`` or
+    ``https`` (``ftp://x``), and a URL that carries a username or password
+    raise ``AISInputError``. This does not fetch the URL and does not change
+    ``rights_status``.
+    """
+    if source_url is None:
+        return
+    if not isinstance(source_url, str):
+        raise AISInputError(_SOURCE_URL_MESSAGE)
+    try:
         parts = urlsplit(source_url)
-        if parts.scheme not in ("https", "http") or not parts.netloc or parts.username or parts.password:
-            raise ValueError("Source URL must be HTTP(S) without credentials")
+        # Reading these raises ``ValueError`` for an unbalanced IPv6 bracket
+        # such as ``http://[::1`` or ``http://[``. ``.port`` is not read: a
+        # port ``urlsplit`` accepts (including an out-of-range port) stays a
+        # later check and is not rejected here.
+        username = parts.username
+        password = parts.password
+    except ValueError:
+        raise AISInputError(_SOURCE_URL_MESSAGE) from None
+    if (parts.scheme not in ("https", "http") or not parts.netloc
+            or username or password):
+        raise AISInputError(_SOURCE_URL_MESSAGE)
+
+
+def add_provenance(folder, manifest, source_url=None):
+    require_declared_source_url(source_url)
     settings = {"input_sha256": manifest["input_sha256"], "bbox_lon_lat": manifest["bbox_lon_lat"],
                 "method_parameters": manifest["method_parameters"],
                 "method_version": manifest["method_parameters"].get("method_version", "stationary-v0.1"),
