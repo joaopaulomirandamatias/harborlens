@@ -419,18 +419,14 @@ def run_multiday(
                                              params.max_gap_minutes)
                 censoring.check_observed(first, last)
                 scope.verify_created()
-                fresh = {}
-                for name in ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson"):
-                    fresh[name] = scope.artifact_is_new(files[name])
                 try:
-                    diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+                    diagnostics = _write_outputs(
+                        db, files, source_items, params, max_export_mib, censoring, meter, scope
+                    )
                 except PermissionError as exc:
                     raise AISInputError(
                         f"cannot write output directory '{out}' ({exc.strerror})."
                     ) from exc
-                for name, was_absent in fresh.items():
-                    if was_absent:
-                        scope.claim_file(files[name])
                 db.commit()
                 meter.check()
                 diagnostics["censoring"] = censoring.event_summary()
@@ -465,15 +461,13 @@ def run_multiday(
                     },
                     "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
                 }
-                manifest_absent = scope.artifact_is_new(files["manifest.json"])
                 try:
-                    files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                    with scope.open_exclusive(files["manifest.json"]) as handle:
+                        handle.write(json.dumps(result, indent=2))
                 except PermissionError as exc:
                     raise AISInputError(
                         f"cannot write output directory '{out}' ({exc.strerror})."
                     ) from exc
-                if manifest_absent:
-                    scope.claim_file(files["manifest.json"])
                 failed = False
                 return result
             finally:
@@ -502,17 +496,21 @@ class _SQLiteGroupStore:
             "JOIN observations o ON o.id=g.observation_id WHERE g.group_id=?", (group_id,)))
 
 
-def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter):
-    """Stream sorted observations through the shared engine and write exports."""
+def _write_outputs(db, files, sources, params, export_cap_mib, censoring, meter, scope):
+    """Stream sorted observations through the shared engine and write exports.
+
+    Each artifact is created with ``O_CREAT|O_EXCL`` and recorded before the
+    first byte, so a cap error still removes the partial files.
+    """
     max_bytes = export_cap_mib * 1048576
     # Release insert cache before the ordered scan. The scan uses
     # observations_by_vessel_time, so it does not build an in-memory sort.
     db.execute("PRAGMA shrink_memory")
     # Both SQLite cursors and exports are sequential; there is no bulk
     # fetchall(), per-MMSI full track list, or growing array of events.
-    with (files["houston_clean.csv"].open("w", newline="", encoding="utf-8") as clean,
-          files["stationary_candidates.csv"].open("w", newline="", encoding="utf-8") as events,
-          files["stationary_candidates.geojson"].open("w", encoding="utf-8") as geo):
+    with (scope.open_exclusive(files["houston_clean.csv"]) as clean,
+          scope.open_exclusive(files["stationary_candidates.csv"]) as events,
+          scope.open_exclusive(files["stationary_candidates.geojson"]) as geo):
         normalized = CsvDictWriter(clean, CLEAN_FIELDS, lineterminator="\n")
         candidate_writer = CsvDictWriter(events, MULTIDAY_FIELDS, lineterminator="\n")
         geo.write('{"type":"FeatureCollection","harborlens_method":'

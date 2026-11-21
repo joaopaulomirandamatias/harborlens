@@ -2227,6 +2227,158 @@ class OutputPathSafetyTests(unittest.TestCase):
             self.assertNotIn("Traceback", err)
             self.assertFalse((out / "houston_clean.csv").exists())
 
+    def test_multiday_dangling_out_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a = root / "day-a.csv"
+            day_b = root / "day-b.csv"
+            day_a.write_bytes(FIXTURE.read_bytes())
+            day_b.write_bytes(FIXTURE.read_bytes())
+            missing = root / "missing-target"
+            dang = root / "dang"
+            dang.symlink_to(missing)
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday", "--input", str(day_a), str(day_b),
+                "--out", str(dang),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("symlink", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(missing.exists())
+            self.assertTrue(dang.is_symlink())
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday", "--input", str(day_a), str(day_b),
+                "--out", str(dang / "new"),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("symlink", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(missing.exists())
+            self.assertTrue(dang.is_symlink())
+
+    def test_export_cap_removes_partial_artifacts_and_rerun_succeeds(self):
+        from datetime import datetime, timedelta, timezone
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def write_day(path, start, rows):
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    handle.write("MMSI,BaseDateTime,LAT,LON,SOG,VesselType,Status\n")
+                    for index in range(rows):
+                        stamp = (start + timedelta(seconds=index)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        handle.write(f"199080001,{stamp},29.730000,-95.159940,0.2,70,5\n")
+
+            day_a = root / "day-a.csv"
+            day_b = root / "day-b.csv"
+            write_day(day_a, datetime(2024, 1, 2, tzinfo=timezone.utc), 20000)
+            write_day(day_b, datetime(2024, 1, 3, tzinfo=timezone.utc), 3)
+            out = root / "new" / "out"
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday", "--input", str(day_a), str(day_b),
+                "--out", str(out), "--max-export-mib", "1",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("byte cap", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse((root / "new").exists())
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday", "--input", str(day_a), str(day_b),
+                "--out", str(out),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertTrue((out / "manifest.json").is_file())
+            self.assertTrue((out / "houston_clean.csv").is_file())
+
+    def test_exception_during_each_artifact_write_leaves_nothing(self):
+        from harborlens.ais import OutputScope
+        from harborlens.multiday import run_multiday
+        names = (
+            "houston_clean.csv",
+            "stationary_candidates.csv",
+            "stationary_candidates.geojson",
+            "manifest.json",
+        )
+        for target in names:
+            with self.subTest(target=target):
+                real = OutputScope.open_exclusive
+
+                def open_exclusive(scope, path, newline=""):
+                    writer = real(scope, path, newline)
+
+                    class _RaisingWriter:
+                        def __enter__(self):
+                            self.handle = writer.__enter__()
+                            return self
+
+                        def __exit__(self, exc_type, exc, tb):
+                            return writer.__exit__(exc_type, exc, tb)
+
+                        def write(self, data):
+                            if Path(path).name == target:
+                                raise RuntimeError("injected")
+                            return self.handle.write(data)
+
+                        def __getattr__(self, name):
+                            return getattr(self.handle, name)
+
+                    return _RaisingWriter()
+
+                with tempfile.TemporaryDirectory() as folder:
+                    root = Path(folder)
+                    day_a = root / "day-a.csv"
+                    day_b = root / "day-b.csv"
+                    day_a.write_bytes(FIXTURE.read_bytes())
+                    day_b.write_bytes(FIXTURE.read_bytes())
+                    out = root / "new" / "out"
+                    with mock.patch.object(OutputScope, "open_exclusive", open_exclusive):
+                        with self.assertRaises(RuntimeError):
+                            run_multiday((day_a, day_b), out)
+                    self.assertFalse((root / "new").exists())
+
+    def test_reused_inode_is_not_unlinked(self):
+        def swap_then_fail(folder, manifest, source_url=None):
+            target = Path(folder) / "houston_clean.csv"
+            target.unlink()
+            target.write_text("SURVIVOR", encoding="utf-8")
+            raise RuntimeError("injected")
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            with mock.patch("harborlens.ais.add_provenance", swap_then_fail):
+                with self.assertRaises(RuntimeError):
+                    from harborlens.ais import run
+                    run(FIXTURE, out)
+            self.assertEqual((out / "houston_clean.csv").read_text(encoding="utf-8"), "SURVIVOR")
+            self.assertFalse((out / "stationary_candidates.csv").exists())
+
+    def test_missing_directory_at_temp_create_exits_2(self):
+        real_mkstemp = tempfile.mkstemp
+
+        def mkstemp(*args, **kwargs):
+            directory = kwargs.get("dir")
+            if directory is not None:
+                os.rename(directory, directory + "-moved")
+            return real_mkstemp(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            with mock.patch("harborlens.ais.tempfile.mkstemp", mkstemp):
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("cannot write output directory", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse((out / "houston_clean.csv").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

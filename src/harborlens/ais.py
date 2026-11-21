@@ -5,6 +5,7 @@ live traffic management, port-call truth, or certified emissions estimates.
 """
 from __future__ import annotations
 import csv
+import errno
 import gzip
 import hashlib
 import io
@@ -161,22 +162,74 @@ def _same_directory(path, dev, ino):
         return False
     return info.st_dev==dev and info.st_ino==ino
 
-def _unlink_same_file(path, dev, ino):
-    """Unlink one regular file only when it is still the inode this run created.
+class _OwnedFile:
+    """One regular file this run created, identified after its final write.
 
-    A symlink is left in place. A different regular file at the same path,
-    with another ``st_dev`` or ``st_ino``, is left in place. ``os.lstat``
-    does not follow the final component.
+    ``st_dev`` and ``st_ino`` alone are not enough: an unlink can free the
+    inode, and the next create can reuse the number. Cleanup also compares
+    ``st_size``, ``st_mtime_ns``, and ``st_ctime_ns`` from the snapshot taken
+    after the last byte. A mismatch leaves the path in place. ``os.lstat``
+    does not follow the final component, so a symlink is left in place.
     """
-    info=_lstat_or_none(path)
-    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        return
-    if info.st_dev!=dev or info.st_ino!=ino:
+
+    def __init__(self, path, info):
+        self.path=Path(path)
+        self.dev=info.st_dev
+        self.ino=info.st_ino
+        self.size=info.st_size
+        self.mtime_ns=info.st_mtime_ns
+        self.ctime_ns=info.st_ctime_ns
+
+    def adopt(self, info):
+        """Replace the snapshot with ``info`` from a later fstat or lstat."""
+        self.dev=info.st_dev
+        self.ino=info.st_ino
+        self.size=info.st_size
+        self.mtime_ns=info.st_mtime_ns
+        self.ctime_ns=info.st_ctime_ns
+
+    def matches(self, info):
+        return (stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
+                and info.st_dev==self.dev and info.st_ino==self.ino
+                and info.st_size==self.size and info.st_mtime_ns==self.mtime_ns
+                and info.st_ctime_ns==self.ctime_ns)
+
+def _unlink_owned(owned):
+    """Unlink ``owned`` only when the path still has its recorded identity."""
+    info=_lstat_or_none(owned.path)
+    if info is None or not owned.matches(info):
         return
     try:
-        os.unlink(path)
+        os.unlink(owned.path)
     except OSError:
         return
+
+class _ExclusiveText:
+    """Text writer for an fd this run created. The snapshot is taken on close.
+
+    ``os.fdopen`` owns the fd. ``__exit__`` flushes, then ``fstat``s, then
+    closes, so the recorded size and timestamps include the bytes just written.
+    """
+
+    def __init__(self, owned, fd, newline):
+        self.owned=owned
+        self.handle=os.fdopen(fd, "w", encoding="utf-8", newline=newline)
+
+    def __enter__(self):
+        return self.handle
+
+    def __exit__(self, exc_type, exc, tb):
+        fd=self.handle.fileno()
+        try:
+            self.handle.flush()
+        except Exception:
+            pass
+        try:
+            self.owned.adopt(os.fstat(fd))
+        except OSError:
+            pass
+        self.handle.close()
+        return False
 
 def _rmdir_same_directory(path, dev, ino):
     """Remove one empty directory this run created. False if it stays.
@@ -205,8 +258,9 @@ class OutputScope:
     to a directory is followed, so a symlinked parent such as macOS ``/tmp``
     still receives the new directory. A dangling symlink and a symlink to a
     non-directory are refused. ``FileExistsError`` means the component is
-    not ours and is not recorded. Cleanup unlinks only files recorded here
-    and does not unlink a symlink. It then ``rmdir``s recorded directories
+    not ours and is not recorded. Cleanup unlinks a recorded file only when
+    its device, inode, size, and timestamps still match, and does not unlink
+    a symlink. It then ``rmdir``s recorded directories
     that are still empty, deepest first, and does not remove the pre-existing
     symlink.
     """
@@ -270,16 +324,52 @@ class OutputScope:
             raise AISInputError(f"cannot write output file '{path}' (symlink).")
 
     def claim_file(self, path):
-        """Record the inode of a regular file this run has just created."""
+        """Record identity after this run's final write of an existing path.
+
+        The snapshot includes size and timestamps, not only the inode number.
+        """
         path=Path(path)
         info=os.lstat(path)
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise AISInputError(f"cannot write output file '{path}' (symlink).")
-        self.owned_files.append((path, info.st_dev, info.st_ino))
+        self.owned_files.append(_OwnedFile(path, info))
+
+    def open_exclusive(self, path, newline=""):
+        """Create ``path`` with ``O_CREAT|O_EXCL`` and record it before any write.
+
+        The returned context manager seals size and timestamps when it closes,
+        including when the write raises. A symlink at ``path`` is not followed.
+        ``FileExistsError`` propagates so the caller can keep its own message.
+        """
+        path=Path(path)
+        flags=os.O_CREAT|os.O_EXCL|os.O_WRONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags|=os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags|=os.O_NOFOLLOW
+        try:
+            fd=os.open(os.fspath(path), flags, 0o644)
+        except FileExistsError:
+            raise
+        except OSError as exc:
+            if exc.errno==errno.ELOOP:
+                raise AISInputError(f"cannot write output file '{path}' (symlink).") from exc
+            detail=exc.strerror if exc.strerror else type(exc).__name__
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' ({detail})."
+            ) from exc
+        try:
+            info=os.fstat(fd)
+        except OSError:
+            os.close(fd)
+            raise
+        owned=_OwnedFile(path, info)
+        self.owned_files.append(owned)
+        return _ExclusiveText(owned, fd, newline)
 
     def cleanup(self):
-        for path, dev, ino in self.owned_files:
-            _unlink_same_file(path, dev, ino)
+        for owned in self.owned_files:
+            _unlink_owned(owned)
         _rollback_created(self.created_dirs)
 
 def _rollback_created(created):
@@ -292,11 +382,15 @@ def _publish(path, write, scope=None):
 
     The temp name is random (``tempfile.mkstemp``), so a pre-planted symlink
     at ``<name>.partial`` is not opened. The file mode is ``0o644`` before
-    the replace. A failure deletes the temp file and leaves ``path`` in place.
+    the replace. A failure deletes the temp file only when its ``st_dev``,
+    ``st_ino``, ``st_size``, ``st_mtime_ns``, and ``st_ctime_ns`` still match
+    the snapshot taken after the last byte, and leaves ``path`` in place.
     This replaces one file, not the whole output set. ``os.replace`` replaces
     a symlink at ``path`` and does not write the link target; that is the
     case main already accepts. A file that did not exist before the replace
-    is recorded by ``st_dev`` and ``st_ino``.
+    is recorded with that same snapshot after ``os.replace``. ``OSError``,
+    including ``FileNotFoundError`` and ``NotADirectoryError``, becomes one
+    domain-error line.
     """
     path=Path(path)
     if scope is not None:
@@ -307,27 +401,45 @@ def _publish(path, write, scope=None):
     fd=None
     partial=None
     published=False
+    owned=None
     try:
         try:
             fd, raw=tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".partial")
+            partial=Path(raw)
+            owned=_OwnedFile(partial, os.fstat(fd))
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                fd=None
+                try:
+                    write(handle)
+                finally:
+                    try:
+                        handle.flush()
+                    except Exception:
+                        pass
+                    try:
+                        owned.adopt(os.fstat(handle.fileno()))
+                    except OSError:
+                        pass
+            info=_lstat_or_none(partial)
+            if info is None or not owned.matches(info):
+                raise AISInputError(
+                    f"cannot write output directory '{path.parent}' (temp file was replaced)."
+                )
+            os.chmod(partial, 0o644)
+            owned.adopt(os.lstat(partial))
+            os.replace(partial, path)
+            published=True
+            if scope is not None and not existed:
+                scope.claim_file(path)
+        except AISInputError:
+            raise
         except OSError as exc:
             raise _cannot_write_directory(path.parent, exc) from exc
-        partial=Path(raw)
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-            fd=None
-            write(handle)
-        if partial.is_symlink():
-            raise AISInputError(f"cannot write output directory '{path.parent}' (temp file was replaced).")
-        os.chmod(partial, 0o644)
-        os.replace(partial, path)
-        published=True
-        if scope is not None and not existed:
-            scope.claim_file(path)
     finally:
         if fd is not None:
             os.close(fd)
-        if partial is not None and not published:
-            partial.unlink(missing_ok=True)
+        if owned is not None and not published:
+            _unlink_owned(owned)
 
 def _resolve_columns(header, source):
     """Map logical columns. The first missing required name follows REQUIRED_COLUMNS."""
