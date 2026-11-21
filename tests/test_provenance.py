@@ -154,7 +154,7 @@ class ProvenanceTests(unittest.TestCase):
                 self.assertIn("must name a host", message)
                 self.assertNotIn("Traceback", message)
                 if "sekrit-value" in rejected:
-                    self.assertIn("parameter '", message)
+                    self.assertIn("parameter ", message)
                     self.assertNotIn("sekrit-value", message)
                 if rejected:
                     self.assertNotIn(rejected, message)
@@ -223,6 +223,17 @@ class ProvenanceTests(unittest.TestCase):
         for character in ("\u115f", "\u2800", "\u3164", "\uffa0"):
             with self.assertRaises(AISInputError):
                 require_declared_source_url(f"http://example.org/{character}")
+
+    def test_quoted_parameter_name_stays_one_token(self):
+        raw = "http://example.org/path?x-amz-'%20error:%20fake=sekrit-value"
+        with self.assertRaises(AISInputError) as caught:
+            require_declared_source_url(raw)
+        message = str(caught.exception)
+        self.assertIn("parameter ", message)
+        self.assertIn(repr("x_amz_' error: fake"), message)
+        self.assertNotIn("sekrit-value", message)
+        self.assertNotIn(raw, message)
+        self.assertEqual(message.count("\n"), 0)
 
     def test_whitespace_is_rejected_before_urlsplit_strips_it(self):
         raw = "http://example.org\t/ais.csv"

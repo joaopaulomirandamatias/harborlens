@@ -2115,6 +2115,118 @@ class OutputPathSafetyTests(unittest.TestCase):
             self.assertNotIn("Traceback", err)
             self.assertEqual(payload.read_text(encoding="utf-8"), "file")
 
+    def test_swapped_created_directory_is_refused_and_not_removed(self):
+        from harborlens.ais import OutputScope
+        safe = None
+        original = OutputScope.ensure
+
+        def ensure(self):
+            original(self)
+            moved = self.directory.with_name(self.directory.name + "-moved")
+            self.directory.rename(moved)
+            self.directory.symlink_to(safe, target_is_directory=True)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            safe = root / "safe"
+            safe.mkdir()
+            (safe / "notes.txt").write_text("SAFE", encoding="utf-8")
+            out = root / "made"
+            with mock.patch.object(OutputScope, "ensure", ensure):
+                code, stdout, err = _invoke(harborlens_main, [
+                    "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("symlink", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertEqual((safe / "notes.txt").read_text(encoding="utf-8"), "SAFE")
+            self.assertTrue(out.is_symlink())
+            self.assertFalse((safe / "houston_clean.csv").exists())
+
+    def test_keyboard_interrupt_during_mkdir_rolls_back(self):
+        real_mkdir = os.mkdir
+
+        def mkdir(name, *args, **kwargs):
+            if name == "leaf":
+                raise KeyboardInterrupt
+            return real_mkdir(name, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            out = root / "a" / "leaf"
+            with mock.patch("harborlens.ais.os.mkdir", mkdir):
+                with self.assertRaises(KeyboardInterrupt):
+                    from harborlens.ais import run
+                    run(FIXTURE, out)
+            self.assertFalse((root / "a").exists())
+            self.assertFalse(out.exists())
+
+    def test_swapped_created_file_is_not_unlinked(self):
+        def swap_then_fail(folder, manifest, source_url=None):
+            target = Path(folder) / "houston_clean.csv"
+            # Rename keeps the original inode allocated so it cannot be reused.
+            target.rename(target.with_name("houston_clean.csv.held"))
+            target.write_text("SURVIVOR", encoding="utf-8")
+            raise RuntimeError("injected")
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            with mock.patch("harborlens.ais.add_provenance", swap_then_fail):
+                with self.assertRaises(RuntimeError):
+                    from harborlens.ais import run
+                    run(FIXTURE, out)
+            self.assertEqual((out / "houston_clean.csv").read_text(encoding="utf-8"), "SURVIVOR")
+            self.assertFalse((out / "stationary_candidates.csv").exists())
+
+    def test_symlinked_artifact_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            dangling = root / "multi-out"
+            dangling.mkdir()
+            leaked = root / "leaked.csv"
+            (dangling / "houston_clean.csv").symlink_to(leaked)
+            day_a = root / "day-a.csv"
+            day_b = root / "day-b.csv"
+            day_a.write_bytes(FIXTURE.read_bytes())
+            day_b.write_bytes(FIXTURE.read_bytes())
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday", "--input", str(day_a), str(day_b),
+                "--out", str(dangling),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("symlink", err)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(leaked.exists())
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory write bits")
+    def test_multiday_read_only_output_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a = root / "day-a.csv"
+            day_b = root / "day-b.csv"
+            day_a.write_bytes(FIXTURE.read_bytes())
+            day_b.write_bytes(FIXTURE.read_bytes())
+            out = root / "locked"
+            out.mkdir()
+            out.chmod(0o500)
+            try:
+                code, stdout, err = _invoke(multiday_main, [
+                    "harborlens-multiday", "--input", str(day_a), str(day_b),
+                    "--out", str(out),
+                ])
+            finally:
+                out.chmod(0o700)
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("cannot write output directory", err)
+            self.assertIn("Permission denied", err)
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse((out / "houston_clean.csv").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

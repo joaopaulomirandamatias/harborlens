@@ -197,7 +197,7 @@ def _credential_parameter_name(parts):
                     shown = escape_error_text(label)
                     if len(shown) > 80:
                         shown = shown[:80] + "..."
-                    return shown
+                    return repr(shown)
     return None
 
 
@@ -259,7 +259,7 @@ def require_declared_source_url(source_url):
         raise AISInputError(_SOURCE_URL_MESSAGE)
     credential = _credential_parameter_name(parts)
     if credential:
-        raise AISInputError(f"{_SOURCE_URL_MESSAGE} (parameter '{credential}')")
+        raise AISInputError(f"{_SOURCE_URL_MESSAGE} (parameter {credential})")
 
 
 def add_provenance(folder, manifest, source_url=None):

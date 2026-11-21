@@ -154,30 +154,44 @@ def _open_directory(path, requested):
     except OSError as exc:
         raise _cannot_write_directory(requested, exc) from exc
 
-def _unlink_regular_nofollow(path):
-    """Remove one regular file. A symlink is left in place, so its target stays."""
+def _same_directory(path, dev, ino):
+    """True when ``path`` is still the real directory recorded at ``mkdir``."""
+    info=_lstat_or_none(path)
+    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return False
+    return info.st_dev==dev and info.st_ino==ino
+
+def _unlink_same_file(path, dev, ino):
+    """Unlink one regular file only when it is still the inode this run created.
+
+    A symlink is left in place. A different regular file at the same path,
+    with another ``st_dev`` or ``st_ino``, is left in place. ``os.lstat``
+    does not follow the final component.
+    """
     info=_lstat_or_none(path)
     if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        return
+    if info.st_dev!=dev or info.st_ino!=ino:
         return
     try:
         os.unlink(path)
     except OSError:
         return
 
-def _rmdir_empty_nofollow(directory):
-    """Remove ``directory`` when it is a real empty directory. False if it stays.
+def _rmdir_same_directory(path, dev, ino):
+    """Remove one empty directory this run created. False if it stays.
 
-    ``os.rmdir`` does not follow a symlink. ``os.lstat`` rejects a symlink
-    before that call. A non-empty directory stops the caller.
+    A symlink, or a directory whose identity changed, is not removed.
+    ``os.lstat`` does not follow the final component. A non-empty directory
+    stops the caller.
     """
-    info=_lstat_or_none(directory)
-    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+    if not _same_directory(path, dev, ino):
         return True
     try:
-        with os.scandir(directory) as found:
+        with os.scandir(path) as found:
             if any(True for _ in found):
                 return False
-        os.rmdir(directory)
+        os.rmdir(path)
     except OSError:
         return False
     return True
@@ -221,41 +235,74 @@ class OutputScope:
                         except OSError as exc:
                             raise _cannot_write_directory(directory, exc) from exc
                         else:
-                            created.append(nxt)
+                            info=os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                                raise AISInputError(
+                                    f"cannot write output directory '{directory}' (symlink)."
+                                )
+                            created.append((nxt, info.st_dev, info.st_ino))
                     finally:
                         os.close(parent_fd)
                     current=nxt
-        except AISInputError:
-            for path in reversed(created):
-                if not _rmdir_empty_nofollow(path):
-                    break
+        except BaseException:
+            _rollback_created(created)
             raise
         self.created_dirs=created
         return self.directory
 
-    def note_new(self, path):
-        """Record ``path`` when it does not exist yet, so a later create is ours."""
+    def verify_created(self):
+        """Refuse when a directory this run created was replaced by a symlink."""
+        for path, dev, ino in self.created_dirs:
+            if not _same_directory(path, dev, ino):
+                raise AISInputError(
+                    f"cannot write output directory '{self.directory}' (symlink)."
+                )
+
+    def artifact_is_new(self, path):
+        """Refuse a symlink final component. True when the path is absent."""
+        self.refuse_artifact_symlink(path)
+        return _lstat_or_none(path) is None
+
+    def refuse_artifact_symlink(self, path):
+        """Refuse to write or delete through a symlink at the final component."""
+        info=_lstat_or_none(path)
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            raise AISInputError(f"cannot write output file '{path}' (symlink).")
+
+    def claim_file(self, path):
+        """Record the inode of a regular file this run has just created."""
         path=Path(path)
-        if _lstat_or_none(path) is None:
-            self.owned_files.append(path)
+        info=os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise AISInputError(f"cannot write output file '{path}' (symlink).")
+        self.owned_files.append((path, info.st_dev, info.st_ino))
 
     def cleanup(self):
-        for path in self.owned_files:
-            _unlink_regular_nofollow(path)
-        for directory in reversed(self.created_dirs):
-            if not _rmdir_empty_nofollow(directory):
-                return
+        for path, dev, ino in self.owned_files:
+            _unlink_same_file(path, dev, ino)
+        _rollback_created(self.created_dirs)
 
-def _publish(path, write, owned_files=None):
+def _rollback_created(created):
+    for path, dev, ino in reversed(created):
+        if not _rmdir_same_directory(path, dev, ino):
+            return
+
+def _publish(path, write, scope=None):
     """Write ``path`` via a private temp file and ``os.replace`` this one file.
 
     The temp name is random (``tempfile.mkstemp``), so a pre-planted symlink
     at ``<name>.partial`` is not opened. The file mode is ``0o644`` before
     the replace. A failure deletes the temp file and leaves ``path`` in place.
-    This replaces one file, not the whole output set. A path that did not
-    exist before the replace is appended to ``owned_files``.
+    This replaces one file, not the whole output set. ``os.replace`` replaces
+    a symlink at ``path`` and does not write the link target; that is the
+    case main already accepts. A file that did not exist before the replace
+    is recorded by ``st_dev`` and ``st_ino``.
     """
     path=Path(path)
+    if scope is not None:
+        scope.verify_created()
+    # ``os.replace`` replaces a symlink node and does not follow it. A
+    # pre-existing symlink at this name is the case main already accepts.
     existed=_lstat_or_none(path) is not None
     fd=None
     partial=None
@@ -274,8 +321,8 @@ def _publish(path, write, owned_files=None):
         os.chmod(partial, 0o644)
         os.replace(partial, path)
         published=True
-        if owned_files is not None and not existed:
-            owned_files.append(path)
+        if scope is not None and not existed:
+            scope.claim_file(path)
     finally:
         if fd is not None:
             os.close(fd)
@@ -313,7 +360,7 @@ def parse_time(value):
     """
     return parse_observation_time(value)
 
-def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None, owned_files=None):
+def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None, scope=None):
     if max_rows is not None and max_rows < 0:
         raise AISInputError("max_rows must not be negative")
     if len(bbox) != 4 or not all(math.isfinite(float(x)) for x in bbox):
@@ -403,7 +450,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=N
             # CSV is left byte-for-byte. The temp file is deleted by ``_publish``.
             if before_publish is not None:
                 before_publish(holder["result"])
-        _publish(output, write_cleaned, owned_files)
+        _publish(output, write_cleaned, scope)
         return holder["result"]
     finally:
         row_iter.close()
@@ -500,7 +547,7 @@ def read_candidates_csv(path):
         return [{k:convert(k,v) for k,v in row.items() if k in EVENT_FIELDS}
                 for row in csv.DictReader(stream)]
 
-def write_events(events,out,params=None,owned_files=None):
+def write_events(events,out,params=None,scope=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
 
@@ -518,8 +565,8 @@ def write_events(events,out,params=None,owned_files=None):
         collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
         handle.write(json.dumps(collection,indent=2))
 
-    _publish(out/"stationary_candidates.csv", write_csv, owned_files)
-    _publish(out/"stationary_candidates.geojson", write_geojson, owned_files)
+    _publish(out/"stationary_candidates.csv", write_csv, scope)
+    _publish(out/"stationary_candidates.geojson", write_geojson, scope)
 
 def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=None,window_end=None,
         params=None):
@@ -558,8 +605,7 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
                 WindowCensoring([pending],params.max_gap_minutes).check_observed(
                     parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
 
-        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish,
-                        owned_files=scope.owned_files)
+        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish, scope=scope)
         window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
         declaration=declaration_record(src.name,window)
         if window is not None and manifest["input_truncated"]:
@@ -570,13 +616,13 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
         if observed["start_utc"]:
             censoring.check_observed(parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
         events,stats=infer_candidates(cleaned,censoring=censoring,params=params)
-        write_events(events,out,params,scope.owned_files)
+        write_events(events,out,params,scope)
         manifest["events"]=stats
         manifest["method_parameters"]=params.manifest()
         manifest["analysis_window"]=censoring.summary(observed)
         manifest = add_provenance(out, manifest, source_url=source_url)
         body=json.dumps(manifest,indent=2)
-        _publish(out/"manifest.json", lambda handle: handle.write(body), scope.owned_files)
+        _publish(out/"manifest.json", lambda handle: handle.write(body), scope)
         failed=False
         return manifest
     finally:

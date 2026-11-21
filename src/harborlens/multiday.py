@@ -378,7 +378,7 @@ def run_multiday(
     A requested window is checked before any directory is created and before
     any input is read.
     """
-    # Same four publication-window rules as ``declared_window``. No ingest yet.
+    # The analysis-window check. No directory and no ingest yet.
     declared_window(window_start, window_end)
     paths = tuple(sorted((Path(p).resolve() for p in inputs), key=str))
     if not 2 <= len(paths) <= MAX_FILES or len(set(paths)) != len(paths):
@@ -400,6 +400,8 @@ def run_multiday(
         scope.ensure()
         out = scope.directory
         files = _output_files(out)
+        for path in files.values():
+            scope.refuse_artifact_symlink(path)
         if any(path in paths or path.exists() for path in files.values()):
             raise FileExistsError("Output files already exist or would overwrite a source")
 
@@ -416,9 +418,19 @@ def run_multiday(
                 censoring = _resolve_windows(paths, source_items, window_start, window_end,
                                              params.max_gap_minutes)
                 censoring.check_observed(first, last)
+                scope.verify_created()
+                fresh = {}
                 for name in ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson"):
-                    scope.note_new(files[name])
-                diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+                    fresh[name] = scope.artifact_is_new(files[name])
+                try:
+                    diagnostics = _write_outputs(db, files, source_items, params, max_export_mib, censoring, meter)
+                except PermissionError as exc:
+                    raise AISInputError(
+                        f"cannot write output directory '{out}' ({exc.strerror})."
+                    ) from exc
+                for name, was_absent in fresh.items():
+                    if was_absent:
+                        scope.claim_file(files[name])
                 db.commit()
                 meter.check()
                 diagnostics["censoring"] = censoring.event_summary()
@@ -453,8 +465,15 @@ def run_multiday(
                     },
                     "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
                 }
-                scope.note_new(files["manifest.json"])
-                files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                manifest_absent = scope.artifact_is_new(files["manifest.json"])
+                try:
+                    files["manifest.json"].write_text(json.dumps(result, indent=2), encoding="utf-8")
+                except PermissionError as exc:
+                    raise AISInputError(
+                        f"cannot write output directory '{out}' ({exc.strerror})."
+                    ) from exc
+                if manifest_absent:
+                    scope.claim_file(files["manifest.json"])
                 failed = False
                 return result
             finally:
