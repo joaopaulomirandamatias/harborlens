@@ -15,6 +15,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 MAX_REGISTRY_BYTES = 256 * 1024
+# A schema-valid register nests four containers: the root object, the
+# sources array, one source object, and permitted_uses. Depth 4 is
+# accepted. Depth 5 is rejected before json.loads. The count is not the
+# interpreter recursion limit, which is not the same on Python 3.10, 3.12,
+# and 3.14. Braces and brackets inside JSON strings do not count.
+MAX_REGISTRY_NESTING = 4
 PURPOSES = ("research", "public_aggregates", "commercial")
 APPROVED_STATUSES = (
     "reviewed_public_domain_attribution_required",
@@ -169,6 +175,37 @@ def _valid_utc_time(value):
     return parsed.tzinfo is timezone.utc and parsed.utcoffset().total_seconds() == 0
 
 
+def _max_container_depth(text):
+    """Return the deepest object or array nesting in ``text``.
+
+    One forward pass. A top-level container is depth 1. Characters inside
+    a JSON string do not count, including a brace written after an escaped
+    quote. The scan does not call itself and does not parse the document.
+    """
+    depth = 0
+    maximum = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "{[":
+            depth += 1
+            if depth > maximum:
+                maximum = depth
+        elif character in "}]" and depth:
+            depth -= 1
+    return maximum
+
+
 def _object_without_duplicate_keys(pairs):
     """Reject a repeated object key at this depth.
 
@@ -187,14 +224,18 @@ def _load_registry_bytes(raw):
     """Validate one register buffer with the packaged schema.
 
     ``raw`` is parsed as UTF-8 JSON and checked with the schema shipped inside
-    this package (``importlib.resources`` only).     A leading UTF-8 BOM is a
+    this package (``importlib.resources`` only). A leading UTF-8 BOM is a
     named load error and is not stripped. A repeated object key at any depth
-    is ``Rights register has a duplicate key``. A document nested deeply
-    enough to raise ``RecursionError`` is an unreadable register. The same
-    structural errors as ``load_registry`` are raised. URL and timestamp
-    rules are enforced by that schema and again by ``_is_https_url`` and
-    ``_valid_utc_time`` when a decision is made. Unknown, malformed, or
-    whitespace-only evidence does not grant an approved status.
+    is ``Rights register has a duplicate key``. More than
+    ``MAX_REGISTRY_NESTING`` nested objects or arrays is
+    ``Rights register is unreadable``. That limit is counted in one loop
+    before ``json.loads``, so Python 3.10, 3.12, and 3.14 agree. A
+    ``RecursionError`` from the parser is the same unreadable register; the
+    limit does not depend on it. The same structural errors as
+    ``load_registry`` are raised. URL and timestamp rules are enforced by
+    that schema and again by ``_is_https_url`` and ``_valid_utc_time`` when
+    a decision is made. Unknown, malformed, or whitespace-only evidence does
+    not grant an approved status.
     """
     if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_REGISTRY_BYTES:
         raise ValueError("Missing or excessive rights register")
@@ -202,13 +243,17 @@ def _load_registry_bytes(raw):
     if blob.startswith(_UTF8_BOM):
         raise ValueError(_UTF8_BOM_ERROR)
     try:
+        text = blob.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(_UNREADABLE_REGISTER) from exc
+    if _max_container_depth(text) > MAX_REGISTRY_NESTING:
+        raise ValueError(_UNREADABLE_REGISTER)
+    try:
         data = json.loads(
-            blob.decode("utf-8"),
+            text,
             object_pairs_hook=_object_without_duplicate_keys,
         )
     except RecursionError as exc:
-        raise ValueError(_UNREADABLE_REGISTER) from exc
-    except UnicodeError as exc:
         raise ValueError(_UNREADABLE_REGISTER) from exc
     except ValueError as exc:
         if str(exc) == _DUPLICATE_KEY_ERROR:
