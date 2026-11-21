@@ -46,8 +46,8 @@ from harborlens.ais import parse_time, sha256
 from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
-    COLLAPSED, LABELS, candidate_feature_collection, censoring_status, parse_stratum,
-    read_csv_cell,
+    COLLAPSED, LABELS, candidate_feature_collection, candidate_identity_shape,
+    censoring_status, parse_stratum, read_csv_cell,
 )
 from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
@@ -235,19 +235,20 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     except json.JSONDecodeError as exc:
         raise AISInputError(manifest_invalid) from exc
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
+    sampling_not_utf8 = f"sampling file '{sampling}' is not valid UTF-8"
     sampling_not_json = f"sampling file '{sampling}' is not valid JSON"
     sampling_wrong_shape = f"sampling file '{sampling}' is valid JSON but has the wrong shape"
     try:
         sampling_text = sampling.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise AISInputError(sampling_not_json) from exc
+        raise AISInputError(sampling_not_utf8) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read sampling file '{sampling}' ({_os_detail(exc)})."
         ) from exc
     try:
         plan = json.loads(sampling_text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise AISInputError(sampling_not_json) from exc
     if not _sampling_shape(plan):
         raise AISInputError(sampling_wrong_shape)
@@ -258,27 +259,27 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     schema_version = plan.get("schema_version")
     labels = _read_labels(labels_path, set(key))
     geo_path = run_dir / "stationary_candidates.geojson"
+    geo_not_utf8 = f"candidate GeoJSON '{geo_path}' is not valid UTF-8"
     geo_invalid = f"candidate GeoJSON '{geo_path}' is not valid JSON"
     try:
         geo_text = geo_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise AISInputError(geo_invalid) from exc
+        raise AISInputError(geo_not_utf8) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read candidate GeoJSON '{geo_path}' ({_os_detail(exc)})."
         ) from exc
     try:
         geo = json.loads(geo_text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise AISInputError(geo_invalid) from exc
     candidates = {}
+    geo_wrong_shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
     for feature in candidate_feature_collection(geo, geo_path):
-        event_id = feature["properties"].get("event_id")
-        if not isinstance(event_id, str) or not event_id:
-            raise AISInputError(
-                f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
-            )
-        candidates[event_id] = feature["properties"]
+        props = feature["properties"]
+        if not candidate_identity_shape(props):
+            raise AISInputError(geo_wrong_shape)
+        candidates[props["event_id"]] = props
 
     excluded = Counter()
     rows = []

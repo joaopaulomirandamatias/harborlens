@@ -12,7 +12,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from harborlens.ais import EVENT_FIELDS, infer_candidates, ingest, run
-from harborlens.censoring import AnalysisWindowError
+from harborlens.censoring import AnalysisWindowError, sidecar_window
 from harborlens.multiday import run_multiday
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas" / "v1"
@@ -125,6 +125,43 @@ class SingleFileCensoringTests(unittest.TestCase):
         self.src.with_name(self.src.name + ".source.json").write_text(json.dumps(record))
         manifest = run(self.src, self.root / "out")
         self.assertEqual(manifest["analysis_window"]["declarations"][0]["source"], "erddap_sidecar")
+
+    def test_sidecar_utf8_and_json_are_distinct(self):
+        side = self.src.with_name(self.src.name + ".source.json")
+        side.write_bytes(b"\xff")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid UTF-8", str(caught.exception))
+        self.assertNotIn("not valid JSON", str(caught.exception))
+        side.write_text("{bad", encoding="utf-8")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("not valid UTF-8", str(caught.exception))
+        side.write_bytes(b"")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("not valid UTF-8", str(caught.exception))
+
+    def test_huge_integer_and_deep_sidecar_are_not_valid_json(self):
+        side = self.src.with_name(self.src.name + ".source.json")
+        side.write_text('{"x": ' + ("9" * 5000) + "}", encoding="utf-8")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("not valid UTF-8", str(caught.exception))
+        self.assertIsInstance(caught.exception, AnalysisWindowError)
+        with self.assertRaises(AnalysisWindowError) as caught:
+            run(self.src, self.root / "huge")
+        self.assertIn("Acquisition sidecar is not valid JSON", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
+        self.assertFalse((self.root / "huge").exists())
+        side.write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
 
     def test_sidecar_for_other_bytes_fails_closed(self):
         extraction_sidecar(self.src, "2024-01-02T00:00:00Z", "2024-01-02T06:00:00Z", digest="0" * 64)

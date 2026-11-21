@@ -163,5 +163,22 @@ class ShipCategoryAboveAllocatedMidTests(unittest.TestCase):
             self.assertEqual(records[0]["mmsi_category"], "ship")
 
 
+class NonAsciiDigitMmsiTests(unittest.TestCase):
+    def test_arabic_indic_mmsi_is_counted_invalid_and_not_written(self):
+        arabic = "".join(chr(0x0660 + int(digit)) for digit in "199080001")
+        self.assertTrue(arabic.isdigit())
+        self.assertFalse(arabic.isascii())
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = write(root / "arabic.csv", stop_rows(arabic, DAY, 40))
+            manifest = run(source, root / "out")
+            self.assertEqual(manifest["counts"]["written"], 0)
+            self.assertGreaterEqual(manifest["counts"]["invalid"], 1)
+            cleaned = (root / "out" / "houston_clean.csv").read_text(encoding="utf-8")
+            self.assertNotIn(arabic, cleaned)
+            geo = json.loads((root / "out" / "stationary_candidates.geojson").read_text(encoding="utf-8"))
+            self.assertEqual(geo["features"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

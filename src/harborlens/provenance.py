@@ -9,11 +9,12 @@ import hmac
 import json
 import os
 import re
+import unicodedata
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from harborlens import __version__
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, escape_error_text
 from harborlens.io_safe import AISInputError
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
@@ -69,31 +70,99 @@ _SOURCE_URL_MESSAGE = (
 )
 
 
+def _raw_source_url_forbidden(value):
+    """True when ``value`` has whitespace, a control, or a format character.
+
+    Checked on the raw string. ``urlsplit`` removes tab, CR, and LF before
+    it parses, so a check after the split would see a different value.
+    Category Cc is C0, DEL, and C1. Category Cf includes bidi controls such
+    as U+202E and zero-width characters.
+    """
+    for character in value:
+        if character.isspace() or unicodedata.category(character) in ("Cc", "Cf"):
+            return True
+    return False
+
+
+# Exact query or fragment names, compared case-insensitively after decoding.
+# ``x-amz-`` is a prefix. This is a heuristic: names not on the list are kept.
+_CREDENTIAL_PARAMETER_NAMES = frozenset({
+    "token",
+    "access_token",
+    "api_key",
+    "secret",
+    "password",
+    "sig",
+    "signature",
+    "auth",
+})
+
+
+def _parameter_name_is_credential(name):
+    lowered = name.lower()
+    return lowered in _CREDENTIAL_PARAMETER_NAMES or lowered.startswith("x-amz-")
+
+
+def _has_credential_parameter(parts):
+    """True when a query or fragment name is on the credential heuristic."""
+    for text in (parts.query, parts.fragment):
+        for name, _value in parse_qsl(text, keep_blank_values=True, separator="&"):
+            if _parameter_name_is_credential(name):
+                return True
+    return False
+
+
 def require_declared_source_url(source_url):
     """Accept a missing URL or an HTTP(S) URL with a host and no userinfo.
 
-    ``None`` means ``--source-url`` was omitted. An empty string, a URL with
-    no host (``http://``, ``https:///path``), a scheme other than ``http`` or
-    ``https`` (``ftp://x``), and a URL that carries a username or password
-    raise ``AISInputError``. This does not fetch the URL and does not change
-    ``rights_status``.
+    ``None`` means ``--source-url`` was omitted. The same ``AISInputError``
+    is raised, and the URL is not included in the message, when:
+
+    - the raw value contains whitespace, a control (C0, DEL, C1), or a
+      format character (category Cf, including U+202E and zero-width
+      characters), including characters ``urlsplit`` would remove;
+    - ``.port`` raises ``ValueError`` (a non-integer port, or a port outside
+      0..65535) — that read sits inside the ``ValueError`` guard — or the
+      port is 0;
+    - the scheme is not ``http`` or ``https``, there is no host, or a
+      username or password is present;
+    - a query or fragment parameter name, after decoding, is
+      ``token``, ``access_token``, ``api_key``, ``secret``, ``password``,
+      ``sig``, ``signature``, or ``auth`` (any case), or starts with
+      ``x-amz-``.
+
+    An omitted port and an empty port (``http://example.org:``, where
+    ``.port`` is ``None``) are accepted. Port 1 and port 65535 are the
+    inclusive bounds. Port 0 is rejected, the same rule as the rights
+    register.
+
+    The parameter-name check is a heuristic, the same idea as rejecting
+    ``user:pass@``. ``http://example.org:443/path?q=1`` stays accepted.
+    A name that is not on the list, such as ``apikey`` or ``key``, stays
+    accepted. ``rights_status`` stays ``review_required``.
     """
     if source_url is None:
         return
-    if not isinstance(source_url, str):
+    if not isinstance(source_url, str) or _raw_source_url_forbidden(source_url):
         raise AISInputError(_SOURCE_URL_MESSAGE)
     try:
         parts = urlsplit(source_url)
         # Reading these raises ``ValueError`` for an unbalanced IPv6 bracket
-        # such as ``http://[::1`` or ``http://[``. ``.port`` is not read: a
-        # port ``urlsplit`` accepts (including an out-of-range port) stays a
-        # later check and is not rejected here.
+        # such as ``http://[::1`` or ``http://[``. ``.port`` raises
+        # ``ValueError`` for a non-integer port and for a port outside
+        # 0..65535, such as ``:abc`` or ``:65536``.
         username = parts.username
         password = parts.password
+        port = parts.port
+        _host = parts.hostname
     except ValueError:
         raise AISInputError(_SOURCE_URL_MESSAGE) from None
+    # ``.port`` already rejected values outside 0..65535. Port 0 is inside
+    # that range and is not a server port. The rights register uses 1..65535.
+    if port is not None and not 1 <= port <= 65535:
+        raise AISInputError(_SOURCE_URL_MESSAGE)
     if (parts.scheme not in ("https", "http") or not parts.netloc
-            or username or password):
+            or username or password or _has_credential_parameter(parts)):
         raise AISInputError(_SOURCE_URL_MESSAGE)
 
 
@@ -190,13 +259,15 @@ def main():
     try:
         result = verify_manifest(args.manifest)
     except ManifestFormatError:
-        parser.error(f"manifest '{args.manifest}' is not a valid HarborLens manifest")
+        parser.error(escape_error_text(
+            f"manifest '{args.manifest}' is not a valid HarborLens manifest"
+        ))
     except OSError as exc:
         detail = exc.strerror if exc.strerror else type(exc).__name__
-        parser.error(
+        parser.error(escape_error_text(
             f"cannot read manifest '{args.manifest}' ({detail}). "
             "Give --manifest the manifest.json written by harborlens."
-        )
+        ))
     print(json.dumps(result, indent=2))
     if not result["ok"]:
         raise SystemExit(1)

@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import urlsplit
 from harborlens.ais import run
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import digests_equal, require_declared_source_url, verify_manifest
@@ -45,6 +46,14 @@ class ProvenanceTests(unittest.TestCase):
             "https://example.org/ais.csv",
             "HTTP://example.org",
             "http://example.org:443/path?q=1",
+            "http://example.org:1",
+            "http://example.org:65535",
+            "http://example.org:",
+            "http://[::1]:443",
+            "http://[::1]:65535",
+            "http://example.org/path?apikey=example",
+            "http://example.org/path?tokenizer=1",
+            "http://example.org/path?q=token",
         ):
             with self.subTest(url=accepted):
                 require_declared_source_url(accepted)
@@ -58,13 +67,64 @@ class ProvenanceTests(unittest.TestCase):
             "https://user:secret@example.org",
             "http://[::1",
             "http://[",
+            "http://example.org\t/ais.csv",
+            "http://example.org\n",
+            "http://example.org\r/x",
+            "http://ex ample.org",
+            "http://example.org/path with space",
+            "http://example.org\u00a0",
+            "http://example.org\u2028",
+            "http://exam\x1bple.org",
+            "http://example.org\x7f",
+            "http://example.org\x80",
+            "http://example.org:abc",
+            "http://example.org:65536",
+            "http://example.org:99999999",
+            "http://example.org:-1",
+            "http://[::1]:abc",
+            "http://[::1]:99999999",
+            "http://example.org:0",
+            "http://example.org:00",
+            "http://example.org/path?token=example",
+            "http://example.org/path?Token=example",
+            "http://example.org/path?access_token=example",
+            "http://example.org/path?api_key=example",
+            "http://example.org/path?secret=example",
+            "http://example.org/path?password=example",
+            "http://example.org/path?sig=example",
+            "http://example.org/path?signature=example",
+            "http://example.org/path?auth=example",
+            "http://example.org/path?x-amz-signature=example",
+            "http://example.org/path?X-Amz-Security-Token=example",
+            "http://example.org/path?%74oken=example",
+            "http://example.org/path#access_token=example",
+            "http://example.org/\u202e",
+            "http://example.org/\u200b",
+            "http://example.org/\ufeff",
         ):
             with self.subTest(url=rejected):
                 with self.assertRaises(AISInputError) as caught:
                     run(FIXTURE, self.out, source_url=rejected)
-                self.assertIn("must name a host", str(caught.exception))
-                self.assertNotIn("Traceback", str(caught.exception))
+                message = str(caught.exception)
+                self.assertIn("must name a host", message)
+                self.assertNotIn("Traceback", message)
+                if rejected:
+                    self.assertNotIn(rejected, message)
                 self.assertFalse(self.out.exists())
+
+    def test_whitespace_is_rejected_before_urlsplit_strips_it(self):
+        raw = "http://example.org\t/ais.csv"
+        parsed = urlsplit(raw)
+        self.assertEqual(parsed.hostname, "example.org")
+        self.assertEqual(parsed.path, "/ais.csv")
+        with self.assertRaises(AISInputError) as caught:
+            require_declared_source_url(raw)
+        self.assertNotIn("\t", str(caught.exception))
+        self.assertNotIn(raw, str(caught.exception))
+        spaced = "http://ex ample.org"
+        self.assertIn(" ", urlsplit(spaced).hostname)
+        with self.assertRaises(AISInputError):
+            require_declared_source_url(spaced)
 
     def test_invalid_source_url_does_not_replace_an_existing_directory(self):
         self.out.mkdir()

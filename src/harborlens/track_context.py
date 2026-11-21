@@ -141,7 +141,7 @@ def _load_candidates(path):
             raise TrackEvidenceError("Candidate event IDs must be unique")
         identifiers.add(identifier)
         mmsi = str(props.get("mmsi") or "")
-        if not mmsi.isdigit() or len(mmsi) not in (8, 9):
+        if not (mmsi.isascii() and mmsi.isdigit()) or len(mmsi) not in (8, 9):
             raise TrackEvidenceError("Invalid MMSI in candidate")
         try:
             start = _epoch_microseconds(props["start_utc"])
@@ -175,7 +175,7 @@ def _ingest_observations(path, database, max_points):
             lat = float(row["lat"])
             lon = float(row["lon"])
             sog = float(row["sog_knots"])
-            if not (mmsi.isdigit() and len(mmsi) in (8,9) and
+            if not (mmsi.isascii() and mmsi.isdigit() and len(mmsi) in (8,9) and
                     all(map(math.isfinite, (lat, lon, sog))) and
                     -90 <= lat <= 90 and -180 <= lon <= 180 and 0 <= sog <= 100):
                 raise ValueError("Bad numeric observation")

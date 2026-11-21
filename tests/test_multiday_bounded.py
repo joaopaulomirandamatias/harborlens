@@ -530,6 +530,36 @@ class MultidayCliErrorTests(unittest.TestCase):
         self.assertIn("cannot be accessed", text)
         self.assertFalse(out.exists())
 
+    def test_error_line_escapes_controls_in_paths(self):
+        controls = (
+            ("esc", "\x1b", "\\x1b"),
+            ("newline", "\n", "\\x0a"),
+            ("cr", "\r", "\\x0d"),
+            ("bidi", "\u202e", "\\u202e"),
+            ("line_separator", "\u2028", "\\u2028"),
+            ("c1", "\x85", "\\x85"),
+        )
+        good = self.root / "good.csv"
+        write_csv(good, [line(DAY)])
+        for name, character, escaped in controls:
+            with self.subTest(control=name):
+                bad = self.root / f"bad{character}x.csv"
+                bad.write_text("foo,bar\n1,2\n", encoding="utf-8")
+                out = self.root / f"out-{name}"
+                code, text, stdout = self._exit([
+                    "--input", str(bad), str(good), "--out", str(out),
+                ])
+                self.assertEqual(code, 2)
+                self.assertEqual(stdout, "")
+                error_lines = [line for line in text.splitlines() if "error:" in line]
+                self.assertEqual(len(error_lines), 1)
+                self.assertIn(escaped, error_lines[0])
+                self.assertNotIn(character, error_lines[0])
+                self.assertIn("missing required column", error_lines[0])
+                self.assertNotIn("Traceback", text)
+                self.assertFalse(out.exists())
+                bad.unlink()
+
     def test_malformed_header_exits_2_without_traceback(self):
         bad = self.root / "bad.csv"
         good = self.root / "good.csv"
@@ -595,7 +625,7 @@ ARTIFACT_SHA256 = {
 class SingleDayByteIdentityTests(unittest.TestCase):
     """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev15.
 
-    Package 0.2.0.dev22 changes ``run_id`` because that digest includes
+    Package 0.2.0.dev23 changes ``run_id`` because that digest includes
     ``harborlens_version``. The three pipeline artifacts stay byte-identical,
     including the cleaned CSV the release recount reads. The fixture has no
     formula trigger, so the CSV neutralizer does not change a cell. A run
@@ -615,7 +645,7 @@ class SingleDayByteIdentityTests(unittest.TestCase):
             self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev15")
             self.assertEqual(_scrub(manifest), _scrub(golden))
             self.assertEqual(manifest["code_version"]["package_version"], harborlens.__version__)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev22")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev23")
             self.assertNotEqual(manifest["run_id"], golden["run_id"])
             with mock.patch.object(provenance, "__version__", "0.2.0.dev15"):
                 pinned = run(FIXTURE, root / "pinned")

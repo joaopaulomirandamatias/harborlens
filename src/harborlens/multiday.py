@@ -23,7 +23,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.ais import (
     ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
 )
@@ -255,7 +255,7 @@ def _load_files(db, inputs, bbox, max_points, meter):
                 lat = float(row[columns["lat"]])
                 lon = float(row[columns["lon"]])
                 sog = float(row[columns["sog"]])
-                if not mmsi.isdigit() or len(mmsi) not in (8, 9):
+                if not (mmsi.isascii() and mmsi.isdigit()) or len(mmsi) not in (8, 9):
                     raise ValueError("invalid MMSI")
                 if not (
                     math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)
@@ -590,7 +590,7 @@ def main(argv=None):
             params=params_from_args(args),
         )
     except (AISInputError, FileExistsError) as exc:
-        parser.error(str(exc))
+        report_domain_error(parser, exc)
     print(json.dumps(result, indent=2))
 
 
