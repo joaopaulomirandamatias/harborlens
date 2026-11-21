@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from harborlens.ais import BBOX_HOUSTON, header_alias, parse_time, sha256
+from harborlens.cli_usage import add_version_argument
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 from harborlens.io_safe import LimitedReader, MAX_COMPRESSED_BYTES, AISInputError, _open_text_stream
 from harborlens.vintages import header_style, vintage_for
@@ -121,7 +122,7 @@ def extract_archive(
                 raise AISInputError("Source archive has no CSV header")
             header = list(reader.fieldnames)
             detected["header_style"] = header_style(header)
-            fields = {key: header_alias(header, key) for key in ("mmsi", "timestamp", "lat", "lon", "sog")}
+            fields = {key: header_alias(header, key, source=source) for key in ("mmsi", "timestamp", "lat", "lon", "sog")}
             head = _csv_row_bytes(header)
             target.write(head)
             bytes_written += len(head)
@@ -199,6 +200,7 @@ def extract_archive(
 
 def main():
     p = argparse.ArgumentParser(description="Extract Houston observations from a local daily NOAA AIS archive")
+    add_version_argument(p)
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--start", required=True,

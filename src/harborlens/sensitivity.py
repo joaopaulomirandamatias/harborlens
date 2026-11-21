@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, segment_rows, sha256
+from harborlens.cli_usage import add_version_argument
 from harborlens.censoring import CENSORED, WindowCensoring, declared_window
 from harborlens.io_safe import AISInputError
 from harborlens.segmentation import METHOD_VERSION, SegmentationParams
@@ -103,6 +104,7 @@ def run_sensitivity(cleaned, out, grid, window_start=None, window_end=None):
 def main():
     parser = argparse.ArgumentParser(
         description="Descriptive threshold sensitivity for unvalidated stationary candidates; NOT FOR NAVIGATION")
+    add_version_argument(parser)
     parser.add_argument("--cleaned", type=Path, required=True, help="Canonical cleaned AIS CSV (houston_clean.csv)")
     parser.add_argument("--out", type=Path, required=True, help="New JSON report path")
     parser.add_argument("--window-start", default=None, help="Optional analysis window start (ISO 8601 with Z)")

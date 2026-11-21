@@ -55,11 +55,18 @@ def _open_text_stream(path: Path):
     try:
         compressed_bytes = path.stat().st_size
     except OSError as exc:
-        raise AISInputError("Input file cannot be accessed") from exc
+        detail = exc.strerror if exc.strerror else type(exc).__name__
+        raise AISInputError(
+            f"cannot read input file '{path}' ({detail}). "
+            "Give --input a readable AIS CSV, for example tests/fixtures/synthetic_ais.csv."
+        ) from exc
     if compressed_bytes > MAX_COMPRESSED_BYTES:
         raise AISInputError("Compressed/source AIS file exceeds maximum size")
     if not compressed_bytes:
-        raise AISInputError("AIS file is empty")
+        raise AISInputError(
+            f"input file '{path}' is empty. The CSV needs a header and AIS rows "
+            "(mmsi, timestamp, latitude, longitude, speed). See tests/fixtures/synthetic_ais.csv."
+        )
     suffix = path.suffix.lower()
     if suffix == ".csv":
         with path.open("rb") as raw:

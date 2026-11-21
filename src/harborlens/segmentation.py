@@ -249,16 +249,45 @@ def geojson_method_member(params):
     return params.manifest()
 
 
+def _threshold_default(value):
+    """Render a SegmentationParams default the way the help text shows it."""
+    return format(value, "g") if isinstance(value, float) else str(value)
+
+
 def add_threshold_arguments(parser):
     """Expose every threshold on a CLI; defaults equal SegmentationParams()."""
     defaults = SegmentationParams()
     group = parser.add_argument_group("segmentation thresholds (research hypotheses, BR-003)")
-    group.add_argument("--max-sog-knots", type=float, default=defaults.max_sog_knots)
-    group.add_argument("--min-duration-minutes", type=float, default=defaults.min_duration_minutes)
-    group.add_argument("--max-gap-minutes", type=float, default=defaults.max_gap_minutes)
-    group.add_argument("--max-radius-m", type=float, default=defaults.max_radius_m)
-    group.add_argument("--min-points", type=int, default=defaults.min_points)
-    group.add_argument("--max-jump-knots", type=float, default=defaults.max_jump_knots)
+    group.add_argument(
+        "--max-sog-knots", type=float, default=defaults.max_sog_knots,
+        help="maximum speed over ground, in knots, to treat a point as stationary "
+             f"(default: {_threshold_default(defaults.max_sog_knots)})",
+    )
+    group.add_argument(
+        "--min-duration-minutes", type=float, default=defaults.min_duration_minutes,
+        help="minimum candidate duration in minutes "
+             f"(default: {_threshold_default(defaults.min_duration_minutes)})",
+    )
+    group.add_argument(
+        "--max-gap-minutes", type=float, default=defaults.max_gap_minutes,
+        help="split a group when the gap exceeds this many minutes "
+             f"(default: {_threshold_default(defaults.max_gap_minutes)})",
+    )
+    group.add_argument(
+        "--max-radius-m", type=float, default=defaults.max_radius_m,
+        help="maximum spatial radius in meters "
+             f"(default: {_threshold_default(defaults.max_radius_m)})",
+    )
+    group.add_argument(
+        "--min-points", type=int, default=defaults.min_points,
+        help="minimum points in a candidate "
+             f"(default: {_threshold_default(defaults.min_points)})",
+    )
+    group.add_argument(
+        "--max-jump-knots", type=float, default=defaults.max_jump_knots,
+        help="implausible jump threshold in knots "
+             f"(default: {_threshold_default(defaults.max_jump_knots)})",
+    )
 
 
 def params_from_args(args):

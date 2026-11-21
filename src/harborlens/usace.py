@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.rights import PURPOSES, rights_receipt
 
 LAYER = "https://services7.arcgis.com/n1YM8pTrFmm7L4hs/ArcGIS/rest/services/Docks/FeatureServer/0"
@@ -202,6 +203,7 @@ def save_catalog(output, bbox=HOUSTON, page_size=250, max_features=MAX_FEATURES,
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch bounded USACE Navigation Facilities points — not berth polygons")
+    add_version_argument(parser)
     parser.add_argument("--bbox", nargs=4, type=float, default=HOUSTON, metavar=("W", "S", "E", "N"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--page-size", type=int, default=250)

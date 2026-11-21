@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.provenance import checksum, digests_equal
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -183,6 +184,7 @@ def audit_vintage(polygons, output, start_utc, end_utc, source_receipt=None, enc
 
 def main():
     parser = argparse.ArgumentParser(description="Audit historical NOAA polygon vintage evidence; no validity approval")
+    add_version_argument(parser)
     parser.add_argument("--polygons", type=Path, required=True)
     parser.add_argument("--source-receipt", type=Path)
     parser.add_argument("--enc-evidence", type=Path, help="Optional unverified, user-supplied ENC documentary record")

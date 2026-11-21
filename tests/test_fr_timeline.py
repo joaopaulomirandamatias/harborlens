@@ -135,7 +135,7 @@ def _forbid_network(*_args, **_kwargs):
 
 # Tests freeze the publication clock on this UTC day.
 FROZEN_TODAY = date(2026, 11, 21)
-_USAGE = "usage: harborlens-fr-timeline [-h] [--start START] [--end END] --out OUT"
+_USAGE = "usage: harborlens-fr-timeline [-h] [-V] [--start START] [--end END] --out OUT [--debug]"
 _OLD_WINDOW_SENTENCE = "Use a historical publication window of at most 370 days"
 _START_AFTER_END = (
     "--start (2024-01-02) is after --end (2023-07-01). "
