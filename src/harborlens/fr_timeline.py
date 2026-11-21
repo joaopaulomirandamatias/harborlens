@@ -17,6 +17,7 @@ from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.request import Request, urlopen
 
 from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.timeparse import parse_calendar_date
 
 API = "https://www.federalregister.gov/api/v1/documents.json"
@@ -142,8 +143,14 @@ def _fetch(opener, url):
     except (URLError, TimeoutError, OSError) as exc:
         raise FederalRegisterAuditError("Federal Register download failed") from exc
     try:
-        obj = json.loads(raw)
-    except (ValueError, UnicodeError) as exc:
+        text = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise FederalRegisterAuditError("Official API response is not valid JSON") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise FederalRegisterAuditError("Official API response is not valid JSON")
+    try:
+        obj = json.loads(text)
+    except (ValueError, RecursionError) as exc:
         raise FederalRegisterAuditError("Official API response is not valid JSON") from exc
     if not isinstance(obj, dict) or not isinstance(obj.get("results"), list):
         raise FederalRegisterAuditError("Official API response lacks a results array")

@@ -522,7 +522,17 @@ def _load_run(run_dir):
         ) from exc
     if not check["ok"]:
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_invalid = f"manifest '{manifest_path}' is not a valid HarborLens manifest"
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(manifest_invalid) from exc
+    if max_container_depth(manifest_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AISInputError(manifest_invalid)
+    try:
+        manifest = json.loads(manifest_text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise AISInputError(manifest_invalid) from exc
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
     geo_path = run_dir / "stationary_candidates.geojson"
     geo_not_utf8 = f"candidate GeoJSON '{geo_path}' is not valid UTF-8"

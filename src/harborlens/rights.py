@@ -137,6 +137,8 @@ def _validate_registry_schema(data):
     except ImportError as exc:
         raise ValueError(_MISSING_JSONSCHEMA) from exc
     try:
+        # Packaged contract, not a caller-supplied document. Loaded only
+        # through importlib.resources. Excluded from MAX_JSON_NESTING.
         schema = json.loads(_read_packaged_schema())
     except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError("Rights register schema is unreadable") from exc

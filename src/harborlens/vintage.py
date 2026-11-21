@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import checksum, digests_equal
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -35,8 +36,14 @@ def _small_json(path):
     if not path.is_file() or not (0 < path.stat().st_size <= MAX_JSON_BYTES):
         raise VintageAuditError("Metadata JSON is missing, empty or too large")
     try:
-        result = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise VintageAuditError("Invalid metadata JSON") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise VintageAuditError("Invalid metadata JSON")
+    try:
+        result = json.loads(text)
+    except (ValueError, RecursionError) as exc:
         raise VintageAuditError("Invalid metadata JSON") from exc
     if not isinstance(result, dict):
         raise VintageAuditError("Expected JSON object")
@@ -194,7 +201,11 @@ def main():
                         help="Study end; same grammar as --start")
     parser.add_argument("--out", type=Path, required=True)
     a = parser.parse_args()
-    print(json.dumps(audit_vintage(a.polygons, a.out, a.start, a.end, a.source_receipt, a.enc_evidence), indent=2))
+    try:
+        result = audit_vintage(a.polygons, a.out, a.start, a.end, a.source_receipt, a.enc_evidence)
+    except VintageAuditError as exc:
+        parser.exit(2, str(exc) + "\n")
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

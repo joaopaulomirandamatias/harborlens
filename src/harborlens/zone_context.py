@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 
 from harborlens.cli_usage import add_version_argument
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 
 MAX_INPUT_MIB = 32
 MAX_CANDIDATES = 50000
@@ -26,8 +27,14 @@ def _load(path):
     if not path.is_file() or path.stat().st_size > MAX_INPUT_MIB * 1048576:
         raise ZoneContextError("Missing or oversized GeoJSON input")
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise ZoneContextError("Invalid GeoJSON document") from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise ZoneContextError("Invalid GeoJSON document")
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError) as exc:
         raise ZoneContextError("Invalid GeoJSON document") from exc
 
 
@@ -159,7 +166,11 @@ def main():
     p.add_argument("--polygons",required=True,type=Path)
     p.add_argument("--out",required=True,type=Path)
     a=p.parse_args()
-    print(json.dumps(spatial_context(a.candidates,a.polygons,a.out),indent=2))
+    try:
+        result=spatial_context(a.candidates,a.polygons,a.out)
+    except ZoneContextError as exc:
+        p.exit(2, str(exc) + "\n")
+    print(json.dumps(result,indent=2))
 
 if __name__=="__main__":
     main()

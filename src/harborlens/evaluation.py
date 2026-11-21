@@ -231,9 +231,11 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
             f"cannot read run manifest '{manifest_path}' ({_os_detail(exc)}). "
             "--run must be a directory written by harborlens, containing manifest.json."
         ) from exc
+    if max_container_depth(manifest_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AISInputError(manifest_invalid)
     try:
         manifest = json.loads(manifest_text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise AISInputError(manifest_invalid) from exc
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
     sampling_not_utf8 = f"sampling file '{sampling}' is not valid UTF-8"
@@ -407,10 +409,17 @@ def read_evaluation_report(path):
     This function does not upgrade the file and does not write a replacement.
     """
     path = Path(path)
+    unreadable = f"{path.name} is not a readable evaluation report"
     try:
-        body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise EvaluationReportError(f"{path.name} is not a readable evaluation report") from exc
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise EvaluationReportError(unreadable) from exc
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise EvaluationReportError(unreadable)
+    try:
+        body = json.loads(text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise EvaluationReportError(unreadable) from exc
     if not isinstance(body, dict):
         raise EvaluationReportError(f"{path.name} is not an evaluation report object")
     version = body.get("schema_version")
