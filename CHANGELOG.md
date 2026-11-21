@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added (SPEC-003: sidecar schema boundary tests)
+- Package version stays `0.2.0.dev20`. `schemas/v1/erddap-ais-source.schema.json` and `schemas/v1/noaa-archive-extract-source.schema.json` are unchanged. Adapters do not load them at runtime. Ordinary `harborlens` artifacts are unchanged, so `run_id` is unchanged.
+- Both sidecar schemas accept writer output and still accept that output when `rights_review` is omitted. Both reject `evaluation=reviewed_record` paired with `rights_status=review_required`, a status of `approved`, a trailing space on `review_required`, and a missing `rights_status`. A `not_supplied` receipt with a 64-character `registry_sha256` does not validate. A warning of 9 characters does not validate; 10 does.
+- ERDDAP `rows` and archive `counts.selected` reject 0 and accept 1. A digest of 63 hex characters does not validate; 64 does.
+- `docs/data/rights-register.json` is not modified. All five checked-in sources stay `decision=pending` and `rights_status=review_required`. No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #69 (stays open). Refs #67 (stays open). Refs #42 (stays open).
+
 ### Security (SPEC-004: pypdf floor for the lsa extra)
 - Package version stays `0.2.0.dev20`. The optional `lsa` extra requires `pypdf>=7.1.1,<8`. The floor moved from `6.21.4` to `7.1.1`, the first pypdf release patched for all three repository advisories below. Each is a moderate CWE-400 denial of service: a crafted PDF can force large memory use. They are published on `py-pdf/pypdf` and are absent from the global GitHub Advisory Database and from OSV.
 - [GHSA-fhff-j4m8-439h](https://github.com/py-pdf/pypdf/security/advisories/GHSA-fhff-j4m8-439h) affects pypdf `< 7.0.1` and is patched in `>= 7.0.1`. Some image modes were counted with too few bytes, so a file could pass the image-size limit and then allocate more memory. Also CWE-770.

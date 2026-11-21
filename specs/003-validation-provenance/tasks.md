@@ -92,6 +92,7 @@
 - [x] Reject trailing whitespace, IPv6 literals, and raw IDN hostnames in the schema pattern and the parser. Punycode stays accepted. Document that restriction.
 - [x] Record the rights register as its own FR-010 row in `docs/requirements/traceability.md` and document `source-rights-register` in `schemas/README.md`.
 - [x] Publish `erddap-ais-source` and `noaa-archive-extract-source` schemas, including optional `rights_review`, and keep the checked-in register at `review_required` for every adapter (NFR-010). Those schemas stay unpackaged.
+- [x] On both sidecar schemas, accept an omitted `rights_review`, reject `reviewed_record` with `rights_status=review_required`, reject `rows` or `counts.selected` of 0 while accepting 1, and reject a 63-character digest while accepting 64. The register file stays byte-identical. Package stays `0.2.0.dev20`. Refs #69 (stays open).
 - [x] CI already runs the rights wheel step with `actions/checkout@v7` and `actions/setup-python@v7`, the same pins as the rest of `.github/workflows/ci.yml`. No workflow edit was required.
 - [ ] Independent source-rights approval remains external. Refs #42 (stays open). Refs #67 (stays open). Refs #69 (stays open). Issue #68 stays open because one sample digest cannot pass on both Python 3.10 and 3.12 while `random.sample` differs.
 
