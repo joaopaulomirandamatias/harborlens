@@ -49,8 +49,8 @@
     },
     "python_version": {
       "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
-      "description": "CPython release triple (major.minor.micro) from sys.version_info of the interpreter that drew this sample. The release level, serial, build, and compiler are omitted, so one micro release records one string. The same seed and the same inputs reproduce the sheet and this manifest only on the same Python minor version."
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?![\\n\\r\u2028\u2029])$",
+      "description": "CPython release triple (major.minor.micro) from sys.version_info of the interpreter that drew this sample. The release level, serial, build, and compiler are omitted, so one micro release records one string. A pre-release interpreter records the same python_version string as the final release with the same major.minor.micro. The reproducibility guarantee is the Python minor version. A trailing newline does not match. JSON Schema has no \\Z, and $ matches before one trailing ECMA-262 line terminator (U+000A, U+000D, U+2028, U+2029), so a negative lookahead stands before $."
     },
     "requested": {
       "type": "object",

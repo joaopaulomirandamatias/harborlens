@@ -17,7 +17,8 @@ from harborlens.io_safe import AISInputError
 from harborlens.labeling import (
     ANNOTATION_FIELDS, SAMPLE_SCHEMA, SAMPLE_SCHEMA_V01, SHEET_FIELDS, TRANSCEIVER_STRATA,
     VESSEL_GROUPS, _allocate, agreement, cohen_kappa, draw_sample, parse_stratum,
-    sample_main, sampling_python_version, transceiver_stratum, vessel_group,
+    matches_sampling_python_version, sample_main, sampling_python_version,
+    transceiver_stratum, vessel_group,
 )
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas" / "v1"
@@ -303,6 +304,7 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(record["python_version"], expected)
         self.assertEqual(again["python_version"], expected)
         self.assertEqual(record["python_version"], sampling_python_version())
+        self.assertTrue(matches_sampling_python_version(record["python_version"]))
         on_disk = json.loads((self.root / "sheet.csv.sampling.json").read_text(encoding="utf-8"))
         self.assertEqual(on_disk["python_version"], expected)
         schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())
@@ -310,12 +312,15 @@ class SamplerTests(unittest.TestCase):
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(record)
 
     def test_schema_rejects_missing_or_malformed_python_version(self):
-        """The published schema is the check for python_version.
+        """The published schema and matches_sampling_python_version check python_version.
 
         harborlens-verify reads the run manifest and does not open the sampling
         file. A missing field, a non-string, a minor-only value, a pre-release
-        suffix, and a leading zero fail. The smallest triple and a two-digit
-        major match the pattern. The writer emits the running triple.
+        suffix, a leading zero, a trailing newline, a +local suffix, and
+        Unicode digits fail. The smallest triple and a two-digit major match.
+        The writer emits the running triple. The schema pattern is ECMA-262:
+        it has no \\Z, and a negative lookahead before $ rejects a trailing
+        line terminator. The Python check uses re.fullmatch and \\Z.
         """
         record, _ = self.sheet(candidates=2, negatives=1, name="schema.csv")
         schema = json.loads((SCHEMAS / "label-sample.schema.json").read_text())
@@ -324,7 +329,11 @@ class SamplerTests(unittest.TestCase):
         checker.validate(record)
         running = "{}.{}.{}".format(*sys.version_info[:3])
         self.assertEqual(record["python_version"], running)
-        self.assertRegex(running, schema["properties"]["python_version"]["pattern"])
+        pattern = schema["properties"]["python_version"]["pattern"]
+        self.assertRegex(running, pattern)
+        self.assertIn("(?!", pattern)
+        self.assertNotIn("\\Z", pattern)
+        self.assertTrue(matches_sampling_python_version(running))
 
         missing = dict(record)
         del missing["python_version"]
@@ -340,8 +349,17 @@ class SamplerTests(unittest.TestCase):
             "v prefix": "v3.12.3",
             "empty": "",
             "leading zero on major": "03.10.0",
+            "leading zero on minor": "3.010.1",
             "leading zero on micro": "3.10.00",
             "trailing space": "3.10.0 ",
+            "trailing newline": "3.12.1\n",
+            "trailing carriage return": "3.12.1\r",
+            "trailing crlf": "3.12.1\r\n",
+            "trailing line separator": "3.12.1\u2028",
+            "trailing paragraph separator": "3.12.1\u2029",
+            "local suffix": "3.12.1+local",
+            "arabic-indic digits": "\u0663.\u0661\u0662.\u0661",
+            "fullwidth digits": "\uFF13.\uFF11\uFF12.\uFF11",
             "four components": "3.10.0.1",
             "integer": 312,
             "null": None,
@@ -352,13 +370,22 @@ class SamplerTests(unittest.TestCase):
                 broken["python_version"] = value
                 self.assertFalse(checker.is_valid(broken))
                 self.assertTrue(any(list(err.path) == ["python_version"] for err in checker.iter_errors(broken)))
+                self.assertFalse(matches_sampling_python_version(value))
 
         for name, value in (("smallest triple", "0.0.0"), ("two-digit major", "10.0.0")):
             with self.subTest(name=name):
                 accepted = dict(record)
                 accepted["python_version"] = value
                 checker.validate(accepted)
+                self.assertTrue(matches_sampling_python_version(value))
                 self.assertNotEqual(record["python_version"], value)
+
+    def test_prerelease_interpreter_records_the_final_micro_string(self):
+        """releaselevel and serial are omitted. The minor version is the guarantee."""
+        with patch("harborlens.labeling.sys.version_info", (3, 13, 0, "candidate", 1)):
+            recorded = sampling_python_version()
+        self.assertEqual(recorded, "3.13.0")
+        self.assertTrue(matches_sampling_python_version(recorded))
 
     def test_every_non_empty_stratum_is_represented(self):
         record, _ = self.sheet(candidates=100, negatives=100)

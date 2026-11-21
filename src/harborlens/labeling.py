@@ -7,7 +7,10 @@ transceiver class (A, B, or absent/unknown). Negatives are stratified by
 vessel group and transceiver class. The same seed and the same inputs
 reproduce the sheet and the sampling manifest only on the same Python minor
 version. The manifest records ``python_version`` as ``major.minor.micro``
-from ``sys.version_info``. ``harborlens-label-agreement`` compares two
+from ``sys.version_info``. A pre-release interpreter records the same
+string as the final release with the same major.minor.micro. The
+reproducibility guarantee is the Python minor version.
+``harborlens-label-agreement`` compares two
 annotators' sheets.
 
 Agreement between annotators is NOT accuracy of the method, and an L2 label is
@@ -83,6 +86,24 @@ from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
 SAMPLE_SCHEMA_V01 = "label-sample-v0.1"
 SAMPLE_SCHEMA = "label-sample-v0.2"
+# ASCII major.minor.micro, no leading zeros. ``re.fullmatch`` plus ``\Z``
+# rejects a trailing newline. ``$`` matches before one trailing newline, so
+# it is not used here. JSON Schema patterns are ECMA-262 and have no ``\Z``;
+# ``schemas/v1/label-sample.schema.json`` puts a negative lookahead for a
+# line terminator before ``$``.
+_SAMPLING_PYTHON_VERSION = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z"
+)
+
+
+def matches_sampling_python_version(value):
+    """Return True when ``value`` is exactly ``major.minor.micro``.
+
+    The check is ``re.fullmatch`` of an ASCII pattern ending at ``\\Z``.
+    A trailing newline, a leading zero, a ``+local`` suffix, and non-ASCII
+    digits do not match.
+    """
+    return isinstance(value, str) and _SAMPLING_PYTHON_VERSION.fullmatch(value) is not None
 
 
 def sampling_python_version():
@@ -90,10 +111,12 @@ def sampling_python_version():
 
     The value is ``major.minor.micro`` from ``sys.version_info``. The release
     level, serial, build date, and compiler are omitted, so one CPython micro
-    release records one string. ``platform.python_version()`` parses
-    ``sys.version`` and is the same triple on a final release. The tuple is
-    the source of that parse and does not depend on the ``platform`` module's
-    version-string grammar.
+    release records one string. A pre-release interpreter records the same
+    ``python_version`` string as the final release with the same
+    major.minor.micro. The reproducibility guarantee is the Python minor
+    version. ``platform.python_version()`` parses ``sys.version`` and is the
+    same triple on a final release. The tuple is the source of that parse and
+    does not depend on the ``platform`` module's version-string grammar.
 
     The blinded sheet and the sampling manifest are reproducible for the same
     seed and the same inputs only on the same Python minor version. CPython
@@ -101,7 +124,10 @@ def sampling_python_version():
     the sample. Byte identity stops at that minor version.
     """
     major, minor, micro = sys.version_info[:3]
-    return f"{major}.{minor}.{micro}"
+    recorded = f"{major}.{minor}.{micro}"
+    if not matches_sampling_python_version(recorded):
+        raise AISInputError("python_version is not major.minor.micro")
+    return recorded
 
 
 AGREEMENT_SCHEMA = "label-agreement-v0.1"
