@@ -295,9 +295,12 @@ class OutputScope:
     symlink. The final ``--out`` node is recorded when ``ensure`` creates or
     first resolves it. ``anchor_directory`` holds an ``O_DIRECTORY|O_NOFOLLOW``
     fd for that node, so a symlink swapped in later is not followed. The fd
-    is closed on cleanup and from the caller's ``finally``. A pre-existing
+    is closed on cleanup and from the caller's ``finally``.     A pre-existing
     symlink is followed once; replacing the directory it already points at,
-    while the symlink node itself stays, cannot be detected.
+    while the symlink node itself stays, cannot be detected. Unlinking that
+    symlink and creating another one before the directory fd is opened is
+    refused when the stored target or ``st_ctime_ns`` differs, including
+    when the inode number is reused.
     """
 
     def __init__(self, directory):
@@ -310,6 +313,10 @@ class OutputScope:
         self.anchor_dev=None
         self.anchor_ino=None
         self.anchor_is_link=False
+        # Set only for a pre-existing symlink. A real directory keeps the
+        # dev/ino check alone, so a successful run does not grow a new failure.
+        self.anchor_ctime_ns=None
+        self.anchor_link_target=None
 
     def ensure(self):
         directory=self.directory
@@ -361,8 +368,10 @@ class OutputScope:
         ``lstat`` does not follow the final component. A real directory is
         remembered as a directory. A symlink to a directory is remembered as
         that link, which is the one pre-existing symlink ``anchor_directory``
-        may follow. A directory this run created is recorded at ``mkdir``
-        and must not be a symlink.
+        may follow. The link also stores ``os.readlink`` and ``st_ctime_ns``,
+        so a later link with the same inode and a different target or ctime
+        is not that node. A directory this run created is recorded at
+        ``mkdir`` and must not be a symlink.
         """
         info=_lstat_or_none(path)
         if info is None:
@@ -379,6 +388,20 @@ class OutputScope:
         self.anchor_dev=info.st_dev
         self.anchor_ino=info.st_ino
         self.anchor_is_link=is_link
+        if is_link:
+            # The node can be unlinked and recreated with the same inode
+            # before ``anchor_directory``. The target string and ctime tell
+            # those two links apart. A real directory does not store them.
+            try:
+                self.anchor_link_target=os.readlink(path)
+            except OSError as exc:
+                raise AISInputError(
+                    f"cannot write output directory '{self.directory}' (symlink)."
+                ) from exc
+            self.anchor_ctime_ns=info.st_ctime_ns
+        else:
+            self.anchor_link_target=None
+            self.anchor_ctime_ns=None
 
     def verify_created(self):
         """Refuse when a directory this run created was replaced by a symlink."""
@@ -407,7 +430,18 @@ class OutputScope:
             return True
         if info.st_dev!=self.anchor_dev or info.st_ino!=self.anchor_ino:
             return True
-        return stat.S_ISLNK(info.st_mode)!=self.anchor_is_link
+        if stat.S_ISLNK(info.st_mode)!=self.anchor_is_link:
+            return True
+        if not self.anchor_is_link:
+            return False
+        # Same inode is not enough. A recreated symlink can reuse it.
+        if self.anchor_ctime_ns is None or info.st_ctime_ns!=self.anchor_ctime_ns:
+            return True
+        try:
+            target=os.readlink(self.directory)
+        except OSError:
+            return True
+        return target!=self.anchor_link_target
 
     def refuse_replaced_directory(self):
         """Refuse a symlink swapped in after ``ensure`` recorded ``--out``.

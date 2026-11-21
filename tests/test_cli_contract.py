@@ -2784,6 +2784,51 @@ class OutputPathSafetyTests(unittest.TestCase):
             self.assertEqual(meta["sha256"], checksum(artifact))
             self.assertEqual(meta["size_bytes"], artifact.stat().st_size)
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_reused_inode_on_a_preexisting_out_symlink_is_refused(self):
+        """A recreated ``--out`` symlink is refused even when the inode is reused.
+
+        ``ensure`` records the link target and ``st_ctime_ns``. The check
+        copies the new device and inode onto that record so the refusal does
+        not depend on this filesystem assigning a new inode. An unchanged
+        link is still followed.
+        """
+        from harborlens.ais import OutputScope
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            good = root / "good"
+            evil = root / "evil"
+            good.mkdir()
+            evil.mkdir()
+            (evil / "sentinel.txt").write_text("SAFE", encoding="utf-8")
+            link = root / "out"
+            link.symlink_to(good, target_is_directory=True)
+            scope = OutputScope(link)
+            scope.ensure()
+            self.assertTrue(scope.anchor_is_link)
+            self.assertEqual(scope.anchor_link_target, os.readlink(link))
+            self.assertIsNotNone(scope.anchor_ctime_ns)
+            self.assertFalse(scope._directory_was_replaced())
+            scope.anchor_ctime_ns = scope.anchor_ctime_ns + 1
+            self.assertTrue(scope._directory_was_replaced())
+            scope.anchor_ctime_ns = os.lstat(link).st_ctime_ns
+            self.assertFalse(scope._directory_was_replaced())
+            scope.anchor_directory()
+            scope.close_directory_fd()
+            link.unlink()
+            link.symlink_to(evil, target_is_directory=True)
+            info = os.lstat(link)
+            scope.anchor_dev = info.st_dev
+            scope.anchor_ino = info.st_ino
+            scope.anchor_ctime_ns = info.st_ctime_ns
+            self.assertNotEqual(os.readlink(link), scope.anchor_link_target)
+            self.assertTrue(scope._directory_was_replaced())
+            with self.assertRaises(AISInputError) as caught:
+                scope.anchor_directory()
+            self.assertIn("(symlink)", str(caught.exception))
+            self.assertEqual((evil / "sentinel.txt").read_text(encoding="utf-8"), "SAFE")
+            self.assertFalse((evil / "houston_clean.csv").exists())
+
     def test_before_anchored_output_does_nothing(self):
         from harborlens.multiday import before_anchored_output
         for step in ("ingest", "after_verify", "anchor", "checksum", "houston_clean.csv"):
@@ -2854,8 +2899,24 @@ class OutputPathSafetyTests(unittest.TestCase):
                             self.assertFalse((held / name).exists(), name)
 
     def test_multiday_manifest_bytes_match_main_key_order(self):
+        """The golden manifest pins ``package_version`` and ``run_id``.
+
+        ``tests/fixtures/multiday_manifest_main_order.json`` is the byte
+        image of one successful multiday manifest. It pins package
+        ``0.2.0.dev23`` and ``run_id``
+        ``886b7a3c9ffd2bf655e823fb75dccca70e35e8f8710f032061313b248a1effb0``.
+        ``run_id`` hashes ``harborlens_version``. The next version bump must
+        regenerate this fixture before the byte comparison can pass.
+        """
         from harborlens.multiday import run_multiday
         golden = ROOT / "tests" / "fixtures" / "multiday_manifest_main_order.json"
+        pinned = json.loads(golden.read_text(encoding="utf-8"))
+        self.assertEqual(pinned["code_version"]["package_version"], "0.2.0.dev23")
+        self.assertEqual(pinned["code_version"]["package_version"], __version__)
+        self.assertEqual(
+            pinned["run_id"],
+            "886b7a3c9ffd2bf655e823fb75dccca70e35e8f8710f032061313b248a1effb0",
+        )
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             day_a, day_b = self._two_synthetic_days(root)

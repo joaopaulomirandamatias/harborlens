@@ -1,6 +1,7 @@
 """Boundary tests for the shared JSON container-depth counter."""
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,47 @@ class JsonDepthTests(unittest.TestCase):
         for value in (None, b"[]", 1):
             with self.assertRaises(TypeError):
                 max_container_depth(value)
+
+    def test_limit_returns_when_the_depth_first_passes_it(self):
+        """The early return stops at limit + 1 and does not read a later nest.
+
+        A full walk of the same text reports the later, deeper nest. Removing
+        the ``limit`` return would report that later depth instead of
+        ``limit + 1``.
+        """
+        limit = 4
+        text = ("[" * (limit + 1)) + ("]" * (limit + 1)) + ("[" * 9) + ("]" * 9)
+        self.assertEqual(max_container_depth(text), 9)
+        self.assertEqual(max_container_depth(text, limit=limit), limit + 1)
+        deep_tail = "[" * MAX_JSON_NESTING + "]" * MAX_JSON_NESTING
+        deep_tail += "[" * (MAX_JSON_NESTING + 40) + "]" * (MAX_JSON_NESTING + 40)
+        self.assertEqual(max_container_depth(deep_tail), MAX_JSON_NESTING + 40)
+        self.assertEqual(
+            max_container_depth(deep_tail, limit=MAX_JSON_NESTING),
+            MAX_JSON_NESTING + 1,
+        )
+
+    def test_limited_scan_stays_inside_a_generous_time_budget(self):
+        """A limited scan of a long bracket run stays well under the budget.
+
+        The budget is loose on purpose so a slow CI runner does not flake.
+        The early return walks 513 brackets. The unlimited sizes below check
+        that a longer input does not jump by a large factor.
+        """
+        huge = "[" * 5_000_000
+        started = time.perf_counter()
+        depth = max_container_depth(huge, limit=MAX_JSON_NESTING)
+        limited = time.perf_counter() - started
+        self.assertEqual(depth, MAX_JSON_NESTING + 1)
+        self.assertLess(limited, 30.0)
+        durations = []
+        for count in (20_000, 40_000, 80_000):
+            sample = "[" * count + "]" * count
+            started = time.perf_counter()
+            self.assertEqual(max_container_depth(sample), count)
+            durations.append(time.perf_counter() - started)
+        self.assertLess(durations[-1], 5.0)
+        self.assertLess(durations[-1], max(1.0, durations[0] * 40))
 
 
 if __name__ == "__main__":
