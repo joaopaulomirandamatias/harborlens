@@ -255,7 +255,7 @@ def _load_files(db, inputs, bbox, max_points, meter):
                 lat = float(row[columns["lat"]])
                 lon = float(row[columns["lon"]])
                 sog = float(row[columns["sog"]])
-                if not mmsi.isdigit() or len(mmsi) not in (8, 9):
+                if not (mmsi.isascii() and mmsi.isdigit()) or len(mmsi) not in (8, 9):
                     raise ValueError("invalid MMSI")
                 if not (
                     math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)

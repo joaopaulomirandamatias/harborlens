@@ -46,14 +46,14 @@ class ProvenanceTests(unittest.TestCase):
             "https://example.org/ais.csv",
             "HTTP://example.org",
             "http://example.org:443/path?q=1",
-            "http://example.org:0",
-            "http://example.org:00",
+            "http://example.org:1",
             "http://example.org:65535",
             "http://example.org:",
             "http://[::1]:443",
             "http://[::1]:65535",
-            "http://example.org/path?token=example",
-            "http://example.org/\u202e",
+            "http://example.org/path?apikey=example",
+            "http://example.org/path?tokenizer=1",
+            "http://example.org/path?q=token",
         ):
             with self.subTest(url=accepted):
                 require_declared_source_url(accepted)
@@ -83,6 +83,24 @@ class ProvenanceTests(unittest.TestCase):
             "http://example.org:-1",
             "http://[::1]:abc",
             "http://[::1]:99999999",
+            "http://example.org:0",
+            "http://example.org:00",
+            "http://example.org/path?token=example",
+            "http://example.org/path?Token=example",
+            "http://example.org/path?access_token=example",
+            "http://example.org/path?api_key=example",
+            "http://example.org/path?secret=example",
+            "http://example.org/path?password=example",
+            "http://example.org/path?sig=example",
+            "http://example.org/path?signature=example",
+            "http://example.org/path?auth=example",
+            "http://example.org/path?x-amz-signature=example",
+            "http://example.org/path?X-Amz-Security-Token=example",
+            "http://example.org/path?%74oken=example",
+            "http://example.org/path#access_token=example",
+            "http://example.org/\u202e",
+            "http://example.org/\u200b",
+            "http://example.org/\ufeff",
         ):
             with self.subTest(url=rejected):
                 with self.assertRaises(AISInputError) as caught:

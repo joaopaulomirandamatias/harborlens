@@ -212,7 +212,7 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                         lat=float(row[cols["lat"]])
                         lon=float(row[cols["lon"]])
                         sog=float(row[cols["sog"]])
-                        if not mmsi.isdigit() or len(mmsi) not in (8,9):
+                        if not (mmsi.isascii() and mmsi.isdigit()) or len(mmsi) not in (8,9):
                             raise ValueError("invalid MMSI")
                         if not (math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)) or not (-90<=lat<=90 and -180<=lon<=180 and 0<=sog<=100):
                             raise ValueError("coordinate or speed out of range")

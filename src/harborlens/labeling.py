@@ -537,7 +537,7 @@ def _load_run(run_dir):
         ) from exc
     try:
         geo = json.loads(geo_text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise AISInputError(geo_not_json) from exc
     candidates = []
     shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
@@ -870,8 +870,32 @@ def agreement(sheet_a, sheet_b, out, sampling=None):
         raise AISInputError("Both sheets must label exactly the same sample_ids")
     kinds = {}
     if sampling:
-        record = json.loads(Path(sampling).read_text(encoding="utf-8"))
-        kinds = {k["sample_id"]: k["kind"] for k in record.get("key", [])}
+        sampling_path = Path(sampling)
+        sampling_not_json = f"sampling file '{sampling_path}' is not valid JSON"
+        try:
+            sampling_text = sampling_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise AISInputError(
+                f"sampling file '{sampling_path}' is not valid UTF-8"
+            ) from exc
+        except OSError as exc:
+            detail = exc.strerror if exc.strerror else type(exc).__name__
+            raise AISInputError(
+                f"cannot read sampling file '{sampling_path}' ({detail})."
+            ) from exc
+        try:
+            record = json.loads(sampling_text)
+        except (ValueError, RecursionError) as exc:
+            raise AISInputError(sampling_not_json) from exc
+        if not isinstance(record, dict):
+            raise AISInputError(sampling_not_json)
+        key_rows = record.get("key", [])
+        if not isinstance(key_rows, list):
+            raise AISInputError(sampling_not_json)
+        try:
+            kinds = {k["sample_id"]: k["kind"] for k in key_rows}
+        except (KeyError, TypeError) as exc:
+            raise AISInputError(sampling_not_json) from exc
         if set(kinds) != set(a):
             raise AISInputError("Sampling manifest does not describe the labeled sample_ids")
     ids = sorted(a)

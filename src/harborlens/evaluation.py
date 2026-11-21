@@ -248,7 +248,7 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         ) from exc
     try:
         plan = json.loads(sampling_text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise AISInputError(sampling_not_json) from exc
     if not _sampling_shape(plan):
         raise AISInputError(sampling_wrong_shape)
@@ -271,7 +271,7 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         ) from exc
     try:
         geo = json.loads(geo_text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise AISInputError(geo_invalid) from exc
     candidates = {}
     geo_wrong_shape = f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"

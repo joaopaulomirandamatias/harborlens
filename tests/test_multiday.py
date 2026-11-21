@@ -78,6 +78,26 @@ class MultiDaySyntheticTests(unittest.TestCase):
         self.assertEqual(result["events"]["stationary_candidates"], 0)
         self.assertGreaterEqual(result["events"]["implausible_jumps"], 1)
 
+    def test_huge_integer_sidecar_exits_as_invalid_json(self):
+        self.prepare()
+        side = self.a.with_name(self.a.name + ".source.json")
+        side.write_text('{"x": ' + ("9" * 5000) + "}", encoding="utf-8")
+        with self.assertRaises(AISInputError) as caught:
+            run_multiday([self.a, self.b], self.out)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
+        self.assertFalse((self.out / "manifest.json").exists())
+
+    def test_non_ascii_digit_mmsi_is_invalid(self):
+        self.prepare()
+        arabic = "".join(chr(0x0660 + int(digit)) for digit in "199080001")
+        with self.a.open("a", encoding="utf-8") as handle:
+            handle.write(f"{arabic},2024-01-02T23:50:00Z,29.73,-95.16,0.2,70,0\n")
+        result = run_multiday([self.a, self.b], self.out)
+        self.assertGreaterEqual(result["counts"]["invalid"], 1)
+        cleaned = (self.out / "houston_clean.csv").read_text(encoding="utf-8")
+        self.assertNotIn(arabic, cleaned)
+
     def test_invalid_and_outside_bbox_exclusions(self):
         self.prepare()
         with self.a.open("a") as f:

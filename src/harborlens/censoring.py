@@ -94,8 +94,11 @@ def sidecar_window(path, input_sha256):
             f"Acquisition sidecar is not valid UTF-8: {side.name}"
         ) from exc
     try:
+        # ``JSONDecodeError`` is a ``ValueError``. A long integer literal
+        # raises a plain ``ValueError`` (the digit limit), and a very deep
+        # document raises ``RecursionError``. Both are invalid JSON.
         record = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
         raise AnalysisWindowError(
             f"Acquisition sidecar is not valid JSON: {side.name}"
         ) from exc

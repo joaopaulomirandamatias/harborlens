@@ -11,7 +11,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from harborlens import __version__
 from harborlens.cli_usage import add_version_argument, escape_error_text
@@ -71,15 +71,44 @@ _SOURCE_URL_MESSAGE = (
 
 
 def _raw_source_url_forbidden(value):
-    """True when ``value`` has whitespace or a C0/C1/DEL control.
+    """True when ``value`` has whitespace, a control, or a format character.
 
     Checked on the raw string. ``urlsplit`` removes tab, CR, and LF before
     it parses, so a check after the split would see a different value.
-    A format character (category Cf, including bidi) is not this rule.
+    Category Cc is C0, DEL, and C1. Category Cf includes bidi controls such
+    as U+202E and zero-width characters.
     """
     for character in value:
-        if character.isspace() or unicodedata.category(character) == "Cc":
+        if character.isspace() or unicodedata.category(character) in ("Cc", "Cf"):
             return True
+    return False
+
+
+# Exact query or fragment names, compared case-insensitively after decoding.
+# ``x-amz-`` is a prefix. This is a heuristic: names not on the list are kept.
+_CREDENTIAL_PARAMETER_NAMES = frozenset({
+    "token",
+    "access_token",
+    "api_key",
+    "secret",
+    "password",
+    "sig",
+    "signature",
+    "auth",
+})
+
+
+def _parameter_name_is_credential(name):
+    lowered = name.lower()
+    return lowered in _CREDENTIAL_PARAMETER_NAMES or lowered.startswith("x-amz-")
+
+
+def _has_credential_parameter(parts):
+    """True when a query or fragment name is on the credential heuristic."""
+    for text in (parts.query, parts.fragment):
+        for name, _value in parse_qsl(text, keep_blank_values=True, separator="&"):
+            if _parameter_name_is_credential(name):
+                return True
     return False
 
 
@@ -89,24 +118,28 @@ def require_declared_source_url(source_url):
     ``None`` means ``--source-url`` was omitted. The same ``AISInputError``
     is raised, and the URL is not included in the message, when:
 
-    - the raw value contains whitespace or a control character (C0, DEL, C1),
-      including characters ``urlsplit`` would remove;
-    - the host contains whitespace;
+    - the raw value contains whitespace, a control (C0, DEL, C1), or a
+      format character (category Cf, including U+202E and zero-width
+      characters), including characters ``urlsplit`` would remove;
     - ``.port`` raises ``ValueError`` (a non-integer port, or a port outside
-      0..65535) — that read sits inside the ``ValueError`` guard;
+      0..65535) — that read sits inside the ``ValueError`` guard — or the
+      port is 0;
     - the scheme is not ``http`` or ``https``, there is no host, or a
-      username or password is present.
+      username or password is present;
+    - a query or fragment parameter name, after decoding, is
+      ``token``, ``access_token``, ``api_key``, ``secret``, ``password``,
+      ``sig``, ``signature``, or ``auth`` (any case), or starts with
+      ``x-amz-``.
 
     An omitted port and an empty port (``http://example.org:``, where
-    ``.port`` is ``None``) are accepted. Port 0 and port 65535 are the
-    inclusive bounds ``urlsplit`` returns without ``ValueError``.
+    ``.port`` is ``None``) are accepted. Port 1 and port 65535 are the
+    inclusive bounds. Port 0 is rejected, the same rule as the rights
+    register.
 
-    A query string is still accepted. ``http://example.org:443/path?q=1`` is
-    a documented URL, so a rule that rejects every query would reject that
-    URL. A denylist of one name such as ``token`` would not match that URL
-    and would miss other names. Userinfo is the credential check. A query,
-    including ``?token=``, is stored as user-declared metadata and is not
-    fetched. ``rights_status`` stays ``review_required``.
+    The parameter-name check is a heuristic, the same idea as rejecting
+    ``user:pass@``. ``http://example.org:443/path?q=1`` stays accepted.
+    A name that is not on the list, such as ``apikey`` or ``key``, stays
+    accepted. ``rights_status`` stays ``review_required``.
     """
     if source_url is None:
         return
@@ -121,15 +154,15 @@ def require_declared_source_url(source_url):
         username = parts.username
         password = parts.password
         port = parts.port
-        host = parts.hostname
+        _host = parts.hostname
     except ValueError:
         raise AISInputError(_SOURCE_URL_MESSAGE) from None
-    if host is not None and any(character.isspace() for character in host):
-        raise AISInputError(_SOURCE_URL_MESSAGE)
-    if port is not None and not 0 <= port <= 65535:
+    # ``.port`` already rejected values outside 0..65535. Port 0 is inside
+    # that range and is not a server port. The rights register uses 1..65535.
+    if port is not None and not 1 <= port <= 65535:
         raise AISInputError(_SOURCE_URL_MESSAGE)
     if (parts.scheme not in ("https", "http") or not parts.netloc
-            or username or password):
+            or username or password or _has_credential_parameter(parts)):
         raise AISInputError(_SOURCE_URL_MESSAGE)
 
 

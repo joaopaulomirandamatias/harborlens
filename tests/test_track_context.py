@@ -2,12 +2,15 @@
 import csv
 import hashlib
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from harborlens.track_context import TrackEvidenceError, run_track_context
+from harborlens.track_context import (
+    TrackEvidenceError, _ingest_observations, _load_candidates, run_track_context,
+)
 
 BASE=datetime(2024,1,2,23,40,tzinfo=timezone.utc)
 MMSI="199080001"
@@ -164,6 +167,52 @@ class TrackEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(TrackEvidenceError,"overwrite"):
             run_track_context(self.cleaned,self.candidates,self.polygons,self.out)
         self.assertEqual(old,(self.cleaned.read_bytes(),self.candidates.read_bytes(),self.polygons.read_bytes()))
+
+    def test_non_ascii_digit_mmsi_is_rejected(self):
+        arabic = "".join(chr(0x0660 + int(digit)) for digit in "199080001")
+        self.assertTrue(arabic.isdigit() and not arabic.isascii())
+        document = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-95.0, 29.5]},
+                "properties": {
+                    "type": "stationary_candidate",
+                    "confidence_label": "unvalidated",
+                    "event_id": "abc",
+                    "mmsi": arabic,
+                    "start_utc": "2024-01-02T00:00:00Z",
+                    "end_utc": "2024-01-02T01:00:00Z",
+                    "point_count": 2,
+                },
+            }],
+        }
+        path = Path(self.tmp.name) / "arabic.geojson"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(TrackEvidenceError, "Invalid MMSI"):
+            _load_candidates(path)
+        ascii_doc = json.loads(json.dumps(document))
+        ascii_doc["features"][0]["properties"]["mmsi"] = "199080001"
+        path.write_text(json.dumps(ascii_doc), encoding="utf-8")
+        rows, _method = _load_candidates(path)
+        self.assertEqual(rows[0]["properties"]["mmsi"], "199080001")
+        cleaned = Path(self.tmp.name) / "arabic-clean.csv"
+        cleaned.write_text(
+            "mmsi,timestamp_utc,lat,lon,sog_knots\n"
+            f"{arabic},2024-01-02T00:00:00Z,29.5,-95.0,0.1\n"
+            "199080001,2024-01-02T00:05:00Z,29.5,-95.0,0.1\n",
+            encoding="utf-8",
+        )
+        db = sqlite3.connect(":memory:")
+        db.execute(
+            "CREATE TABLE ais (id INTEGER PRIMARY KEY, mmsi TEXT NOT NULL,"
+            "epoch_us INTEGER NOT NULL, lon REAL NOT NULL, lat REAL NOT NULL, sog REAL NOT NULL)"
+        )
+        _count, invalid = _ingest_observations(cleaned, db, 100)
+        self.assertEqual(invalid, 1)
+        stored = [row[0] for row in db.execute("SELECT mmsi FROM ais")]
+        self.assertEqual(stored, ["199080001"])
+        self.assertNotIn(arabic, stored)
 
 if __name__=="__main__":
     unittest.main()

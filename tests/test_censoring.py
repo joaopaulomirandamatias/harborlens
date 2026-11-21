@@ -144,6 +144,25 @@ class SingleFileCensoringTests(unittest.TestCase):
         self.assertIn("is not valid JSON", str(caught.exception))
         self.assertNotIn("not valid UTF-8", str(caught.exception))
 
+    def test_huge_integer_and_deep_sidecar_are_not_valid_json(self):
+        side = self.src.with_name(self.src.name + ".source.json")
+        side.write_text('{"x": ' + ("9" * 5000) + "}", encoding="utf-8")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("not valid UTF-8", str(caught.exception))
+        self.assertIsInstance(caught.exception, AnalysisWindowError)
+        with self.assertRaises(AnalysisWindowError) as caught:
+            run(self.src, self.root / "huge")
+        self.assertIn("Acquisition sidecar is not valid JSON", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
+        self.assertFalse((self.root / "huge").exists())
+        side.write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+        with self.assertRaises(AnalysisWindowError) as caught:
+            sidecar_window(self.src, "0" * 64)
+        self.assertIn("is not valid JSON", str(caught.exception))
+        self.assertNotIn("Traceback", str(caught.exception))
+
     def test_sidecar_for_other_bytes_fails_closed(self):
         extraction_sidecar(self.src, "2024-01-02T00:00:00Z", "2024-01-02T06:00:00Z", digest="0" * 64)
         with self.assertRaisesRegex(AnalysisWindowError, "does not match the input bytes"):
