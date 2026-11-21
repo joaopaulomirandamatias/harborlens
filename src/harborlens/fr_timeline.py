@@ -195,13 +195,22 @@ def save_scan(out, start="2023-07-01", end="2024-01-02", opener=None):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Screen official FR 33 CFR Part 110 publication index; no legal conclusions")
-    p.add_argument("--start", default="2023-07-01",
+    parser = argparse.ArgumentParser(description="Screen official FR 33 CFR Part 110 publication index; no legal conclusions")
+    parser.add_argument("--start", default="2023-07-01",
                    help="YYYY-MM-DD calendar date; week dates and YYYYMMDD are rejected")
-    p.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
-    p.add_argument("--out", type=Path, required=True)
-    a = p.parse_args()
-    result = save_scan(a.out, a.start, a.end)
+    parser.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    # Only calendar-text failures exit 2, and they do so before save_scan
+    # builds a client or calls urlopen. A start date after the end date still
+    # parses and still fails later in initial_url. Do not catch ValueError
+    # (FederalRegisterAuditError is the only date error) or KeyboardInterrupt.
+    try:
+        _date(args.start)
+        _date(args.end)
+    except FederalRegisterAuditError as exc:
+        parser.error(str(exc))
+    result = save_scan(args.out, args.start, args.end)
     print(json.dumps({
         "documents_for_review": result["count"],
         "query_pages": len(result["query_pages"]),
