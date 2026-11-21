@@ -2562,8 +2562,91 @@ class OutputPathSafetyTests(unittest.TestCase):
                 artifact = target / name
                 self.assertTrue(artifact.is_file(), name)
                 self.assertFalse(artifact.is_symlink(), name)
-                self.assertEqual(meta["sha256"], checksum(artifact))
-                self.assertEqual(meta["size_bytes"], artifact.stat().st_size)
+            self.assertEqual(meta["sha256"], checksum(artifact))
+            self.assertEqual(meta["size_bytes"], artifact.stat().st_size)
+
+    def test_before_anchored_output_does_nothing(self):
+        from harborlens.multiday import before_anchored_output
+        for step in ("ingest", "after_verify", "anchor", "checksum", "houston_clean.csv"):
+            self.assertIsNone(before_anchored_output(None, step))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_swap_during_ingest_and_before_capture_exits_2(self):
+        from harborlens.ais import directory_fd_supported
+        if not directory_fd_supported():
+            self.skipTest("dir_fd is not available")
+        artifact_names = (
+            "houston_clean.csv",
+            "stationary_candidates.csv",
+            "stationary_candidates.geojson",
+            "manifest.json",
+        )
+        cases = (
+            ("ingest", False),
+            ("ingest", True),
+            ("after_verify", False),
+            ("after_verify", True),
+        )
+        for step, preexisting in cases:
+            with self.subTest(step=step, preexisting=preexisting):
+                with tempfile.TemporaryDirectory() as folder:
+                    root = Path(folder)
+                    day_a, day_b = self._two_synthetic_days(root)
+                    out = root / "made" if not preexisting else root / "out"
+                    if preexisting:
+                        out.mkdir()
+                        (out / "notes.txt").write_text("keep-notes", encoding="utf-8")
+                    evil = root / "evil"
+                    evil.mkdir()
+                    (evil / "sentinel.txt").write_text("SAFE", encoding="utf-8")
+                    held_box = {}
+
+                    def hook(scope, seen, _held=held_box, _evil=evil, _step=step):
+                        if seen != _step:
+                            return
+                        _held["path"] = self._replace_directory_with_symlink(
+                            scope.directory, _evil
+                        )
+
+                    with mock.patch("harborlens.multiday.before_anchored_output", hook):
+                        code, stdout, err = _invoke(multiday_main, [
+                            "harborlens-multiday",
+                            "--input", str(day_a), str(day_b),
+                            "--out", str(out),
+                        ])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(stdout, "")
+                    self.assertEqual(err.count("error:"), 1)
+                    self.assertIn("(symlink)", err)
+                    self.assertNotIn("Traceback", err)
+                    self.assertNotIn("FileNotFoundError", err)
+                    self.assertEqual(
+                        (evil / "sentinel.txt").read_text(encoding="utf-8"), "SAFE"
+                    )
+                    self.assertTrue(out.is_symlink())
+                    for name in artifact_names:
+                        self.assertFalse((evil / name).exists(), name)
+                    if preexisting:
+                        held = held_box["path"]
+                        self.assertEqual(
+                            (held / "notes.txt").read_text(encoding="utf-8"), "keep-notes"
+                        )
+                        for name in artifact_names:
+                            self.assertFalse((held / name).exists(), name)
+
+    def test_multiday_manifest_bytes_match_main_key_order(self):
+        from harborlens.multiday import run_multiday
+        golden = ROOT / "tests" / "fixtures" / "multiday_manifest_main_order.json"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a, day_b = self._two_synthetic_days(root)
+            out = root / "out"
+            with mock.patch.dict(os.environ, {"GITHUB_SHA": "", "HARBORLENS_GIT_COMMIT": ""}):
+                run_multiday((day_a, day_b), out)
+            body = (out / "manifest.json").read_bytes()
+        parsed = json.loads(body)
+        self.assertEqual(list(parsed)[-2:], ["artifacts", "warning"])
+        self.assertEqual(body, golden.read_bytes())
 
 
 if __name__ == "__main__":

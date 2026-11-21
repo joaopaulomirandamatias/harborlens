@@ -214,7 +214,10 @@ def _make_db(path, max_scratch_mib):
     return db
 
 
-def _load_files(db, inputs, bbox, max_points, meter):
+def _load_files(db, inputs, bbox, max_points, meter, scope=None):
+    if scope is not None:
+        before_anchored_output(scope, "ingest")
+        scope.refuse_replaced_directory()
     counts = {
         "total": 0, "missing_value": 0, "invalid": 0, "outside_bbox": 0, "duplicate": 0,
         "duplicate_across_files": 0, "written": 0,
@@ -349,11 +352,12 @@ def _output_files(out):
 
 
 def before_anchored_output(scope, step):
-    """Test seam. Called after ``--out`` is verified, before each anchored step.
+    """Test seam. Production does nothing.
 
-    ``step`` is ``anchor``, an artifact file name, or ``checksum``.
-    Production does nothing. A test replaces this to swap the directory
-    without a sleep or a race.
+    ``step`` is ``ingest`` (during the load, before any artifact write),
+    ``after_verify`` (after ``verify_created`` and before the identity
+    check), ``anchor``, an artifact file name, or ``checksum``. A test
+    replaces this to swap the directory without a sleep or a race.
     """
     return None
 
@@ -413,6 +417,9 @@ def run_multiday(
     failed = True
     try:
         scope.ensure()
+        # Hold the directory fd before ingest. The node is the one ensure()
+        # created or first resolved, not whatever is at the path later.
+        scope.anchor_directory()
         out = scope.directory
         files = _output_files(out)
         for path in files.values():
@@ -427,13 +434,14 @@ def run_multiday(
             meter = ScratchMeter(db_path, max_scratch_mib * 1048576)
             try:
                 counts, source_items, (first, last) = _load_files(
-                    db, paths, tuple(bbox), max_points, meter
+                    db, paths, tuple(bbox), max_points, meter, scope
                 )
                 db.commit()
                 censoring = _resolve_windows(paths, source_items, window_start, window_end,
                                              params.max_gap_minutes)
                 censoring.check_observed(first, last)
                 scope.verify_created()
+                before_anchored_output(scope, "after_verify")
                 scope.capture_directory_identity()
                 before_anchored_output(scope, "anchor")
                 scope.anchor_directory()
@@ -473,6 +481,9 @@ def run_multiday(
                     "run_id": hashlib.sha256(
                         json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
                     ).hexdigest(),
+                    # Filled below. The key stays here so manifest.json keeps
+                    # artifacts before warning, the order main already writes.
+                    "artifacts": None,
                     "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity.",
                 }
                 before_anchored_output(scope, "checksum")

@@ -284,7 +284,7 @@ class OutputScope:
 
     The path is lexical (``os.path.abspath``), not ``Path.resolve()``, so
     ``nope/../results`` is the existing ``results`` and not a new ``nope``.
-    Each new component is created with ``os.mkdir``.     A pre-existing symlink
+    Each new component is created with ``os.mkdir``. A pre-existing symlink
     to a directory is followed, so a symlinked parent such as macOS ``/tmp``
     still receives the new directory. A dangling symlink and a symlink to a
     non-directory are refused. ``FileExistsError`` means the component is
@@ -292,10 +292,12 @@ class OutputScope:
     its device, inode, size, and timestamps still match, and does not unlink
     a symlink. It then ``rmdir``s recorded directories
     that are still empty, deepest first, and does not remove the pre-existing
-    symlink. ``anchor_directory`` holds an ``O_DIRECTORY|O_NOFOLLOW`` fd so
-    later artifact creates, checksums, and unlinks do not follow a symlink
-    swapped in at the verified path. The fd is closed on cleanup and from
-    the caller's ``finally``.
+    symlink. The final ``--out`` node is recorded when ``ensure`` creates or
+    first resolves it. ``anchor_directory`` holds an ``O_DIRECTORY|O_NOFOLLOW``
+    fd for that node, so a symlink swapped in later is not followed. The fd
+    is closed on cleanup and from the caller's ``finally``. A pre-existing
+    symlink is followed once; replacing the directory it already points at,
+    while the symlink node itself stays, cannot be detected.
     """
 
     def __init__(self, directory):
@@ -334,6 +336,14 @@ class OutputScope:
                                     f"cannot write output directory '{directory}' (symlink)."
                                 )
                             created.append((nxt, info.st_dev, info.st_ino))
+                            if nxt==directory:
+                                # A directory this run created is a real directory.
+                                # A symlink found later is not this node.
+                                self.anchor_dev=info.st_dev
+                                self.anchor_ino=info.st_ino
+                                self.anchor_is_link=False
+                        if nxt==directory and self.anchor_dev is None:
+                            self._record_resolved_directory(nxt)
                     finally:
                         os.close(parent_fd)
                     current=nxt
@@ -341,7 +351,34 @@ class OutputScope:
             _rollback_created(created)
             raise
         self.created_dirs=created
+        if self.anchor_dev is None:
+            self._record_resolved_directory(self.directory)
         return self.directory
+
+    def _record_resolved_directory(self, path):
+        """Remember a pre-existing final ``--out`` node at first resolution.
+
+        ``lstat`` does not follow the final component. A real directory is
+        remembered as a directory. A symlink to a directory is remembered as
+        that link, which is the one pre-existing symlink ``anchor_directory``
+        may follow. A directory this run created is recorded at ``mkdir``
+        and must not be a symlink.
+        """
+        info=_lstat_or_none(path)
+        if info is None:
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' (missing)."
+            )
+        is_link=stat.S_ISLNK(info.st_mode)
+        if is_link:
+            _followed_directory(path, self.directory)
+        elif not stat.S_ISDIR(info.st_mode):
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' (not a directory)."
+            )
+        self.anchor_dev=info.st_dev
+        self.anchor_ino=info.st_ino
+        self.anchor_is_link=is_link
 
     def verify_created(self):
         """Refuse when a directory this run created was replaced by a symlink."""
@@ -352,21 +389,17 @@ class OutputScope:
                 )
 
     def capture_directory_identity(self):
-        """Remember the verified ``--out`` node before a test seam can swap it.
+        """Confirm ``--out`` is still the node ``ensure`` recorded.
 
-        ``lstat`` does not follow the final component. A pre-existing symlink
-        to a directory is remembered as a link so ``anchor_directory`` can
-        follow that one node. A real directory is remembered so a later
-        symlink at the same path is refused.
+        A symlink found here is not adopted as a pre-existing link. Only the
+        node recorded when the directory was created or first resolved counts.
         """
-        info=_lstat_or_none(self.directory)
-        if info is None:
+        if self.anchor_dev is None:
+            self._record_resolved_directory(self.directory)
+        if self._directory_was_replaced():
             raise AISInputError(
-                f"cannot write output directory '{self.directory}' (missing)."
+                f"cannot write output directory '{self.directory}' (symlink)."
             )
-        self.anchor_dev=info.st_dev
-        self.anchor_ino=info.st_ino
-        self.anchor_is_link=stat.S_ISLNK(info.st_mode)
 
     def _directory_was_replaced(self):
         info=_lstat_or_none(self.directory)
@@ -377,18 +410,17 @@ class OutputScope:
         return stat.S_ISLNK(info.st_mode)!=self.anchor_is_link
 
     def refuse_replaced_directory(self):
-        """Refuse a symlink swapped in after the directory fd was opened.
+        """Refuse a symlink swapped in after ``ensure`` recorded ``--out``.
 
-        With no directory fd, re-check only directories this run created.
+        With no directory fd, also re-check directories this run created.
         That is the pathname fallback.
         """
-        if self.dir_fd is None:
-            self.verify_created()
-            return
-        if self._directory_was_replaced():
+        if self.anchor_dev is not None and self._directory_was_replaced():
             raise AISInputError(
                 f"cannot write output directory '{self.directory}' (symlink)."
             )
+        if self.dir_fd is None:
+            self.verify_created()
 
     def anchor_directory(self):
         """Open ``--out`` with ``O_DIRECTORY|O_NOFOLLOW`` and keep the fd.
@@ -399,13 +431,16 @@ class OutputScope:
         ``O_NOFOLLOW``, so a symlink planted at that path is not followed.
         When ``dir_fd`` is not supported, artifact opens stay on the path.
         """
-        self.close_directory_fd()
-        if not directory_fd_supported():
-            return
+        if self.anchor_dev is None:
+            self._record_resolved_directory(self.directory)
         if self._directory_was_replaced():
             raise AISInputError(
                 f"cannot write output directory '{self.directory}' (symlink)."
             )
+        if not directory_fd_supported():
+            return
+        if self.dir_fd is not None:
+            return
         flags=os.O_RDONLY|os.O_DIRECTORY
         if hasattr(os, "O_CLOEXEC"):
             flags|=os.O_CLOEXEC
