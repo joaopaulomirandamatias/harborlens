@@ -205,7 +205,7 @@ class FormulaFixtureTests(unittest.TestCase):
             for name, digest in MAIN_SHA256.items():
                 blob = (out / name).read_bytes()
                 self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev21")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev22")
 
     def test_dev17_formula_goldens_stay_byte_identical(self):
         """History. These files are not regenerated from the current fixture."""
@@ -233,8 +233,8 @@ class FormulaFixtureTests(unittest.TestCase):
                 set(differing_paths(live, pinned)),
                 {"run_id", "code_version.package_version"},
             )
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev21")
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev21"))
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev22")
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev22"))
             self.assertNotEqual(manifest["run_id"], golden["run_id"])
             self.assertEqual(manifest["counts"]["written"], 430)
             self.assertEqual(manifest["events"]["stationary_candidates"], 43)
@@ -249,7 +249,7 @@ class FormulaFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
             manifest = run(FIXTURE, out)
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev21"))
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev22"))
             self.assertNotEqual(run_id_for(manifest, "0.2.0.dev17"), manifest["run_id"])
 
             _header, source_rows = read_csv(FIXTURE)

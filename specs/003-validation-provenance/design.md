@@ -25,6 +25,14 @@ Refer to `docs/architecture/adr/`; prefer deterministic batch analysis, visible 
 
 `harborlens-label-agreement` validates two completed sheets (`schemas/v1/label-record.schema.json` rules, one pseudonymous annotator per sheet, identical sample ids, L3 requires an `operational_record` source) and writes raw agreement, Cohen's kappa, the confusion matrix, unknown counts, evidence levels, optional by-kind results and all disagreements (`schemas/v1/label-agreement.schema.json`). It never reports precision or recall.
 
+## Sampling interpreter version (NFR-004, FR-013)
+
+`draw_sample` records `python_version` on the `label-sample-v0.2` manifest. `sampling_python_version` in `src/harborlens/labeling.py` formats `sys.version_info` as `major.minor.micro`. The release level, serial, build date, and compiler are omitted, so one CPython micro release records one string. `platform.python_version()` parses `sys.version` and yields the same triple on a final release. The tuple is used because it is the interpreter's own version and does not depend on that parser.
+
+The same seed and the same inputs reproduce the blinded sheet and the sampling manifest only on the same Python minor version. CPython 3.11 changed `random.sample`. `python_version` lets a later reader see which interpreter drew the sample. `schemas/v1/label-sample.schema.json` requires the field to match `major.minor.micro` with no leading zeros. A missing field, a non-string, a minor-only value such as `3.10`, a pre-release suffix, or a leading zero does not validate.
+
+`schema_version` stays `label-sample-v0.2` because the stratum key did not change. A `label-sample-v0.2` file written before package `0.2.0.dev22` has no `python_version` and does not validate. No labeling sheets have been collected; regenerate samples. `harborlens-verify` checks run-artifact hashes and does not read the sampling manifest. `harborlens-evaluate` still checks the run hash, `parameter_set`, and stratum keys. It does not schema-validate `python_version`. The schema check is `tests/test_labeling.py`. Package `0.2.0.dev22` is part of `run_id`. Cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` stay the `0.2.0.dev15` bytes. There is no checked-in sampling-manifest golden. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #68 (stays open).
+
 ## Evaluator (issue #9)
 
 `harborlens-evaluate` (`src/harborlens/evaluation.py`) requires the run's artifacts to verify and the sampling manifest's run hash and `parameter_set` to match the run. Candidates are the method's stationary predictions and sampled movement intervals its moving predictions; `at_berth`, `at_anchor` and `other_stationary` are true stationary, `maneuvering` and `transit` true moving. `mixed`, `unknown` and unlabeled units are excluded from the confusion matrix and reported under `coverage.excluded`.
