@@ -421,6 +421,21 @@ class RightsGateTests(unittest.TestCase):
             self.assertIsNone(receipt["registry_sha256"], name)
         self.assertEqual(_DUPLICATE_KEY_ERROR, "Rights register has a duplicate key")
 
+    def test_main_accepted_maximum_depth_still_loads(self):
+        # On main b92a49e, load_registry returned this schema-valid register
+        # and no deeper one. Python 3.12.3 loaded depth 4. Depth 5
+        # (permitted_uses wrapped once) and pure nests at 5 and 50 raised
+        # ValueError and were not loaded. additionalProperties is false, so
+        # a schema-valid register cannot pass permitted_uses.
+        self.write()
+        text = self.path.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(text), 4)
+        loaded = load_registry(self.path)
+        self.assertEqual(loaded["schema_version"], 1)
+        self.assertEqual(len(loaded["sources"]), 1)
+        self.assertEqual(loaded["sources"][0]["source_id"], "noaa_pmel_erddap")
+        self.assertIn(self.status(), APPROVED_STATUSES)
+
     def test_nesting_limit_accepts_depth_4_and_rejects_depth_5(self):
         # permitted_uses is the fourth container. The checked-in register
         # is exactly there and stays review_required. One more container
