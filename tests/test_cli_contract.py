@@ -1955,7 +1955,7 @@ class RequestedWindowTests(unittest.TestCase):
 
 
 class OutputPathSafetyTests(unittest.TestCase):
-    """A failed run does not delete a pre-existing file or follow a symlink."""
+    """A failed run does not delete a pre-existing file. A directory symlink is followed."""
 
     def _bad(self, folder):
         path = Path(folder) / "bad.csv"
@@ -2052,7 +2052,7 @@ class OutputPathSafetyTests(unittest.TestCase):
             self.assertNotIn("Traceback", err_multi)
             self.assertFalse((parent / "multi").exists())
 
-    def test_symlink_in_the_chain_is_not_followed(self):
+    def test_preexisting_directory_symlink_is_followed(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             target = root / "real"
@@ -2060,18 +2060,60 @@ class OutputPathSafetyTests(unittest.TestCase):
             (target / "notes.txt").write_text("keep", encoding="utf-8")
             link = root / "link"
             link.symlink_to(target, target_is_directory=True)
-            bad = self._bad(root)
-            out = link / "child"
+            nested = link / "sub" / "res"
             code, stdout, err = _invoke(harborlens_main, [
-                "harborlens", "--input", str(bad), "--out", str(out),
+                "harborlens", "--input", str(FIXTURE), "--out", str(nested),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("Traceback", err)
+            self.assertTrue(link.is_symlink())
+            self.assertTrue((target / "sub" / "res" / "manifest.json").is_file())
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
+            direct = link
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(direct),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertTrue((target / "manifest.json").is_file())
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
+            self.assertTrue(link.is_symlink())
+
+            bad = self._bad(root)
+            failed = link / "child"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(bad), "--out", str(failed),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", err)
+            self.assertNotIn("symlink", err)
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
+            self.assertFalse((target / "child").exists())
+            self.assertTrue(link.is_symlink())
+
+            dangling = root / "dangling"
+            dangling.symlink_to(root / "missing-target")
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(dangling / "out"),
             ])
             self.assertEqual(code, 2)
             self.assertEqual(stdout, "")
             self.assertIn("symlink", err)
             self.assertNotIn("Traceback", err)
-            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
-            self.assertFalse((target / "child").exists())
-            self.assertFalse(out.exists())
+            self.assertFalse((root / "missing-target").exists())
+
+            payload = root / "payload.txt"
+            payload.write_text("file", encoding="utf-8")
+            file_link = root / "file-link"
+            file_link.symlink_to(payload)
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(file_link),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("not a directory", err)
+            self.assertNotIn("Traceback", err)
+            self.assertEqual(payload.read_text(encoding="utf-8"), "file")
 
 
 if __name__ == "__main__":

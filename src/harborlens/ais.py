@@ -111,15 +111,48 @@ def _lstat_or_none(path):
     except FileNotFoundError:
         return None
 
-def _refuse_existing_component(path, requested):
-    """A symlink or a non-directory in the chain is not entered."""
+def _followed_directory(path, requested):
+    """True when ``path`` is a directory, following one pre-existing symlink.
+
+    A dangling symlink and a symlink to a non-directory are refused. A real
+    directory is accepted. The symlink itself is not recorded as created.
+    """
     info=_lstat_or_none(path)
     if info is None:
         raise AISInputError(f"cannot write output directory '{requested}' (missing).")
     if stat.S_ISLNK(info.st_mode):
-        raise AISInputError(f"cannot write output directory '{requested}' (symlink).")
+        try:
+            followed=os.stat(path)
+        except OSError as exc:
+            raise AISInputError(
+                f"cannot write output directory '{requested}' (symlink)."
+            ) from exc
+        if not stat.S_ISDIR(followed.st_mode):
+            raise AISInputError(
+                f"cannot write output directory '{requested}' (not a directory)."
+            )
+        return True
     if not stat.S_ISDIR(info.st_mode):
-        raise AISInputError(f"cannot write output directory '{requested}' (not a directory).")
+        raise AISInputError(
+            f"cannot write output directory '{requested}' (not a directory)."
+        )
+    return False
+
+def _open_directory(path, requested):
+    """Open ``path`` for ``mkdir``. Follow a pre-existing symlink to a directory.
+
+    A real directory is opened with ``O_NOFOLLOW``. A symlink to a directory
+    is opened without that flag so the next component is created in the
+    target, which is what ``/tmp`` does on macOS.
+    """
+    follow=_followed_directory(path, requested)
+    flags=os.O_RDONLY|os.O_DIRECTORY
+    if not follow:
+        flags|=os.O_NOFOLLOW
+    try:
+        return os.open(path, flags)
+    except OSError as exc:
+        raise _cannot_write_directory(requested, exc) from exc
 
 def _unlink_regular_nofollow(path):
     """Remove one regular file. A symlink is left in place, so its target stays."""
@@ -154,11 +187,14 @@ class OutputScope:
 
     The path is lexical (``os.path.abspath``), not ``Path.resolve()``, so
     ``nope/../results`` is the existing ``results`` and not a new ``nope``.
-    Each component is created with ``os.mkdir`` on a parent opened with
-    ``O_NOFOLLOW``. ``FileExistsError`` means the component is not ours.
-    A symlink is not followed. Cleanup unlinks only files recorded here,
-    then ``rmdir`` of recorded directories that are still empty, deepest
-    first.
+    Each new component is created with ``os.mkdir``. A pre-existing symlink
+    to a directory is followed, so a symlinked parent such as macOS ``/tmp``
+    still receives the new directory. A dangling symlink and a symlink to a
+    non-directory are refused. ``FileExistsError`` means the component is
+    not ours and is not recorded. Cleanup unlinks only files recorded here
+    and does not unlink a symlink. It then ``rmdir``s recorded directories
+    that are still empty, deepest first, and does not remove the pre-existing
+    symlink.
     """
 
     def __init__(self, directory):
@@ -176,15 +212,12 @@ class OutputScope:
             if str(relative)!=".":
                 for part in relative.parts:
                     nxt=current/part
-                    try:
-                        parent_fd=os.open(current, os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-                    except OSError as exc:
-                        raise _cannot_write_directory(directory, exc) from exc
+                    parent_fd=_open_directory(current, directory)
                     try:
                         try:
                             os.mkdir(part, dir_fd=parent_fd)
                         except FileExistsError:
-                            _refuse_existing_component(nxt, directory)
+                            _followed_directory(nxt, directory)
                         except OSError as exc:
                             raise _cannot_write_directory(directory, exc) from exc
                         else:
