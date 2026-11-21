@@ -2379,6 +2379,192 @@ class OutputPathSafetyTests(unittest.TestCase):
             self.assertNotIn("Traceback", err)
             self.assertFalse((out / "houston_clean.csv").exists())
 
+    def _two_synthetic_days(self, root):
+        day_a = root / "day-a.csv"
+        day_b = root / "day-b.csv"
+        day_a.write_bytes(FIXTURE.read_bytes())
+        day_b.write_bytes(FIXTURE.read_bytes())
+        return day_a, day_b
+
+    def _replace_directory_with_symlink(self, directory, target):
+        held = directory.with_name(directory.name + "-held")
+        directory.rename(held)
+        directory.symlink_to(target, target_is_directory=True)
+        return held
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_swapped_out_directory_is_not_followed(self):
+        from harborlens.ais import directory_fd_supported
+        if not directory_fd_supported():
+            self.skipTest("dir_fd is not available")
+        artifact_names = (
+            "houston_clean.csv",
+            "stationary_candidates.csv",
+            "stationary_candidates.geojson",
+            "manifest.json",
+        )
+        for step in ("houston_clean.csv", "checksum"):
+            with self.subTest(step=step):
+                with tempfile.TemporaryDirectory() as folder:
+                    root = Path(folder)
+                    day_a, day_b = self._two_synthetic_days(root)
+                    out = root / "out"
+                    out.mkdir()
+                    (out / "notes.txt").write_text("keep-notes", encoding="utf-8")
+                    evil = root / "evil"
+                    evil.mkdir()
+                    (evil / "sentinel.txt").write_text("SAFE", encoding="utf-8")
+                    held_box = {}
+
+                    def hook(scope, seen, _held=held_box, _evil=evil, _step=step):
+                        if seen != _step:
+                            return
+                        created = scope.directory / "houston_clean.csv"
+                        if _step == "checksum":
+                            if not created.is_file() or created.is_symlink():
+                                raise AssertionError("checksum seam ran before the artifact existed")
+                        elif created.exists():
+                            raise AssertionError("artifact seam ran after a file was created")
+                        _held["path"] = self._replace_directory_with_symlink(
+                            scope.directory, _evil
+                        )
+
+                    with mock.patch("harborlens.multiday.before_anchored_output", hook):
+                        code, stdout, err = _invoke(multiday_main, [
+                            "harborlens-multiday",
+                            "--input", str(day_a), str(day_b),
+                            "--out", str(out),
+                        ])
+                    held = held_box["path"]
+                    self.assertEqual(code, 2)
+                    self.assertEqual(stdout, "")
+                    self.assertNotIn("Traceback", err)
+                    self.assertNotIn("FileNotFoundError", err)
+                    self.assertEqual(
+                        (evil / "sentinel.txt").read_text(encoding="utf-8"), "SAFE"
+                    )
+                    self.assertEqual(
+                        (held / "notes.txt").read_text(encoding="utf-8"), "keep-notes"
+                    )
+                    self.assertTrue(out.is_symlink())
+                    for name in artifact_names:
+                        self.assertFalse((evil / name).exists(), name)
+                        self.assertFalse((held / name).exists(), name)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_swapped_out_exits_2_with_one_error_line(self):
+        from harborlens.ais import directory_fd_supported
+        if not directory_fd_supported():
+            self.skipTest("dir_fd is not available")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a, day_b = self._two_synthetic_days(root)
+            out = root / "out"
+            out.mkdir()
+            evil = root / "evil"
+            evil.mkdir()
+            (evil / "sentinel.txt").write_text("SAFE", encoding="utf-8")
+
+            def hook(scope, step, _evil=evil):
+                if step == "houston_clean.csv":
+                    self._replace_directory_with_symlink(scope.directory, _evil)
+
+            with mock.patch("harborlens.multiday.before_anchored_output", hook):
+                code, stdout, err = _invoke(multiday_main, [
+                    "harborlens-multiday",
+                    "--input", str(day_a), str(day_b),
+                    "--out", str(out),
+                ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertEqual(err.count("error:"), 1)
+            self.assertNotIn("Traceback", err)
+            self.assertNotIn("FileNotFoundError", err)
+            message_lines = [
+                line for line in err.splitlines()
+                if line.startswith("harborlens-multiday: error:")
+            ]
+            self.assertEqual(len(message_lines), 1)
+            self.assertIn("cannot write output directory", message_lines[0])
+            self.assertTrue(message_lines[0].endswith("(symlink)."))
+            self.assertNotIn("\n", message_lines[0])
+            self.assertEqual((evil / "sentinel.txt").read_text(encoding="utf-8"), "SAFE")
+            self.assertFalse((evil / "houston_clean.csv").exists())
+
+    def test_multiday_falls_back_to_pathname_without_dir_fd(self):
+        import types
+        from harborlens.ais import _platform_has_directory_fd, directory_fd_supported
+        from harborlens.multiday import run_multiday
+        bare = types.SimpleNamespace(
+            open=os.open, stat=os.stat, unlink=os.unlink,
+            supports_dir_fd=frozenset({os.open, os.stat, os.unlink}),
+        )
+        self.assertFalse(_platform_has_directory_fd(bare))
+        flagged = types.SimpleNamespace(
+            O_DIRECTORY=1, open=os.open, stat=os.stat, unlink=os.unlink,
+            supports_dir_fd=frozenset(),
+        )
+        self.assertFalse(_platform_has_directory_fd(flagged))
+        flagged.supports_dir_fd = frozenset({os.open, os.stat, os.unlink})
+        self.assertTrue(_platform_has_directory_fd(flagged))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a, day_b = self._two_synthetic_days(root)
+            normal = run_multiday((day_a, day_b), root / "normal")
+            dir_fd_opens = []
+            real_open = os.open
+
+            def spy(path, flags, mode=0o777, *, dir_fd=None):
+                if dir_fd is not None:
+                    dir_fd_opens.append(os.fspath(path))
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch("harborlens.ais.os.supports_dir_fd", frozenset()), \
+                    mock.patch("harborlens.ais.os.open", spy):
+                self.assertFalse(directory_fd_supported())
+                fallback = run_multiday((day_a, day_b), root / "fallback")
+            self.assertEqual(dir_fd_opens, [])
+            self.assertEqual(fallback["run_id"], normal["run_id"])
+            for name in (
+                "houston_clean.csv",
+                "stationary_candidates.csv",
+                "stationary_candidates.geojson",
+            ):
+                self.assertEqual(
+                    (root / "fallback" / name).read_bytes(),
+                    (root / "normal" / name).read_bytes(),
+                )
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "os.symlink is not available")
+    def test_multiday_preexisting_directory_symlink_is_followed(self):
+        from harborlens.provenance import checksum
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            day_a, day_b = self._two_synthetic_days(root)
+            target = root / "real"
+            target.mkdir()
+            (target / "notes.txt").write_text("keep", encoding="utf-8")
+            link = root / "link"
+            link.symlink_to(target, target_is_directory=True)
+            code, stdout, err = _invoke(multiday_main, [
+                "harborlens-multiday",
+                "--input", str(day_a), str(day_b),
+                "--out", str(link),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("Traceback", err)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual((target / "notes.txt").read_text(encoding="utf-8"), "keep")
+            manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+            for name, meta in manifest["artifacts"].items():
+                artifact = target / name
+                self.assertTrue(artifact.is_file(), name)
+                self.assertFalse(artifact.is_symlink(), name)
+                self.assertEqual(meta["sha256"], checksum(artifact))
+                self.assertEqual(meta["size_bytes"], artifact.stat().st_size)
+
 
 if __name__ == "__main__":
     unittest.main()

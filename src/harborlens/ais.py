@@ -21,7 +21,7 @@ from harborlens.cli_usage import escape_error_text
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell, recover_text_cell
 from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
-from harborlens.provenance import add_provenance, require_declared_source_url
+from harborlens.provenance import add_provenance, checksum, require_declared_source_url
 from harborlens.censoring import (
     WindowCensoring, declaration_record, declared_window, observed_range, parse_utc,
     resolve_input_window,
@@ -155,6 +155,21 @@ def _open_directory(path, requested):
     except OSError as exc:
         raise _cannot_write_directory(requested, exc) from exc
 
+def _platform_has_directory_fd(module):
+    """True when ``module`` can open, stat, and unlink relative to a directory fd.
+
+    A missing ``O_DIRECTORY`` or a missing ``dir_fd`` on ``open``, ``stat``,
+    or ``unlink`` keeps the pathname artifact path.
+    """
+    if not hasattr(module, "O_DIRECTORY"):
+        return False
+    needed=(module.open, module.stat, module.unlink)
+    return all(function in getattr(module, "supports_dir_fd", ()) for function in needed)
+
+def directory_fd_supported():
+    """True when this process can anchor ``--out`` with ``dir_fd``."""
+    return _platform_has_directory_fd(os)
+
 def _same_directory(path, dev, ino):
     """True when ``path`` is still the real directory recorded at ``mkdir``."""
     info=_lstat_or_none(path)
@@ -194,13 +209,28 @@ class _OwnedFile:
                 and info.st_size==self.size and info.st_mtime_ns==self.mtime_ns
                 and info.st_ctime_ns==self.ctime_ns)
 
-def _unlink_owned(owned):
-    """Unlink ``owned`` only when the path still has its recorded identity."""
-    info=_lstat_or_none(owned.path)
+def _unlink_owned(owned, dir_fd=None):
+    """Unlink ``owned`` only when it still has its recorded identity.
+
+    ``dir_fd`` stats and unlinks the file name in the anchored directory.
+    ``os.stat`` uses ``follow_symlinks=False``. ``os.unlink`` does not follow
+    the final component. A pathname unlink is the fallback when ``dir_fd``
+    is ``None``.
+    """
+    try:
+        if dir_fd is not None:
+            info=os.stat(owned.path.name, dir_fd=dir_fd, follow_symlinks=False)
+        else:
+            info=_lstat_or_none(owned.path)
+    except OSError:
+        return
     if info is None or not owned.matches(info):
         return
     try:
-        os.unlink(owned.path)
+        if dir_fd is not None:
+            os.unlink(owned.path.name, dir_fd=dir_fd)
+        else:
+            os.unlink(owned.path)
     except OSError:
         return
 
@@ -254,7 +284,7 @@ class OutputScope:
 
     The path is lexical (``os.path.abspath``), not ``Path.resolve()``, so
     ``nope/../results`` is the existing ``results`` and not a new ``nope``.
-    Each new component is created with ``os.mkdir``. A pre-existing symlink
+    Each new component is created with ``os.mkdir``.     A pre-existing symlink
     to a directory is followed, so a symlinked parent such as macOS ``/tmp``
     still receives the new directory. A dangling symlink and a symlink to a
     non-directory are refused. ``FileExistsError`` means the component is
@@ -262,13 +292,22 @@ class OutputScope:
     its device, inode, size, and timestamps still match, and does not unlink
     a symlink. It then ``rmdir``s recorded directories
     that are still empty, deepest first, and does not remove the pre-existing
-    symlink.
+    symlink. ``anchor_directory`` holds an ``O_DIRECTORY|O_NOFOLLOW`` fd so
+    later artifact creates, checksums, and unlinks do not follow a symlink
+    swapped in at the verified path. The fd is closed on cleanup and from
+    the caller's ``finally``.
     """
 
     def __init__(self, directory):
         self.directory=_absolute_lexical(directory)
         self.created_dirs=[]
         self.owned_files=[]
+        self.dir_fd=None
+        self.dir_dev=None
+        self.dir_ino=None
+        self.anchor_dev=None
+        self.anchor_ino=None
+        self.anchor_is_link=False
 
     def ensure(self):
         directory=self.directory
@@ -312,6 +351,143 @@ class OutputScope:
                     f"cannot write output directory '{self.directory}' (symlink)."
                 )
 
+    def capture_directory_identity(self):
+        """Remember the verified ``--out`` node before a test seam can swap it.
+
+        ``lstat`` does not follow the final component. A pre-existing symlink
+        to a directory is remembered as a link so ``anchor_directory`` can
+        follow that one node. A real directory is remembered so a later
+        symlink at the same path is refused.
+        """
+        info=_lstat_or_none(self.directory)
+        if info is None:
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' (missing)."
+            )
+        self.anchor_dev=info.st_dev
+        self.anchor_ino=info.st_ino
+        self.anchor_is_link=stat.S_ISLNK(info.st_mode)
+
+    def _directory_was_replaced(self):
+        info=_lstat_or_none(self.directory)
+        if info is None or self.anchor_dev is None:
+            return True
+        if info.st_dev!=self.anchor_dev or info.st_ino!=self.anchor_ino:
+            return True
+        return stat.S_ISLNK(info.st_mode)!=self.anchor_is_link
+
+    def refuse_replaced_directory(self):
+        """Refuse a symlink swapped in after the directory fd was opened.
+
+        With no directory fd, re-check only directories this run created.
+        That is the pathname fallback.
+        """
+        if self.dir_fd is None:
+            self.verify_created()
+            return
+        if self._directory_was_replaced():
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' (symlink)."
+            )
+
+    def anchor_directory(self):
+        """Open ``--out`` with ``O_DIRECTORY|O_NOFOLLOW`` and keep the fd.
+
+        ``O_CLOEXEC`` is set when this platform has it. A pre-existing
+        symlink to a directory is opened without ``O_NOFOLLOW`` so the fd
+        is the directory that was already accepted. A real directory uses
+        ``O_NOFOLLOW``, so a symlink planted at that path is not followed.
+        When ``dir_fd`` is not supported, artifact opens stay on the path.
+        """
+        self.close_directory_fd()
+        if not directory_fd_supported():
+            return
+        if self._directory_was_replaced():
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' (symlink)."
+            )
+        flags=os.O_RDONLY|os.O_DIRECTORY
+        if hasattr(os, "O_CLOEXEC"):
+            flags|=os.O_CLOEXEC
+        if not self.anchor_is_link:
+            flags|=os.O_NOFOLLOW
+        fd=None
+        try:
+            try:
+                fd=os.open(os.fspath(self.directory), flags)
+            except OSError as exc:
+                if exc.errno==errno.ELOOP or self.anchor_is_link:
+                    raise AISInputError(
+                        f"cannot write output directory '{self.directory}' (symlink)."
+                    ) from exc
+                raise _cannot_write_directory(self.directory, exc) from exc
+            held=os.fstat(fd)
+            same_node=(held.st_dev==self.anchor_dev and held.st_ino==self.anchor_ino)
+            if not stat.S_ISDIR(held.st_mode) or (not self.anchor_is_link and not same_node):
+                raise AISInputError(
+                    f"cannot write output directory '{self.directory}' (symlink)."
+                )
+            self.dir_fd=fd
+            fd=None
+            self.dir_dev=held.st_dev
+            self.dir_ino=held.st_ino
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+    def close_directory_fd(self):
+        """Close the anchored directory fd. A second call does nothing."""
+        fd=self.dir_fd
+        self.dir_fd=None
+        if fd is not None:
+            os.close(fd)
+
+    def read_sha256(self, path):
+        """SHA-256 of one artifact. Reads through the directory fd when held."""
+        self.refuse_replaced_directory()
+        if self.dir_fd is None:
+            return checksum(path)
+        flags=os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags|=os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags|=os.O_NOFOLLOW
+        try:
+            fd=os.open(Path(path).name, flags, dir_fd=self.dir_fd)
+        except OSError as exc:
+            if exc.errno==errno.ELOOP:
+                raise AISInputError(f"cannot write output file '{path}' (symlink).") from exc
+            detail=exc.strerror if exc.strerror else type(exc).__name__
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' ({detail})."
+            ) from exc
+        digest=hashlib.sha256()
+        try:
+            while True:
+                block=os.read(fd, 1024*1024)
+                if not block:
+                    break
+                digest.update(block)
+        finally:
+            os.close(fd)
+        return digest.hexdigest()
+
+    def artifact_size(self, path):
+        """Byte size of one artifact. ``stat`` uses the directory fd when held."""
+        self.refuse_replaced_directory()
+        if self.dir_fd is None:
+            return Path(path).stat().st_size
+        try:
+            info=os.stat(Path(path).name, dir_fd=self.dir_fd, follow_symlinks=False)
+        except OSError as exc:
+            detail=exc.strerror if exc.strerror else type(exc).__name__
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' ({detail})."
+            ) from exc
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise AISInputError(f"cannot write output file '{path}' (symlink).")
+        return info.st_size
+
     def artifact_is_new(self, path):
         """Refuse a symlink final component. True when the path is absent."""
         self.refuse_artifact_symlink(path)
@@ -339,16 +515,25 @@ class OutputScope:
 
         The returned context manager seals size and timestamps when it closes,
         including when the write raises. A symlink at ``path`` is not followed.
-        ``FileExistsError`` propagates so the caller can keep its own message.
+        When a directory fd is held, the file name is opened with ``dir_fd``
+        (``O_NOFOLLOW`` on the final component) so a swapped ``--out`` symlink
+        is not followed. ``FileExistsError`` propagates so the caller can
+        keep its own message.
         """
+        self.refuse_replaced_directory()
         path=Path(path)
         flags=os.O_CREAT|os.O_EXCL|os.O_WRONLY
         if hasattr(os, "O_CLOEXEC"):
             flags|=os.O_CLOEXEC
         if hasattr(os, "O_NOFOLLOW"):
             flags|=os.O_NOFOLLOW
+        dir_fd=self.dir_fd
+        target=path.name if dir_fd is not None else os.fspath(path)
         try:
-            fd=os.open(os.fspath(path), flags, 0o644)
+            if dir_fd is None:
+                fd=os.open(target, flags, 0o644)
+            else:
+                fd=os.open(target, flags, 0o644, dir_fd=dir_fd)
         except FileExistsError:
             raise
         except OSError as exc:
@@ -368,9 +553,12 @@ class OutputScope:
         return _ExclusiveText(owned, fd, newline)
 
     def cleanup(self):
-        for owned in self.owned_files:
-            _unlink_owned(owned)
-        _rollback_created(self.created_dirs)
+        try:
+            for owned in self.owned_files:
+                _unlink_owned(owned, self.dir_fd)
+            _rollback_created(self.created_dirs)
+        finally:
+            self.close_directory_fd()
 
 def _rollback_created(created):
     for path, dev, ino in reversed(created):
