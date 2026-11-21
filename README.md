@@ -16,11 +16,89 @@ HarborLens explores auditable AIS ingest and provisional low-speed stationary ca
 
 Status per requirement: [functional requirements](docs/requirements/functional.md) and [traceability](docs/requirements/traceability.md).
 
+## Quick start
+
 ```bash
 python -m pip install -e .
-python -m unittest discover -s tests -v
 harborlens --input tests/fixtures/synthetic_ais.csv --out results
+harborlens-verify --manifest results/manifest.json
 ```
+
+This writes four files in `results/`:
+
+- `houston_clean.csv` — cleaned AIS points. The filename is canonical (it stays `houston_clean.csv` even if you change `--bbox`).
+- `stationary_candidates.csv` and `stationary_candidates.geojson` — unvalidated low-speed candidates. A candidate is **not** a berth, anchorage, wait, or port call.
+- `manifest.json` — QA counts, method thresholds, SHA-256 of the artifacts, and `run_id`. The same document is printed to stdout.
+
+On this synthetic fixture, `analysis_window.status` is `unknown` and the single candidate is `left_censoring` / `right_censoring` `unknown`, because no acquisition sidecar declared a window. That is expected. `mmsi_category` is `other` for the fixture's unassigned MID 199 identifiers.
+
+`harborlens-verify` checks local bytes against the manifest. It does not prove source authenticity, data rights, or verified events.
+
+Offline tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Optional extras are documented with the commands that need them (for example `.[rights]` below). The default bounding box is Houston–Galveston (`-95.7 29.1 -94.2 30.1`). Threshold defaults and the full flag list are in `harborlens --help`.
+
+## Command map
+
+Twenty console scripts ship in the package. Two further tools are invoked as modules. There is no unified `harborlens <subcommand>` entry point and no map or HTTP API (SPEC-006 is proposed only).
+
+### First run
+
+| Command | Purpose |
+| --- | --- |
+| `harborlens` | Ingest a local AIS CSV and write unvalidated stationary candidates plus a manifest |
+| `harborlens-verify` | Verify SHA-256 and sizes of that run's artifacts against `manifest.json` |
+
+### Multi-day reconstruction and sensitivity
+
+| Command | Purpose |
+| --- | --- |
+| `harborlens-multiday` | Rebuild provisional candidates across UTC midnight from 2–16 local AIS subsets |
+| `harborlens-sensitivity` | Descriptive threshold sensitivity on a cleaned run; not an accuracy claim |
+
+### Opt-in data acquisition
+
+| Command | Purpose |
+| --- | --- |
+| `harborlens-download-noaa` | Experimental download of one official NOAA daily AIS archive, with a size cap |
+| `harborlens-fetch-erddap` | Bounded historical NOAA PMEL AIS2024 subset (often too sparse for tracks) |
+| `harborlens-extract-noaa-archive` | Extract a Houston geographic/time subset from a local daily NOAA archive |
+
+### Zones and regulatory context (SPEC-004)
+
+| Command | Purpose |
+| --- | --- |
+| `harborlens-fetch-usace` | Bounded USACE Navigation Facilities **points** — not berth polygons |
+| `harborlens-fetch-noaa-anchorages` | Current NOAA anchorage polygons for research context only |
+| `harborlens-zone-context` | Unverified centroid-in-polygon context for candidates |
+| `harborlens-track-context` | Full observed-track versus polygon evidence; still unverified |
+| `harborlens-geometry-vintage` | Offline NOAA geometry-vintage audit; no historical validity approval |
+| `harborlens-cfr-anchorage-audit` | 2024 CFR §110.197 coordinate transcription audit; no GIS polygons for AIS joins |
+| `harborlens-fr-timeline` | Federal Register 33 CFR Part 110 index screen; no legal-effect conclusion |
+| `harborlens-fr-fulltext` | Official 2023 Part 110 full-text triage |
+| `python -m harborlens.lsa_compare` | Compare official 2023-12 / 2024-01 Title 33 LSA source indexes (no console script) |
+
+### Labeling and evaluation (SPEC-003)
+
+| Command | Purpose |
+| --- | --- |
+| `harborlens-label-sample` | Blinded, stratified labeling sheet from one verified run |
+| `harborlens-label-agreement` | Inter-annotator agreement for two completed sheets |
+| `harborlens-evaluate` | Compare a verified run with adjudicated labels (`evaluation-v0.2`, always `unvalidated`; no accuracy claim) |
+
+### Rights and aggregate release (SPEC-003)
+
+| Command | Purpose |
+| --- | --- |
+| `python -m harborlens.rights` | Offline, fail-closed source-rights audit; not legal advice (no console script) |
+| `harborlens-release-summary` | Rights-gated coarse count summary only after a signed human review |
+| `harborlens-verify-release` | Re-check a staged aggregate release without reading AIS |
+
+Run any command with `--help`. None of these tools is for navigation.
 
 ## Synthetic evaluation harness (SPEC-003)
 
@@ -44,80 +122,14 @@ Without `jsonschema`, the helper exits 2 and does not grant a decision. No check
 
 The contracts are [public-summary](schemas/v1/public-summary.schema.json), [publication-review](schemas/v1/publication-review.schema.json), and [release-verification-result](schemas/v1/release-verification-result.schema.json). The same bytes ship in the wheel and sdist under `harborlens/schemas/v1/` and load with `importlib.resources` (`read_packaged_release_schema`). See [the publication gate](docs/data/aggregate-publication-gate.md) and [schemas/README.md](schemas/README.md).
 
-[Specification-driven process](docs/engineering/spec-driven-development.md) · [Requirements](docs/requirements/functional.md) · [Open-source versus paid scope](docs/product/open-core.md). No real-world AIS accuracy or commercial product is claimed.
+## Documentation
+
+- [Data dictionary](docs/data/dictionary.md) — field meanings for cleaned points, candidates, and the run manifest
+- [Docs index](docs/README.md)
+- [Verified integration evidence](docs/data/integration-evidence.md) — NOAA, USACE, CFR, and Federal Register smokes previously kept in this README (content preserved, not deleted)
+- [NFR-001 disclaimer proposal](docs/ux/nfr-001-disclaimer.md) — proposed placement of the NOT FOR NAVIGATION / pre-alpha notice on run artifacts (proposal only; no code change in this slice)
+- [Specification-driven process](docs/engineering/spec-driven-development.md) · [Requirements](docs/requirements/functional.md) · [Traceability](docs/requirements/traceability.md) · [Open-source versus paid scope](docs/product/open-core.md)
+
+No real-world AIS accuracy or commercial product is claimed.
 
 Sources: [NOAA AIS](https://marinecadastre.gov/ais/), [USACE](https://www.iwr.usace.army.mil/About/Technical-Centers/WCSC-Waterborne-Commerce-Statistics-Center/), [BTS](https://www.bts.gov/ports), [EPA emissions guidance](https://www.epa.gov/state-and-local-transportation/port-emissions-inventory-guidance).
-
-## Optional small NOAA AIS2024 subset
-
-A bounded, explicit NOAA PMEL ERDDAP client is documented in [NOAA subset acquisition](docs/data/noaa-erddap.md). It is intended to avoid unnecessary national-sized downloads; its limited real-server responses were verified in November 2026, but were too sparse to infer continuous trajectories. Never commit authentic AIS observations or call the provisional stationary candidates verified port calls.
-
-## Reproducible daily NOAA extraction
-
-For temporal trajectories use authorized daily historical compressed archives rather than assuming a PMEL ERDDAP query yields multiple points per MMSI. The opt-in [daily archive extractor](docs/data/noaa-archive-extraction.md) streams a source archive and writes only a bounded geographic/time subset with source hashes. A one-day national archive has now been processed successfully in an isolated research workflow; the detected candidate events are **not** externally validated. See [real-data integration results](docs/data/noaa-real-data-smoke-2024-01-02.md).
-
-## Experimental multi-day AIS candidates
-
-A separate local tool can reconstruct provisional low-speed candidate segments across UTC midnight from two to sixteen existing historic AIS subsets, using an ephemeral SQLite sort and per-file input lineage. The enforced working set is an 8192 KiB page cache, memory mapping off, and a file temporary store. The soft heap limit is recorded and is a bound only when that run's SQLite lists `ENABLE_MEMORY_MANAGEMENT`. No automatic downloads. See [multi-day engineering guide](docs/data/multiday.md). No real multi-day accuracy or official berth/waiting claims are established.
-
-## First real consecutive-day engineering run
-
-An isolated GitHub Actions run successfully processed two authentic NOAA daily archives around UTC midnight. The tool reported 564 unvalidated cross-midnight candidate episodes among 286,696 cleaned points, with roughly 46 MiB process RSS and a 5.4-second multi-day stage. These are software results, not independently confirmed waiting vessels. See [the source-pinned engineering report](docs/data/noaa-consecutive-days-smoke-2024-01-02-03.md).
-
-A 2026-11-09 re-run on the `stationary-v0.2` engine reproduced those counts, measured analysis-window censoring for the first time (76.5% of candidates in a six-hour window have lower-bound durations, 7.1% over seven days) and processed seven full Houston days: 3.95 million points, 15,937 unvalidated candidates, 741 MiB scratch and under 50 MiB RSS. See [the re-run report](docs/data/noaa-real-data-rerun-2026-11-09.md).
-
-## Official USACE facility reference points (SPEC-004)
-
-The opt-in [USACE Navigation Facilities point catalog](docs/data/usace-geography.md) retrieves bounded public reference **points**, not dated berthing or anchorage polygons. A proximity or point overlay cannot establish berth, anchorage waiting or verified port calls.
-
-### First real official USACE facility reference-point sample
-
-A bounded USACE-associated FeatureServer query produced 723 POINT records in the Houston research rectangle, including 536 with type Dock. These are reference points, not historical berth polygons or verified AIS events. See [real engineering report](docs/data/usace-points-smoke-2026-11-09.md).
-
-## NOAA designated anchorage polygons
-
-The opt-in [NOAA polygon source and conservative AIS centroid overlay](docs/data/noaa-anchorages.md) provide reference-only spatial context. Historical validity and confirmed berth/anchorage/waiting status are NOT established.
-
-### Verified NOAA anchorage polygon API integration (current reference only)
-
-An isolated engineering smoke retrieved 6 current NOAA Anchorage Area polygons and compared their geometries to 920 historical provisional AIS candidate centroids: 77 possible single overlaps and 843 no overlaps. No historical or operational validity is established. See [combined integration report](docs/data/noaa-anchorage-real-smoke-2026-11-09.md).
-
-## Full observed-track geospatial evidence (SPEC-004)
-
-A new local [full-track polygon evidence tool](docs/data/full-track-zone-evidence.md) checks each historical candidate against all cleaned AIS points in its time window, rather than its centroid alone. The source must have an integrity-matched polygon receipt. Every result remains unvalidated and historically unverified.
-
-### First authentic full observed-track comparison
-
-A bounded official NOAA 2024 AIS vs current NOAA anchorage Polygon smoke processed 920 unvalidated candidate episodes. Of these, 74 had every **observed** AIS point within a single Polygon, 5 had partial point coverage and 841 had no recorded-point overlap. The previous centroid-only baseline had 77 overlaps. Neither method confirms anchorage, waiting or the polygon's 2024 historical authority. See [full-track source-pinned engineering report](docs/data/noaa-full-track-context-smoke-2026-11-09.md).
-
-## Historical NOAA ENC geometry vintage audit
-
-The [offline NOAA geometry-vintage audit](docs/data/geometry-vintage-audit.md) checks source hashes and flags ENC edition/issue date contradictions. It explicitly does not confirm that the current anchorage polygons matched 2024 or that any vessel was waiting or anchored.
-
-### Official NOAA vintage-audit smoke (historically unverified)
-
-An isolated live NOAA current polygon query and offline date audit passed, but no archival 2024 ENC documentation was supplied. The output correctly retains geometry validity=not_verified and rights=review_required. See [source-pinned integration report](docs/data/noaa-geometry-vintage-smoke-2026-11-09.md).
-
-## Government-dated 2024 USCG regulatory anchorages (source transcription audit)
-
-The [2024 Federal CFR §110.197 legal-coordinate source audit](docs/data/cfr-2024-galveston-anchorage-audit.md) transcribes the four Galveston/Bolivar Roads anchorage areas and performs conservative datum/topology checks. **It never emits automatically usable WGS84 GIS polygons**, because A/B/C lack an explicit NAD83 datum and A East has an invalid literal vertex sequence. The 2024 edition dates to July 1; January 2 historical applicability requires separate verification. No AIS operational-event classification.
-
-### Two official annual CFR editions compared
-
-The legal-coordinate registry was checked directly against official Government Publishing Office 2023 and 2024 annual Title 33 source HTML. All 16 DMS coordinate pairs were present in both. A/B/C datum and A East topology blockers remain unresolved, as does exact January 2, 2024 legal applicability. See the [2023/2024 source verification report](docs/data/cfr-2023-2024-source-verification.md).
-
-## Federal Register timeline source-index screen
-
-The opt-in [Part 110 historical Federal Register index screen](docs/data/fr-part110-timeline.md) discovers publications between annual CFR editions and records URLs, hashes and manual-review requirements. This is a documentary triage tool, **not** proof that a CFR section remained unchanged on any historical date, and it authorizes no AIS geospatial joins.
-
-### Verified Federal Register Part 110 historical index scan
-
-An official-source index query for 2023-07-01 through 2024-01-02 returned four Proposed Rule metadata entries, not a proven effective change to section 110.197. The complete source query page and result JSON were SHA-256 fingerprinted. The [real source scan report](docs/data/fr-part110-real-index-2023-2024.md) retains mandatory official FR/LSA review and historical datum/geometry gates.
-
-## Official Part 110 publication full-text triage
-
-After the Part 110 index screen, the optional [official full-text source audit](docs/data/fr-2023-fulltext-triage.md) verifies original FederalRegister.gov metadata and raw published documents for four 2023 proposals/withdrawals, retaining source SHA-256 and explicit human-review requirements. No legal-effect or historical GIS approval is inferred.
-
-### Verified original 2023 Federal Register full texts
-
-A controlled official-source inspection obtained and checksummed all four original Federal Register 2023 Part 110 full texts. None of the four contained a direct 110.197 text match or Houston/Galveston/Bolivar reference; the Hudson entry included a withdrawal text signal. This **does not** certify historical January 2024 legal effect or an unchanged CFR. See the [source-pinned evidence report](docs/data/fr-2023-original-fulltext-evidence-2026-11-09.md).

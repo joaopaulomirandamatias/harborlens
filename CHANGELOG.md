@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Documentation
+- Restructured the root README around first install, the synthetic quickstart, `harborlens-verify`, and a map of the twenty console scripts plus the two module CLIs. The NOAA / USACE / CFR / Federal Register integration narrative moved to `docs/data/integration-evidence.md` (content preserved, not deleted). Added `docs/README.md` as a short index.
+- Added a proposal only, `docs/ux/nfr-001-disclaimer.md`, for placing the NFR-001 `NOT FOR NAVIGATION` / pre-alpha notice on run artifacts. No Python, schema, or CI change in this slice.
+
 ### Changed (SPEC-001: Federal Register date errors exit 2)
 - Package version `0.2.0.dev18` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. `harborlens-fr-timeline` reports an invalid `--start` or `--end` through `parser.error`. The command exits 2, prints the `FederalRegisterAuditError` message, prints no traceback, and does not create a network client or call `urlopen`.
 - Rejected values include an ISO week date (`2026-W10-1`), `YYYYMMDD` (`20260301`), non-ASCII digits (Arabic-Indic `٢٠٢٦-٠٣-٠١`), and an impossible day (`2026-02-30`). The stderr text is the message `_date` raises for that same input (`Date must be YYYY-MM-DD`).
