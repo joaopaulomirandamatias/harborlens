@@ -22,6 +22,14 @@ MAX_PAGES = 10
 MAX_RECORDS = 300
 MAX_BYTES = 2 * 1048576
 MAX_WINDOW_DAYS = 370
+EARLIEST_PUBLICATION = date(1994, 1, 1)
+
+# One line each. The span rule keeps the historical 370-day sentence.
+# The other three rules used to share that sentence, which is wrong for them.
+MSG_START_AFTER_END = "Start date must be on or before the end date"
+MSG_END_AFTER_TODAY = "End date must be on or before today"
+MSG_START_BEFORE_1994 = "Start date must be on or after 1994-01-01"
+MSG_WINDOW_SPAN = "Use a historical publication window of at most 370 days"
 
 
 class FederalRegisterAuditError(ValueError):
@@ -41,10 +49,41 @@ def _date(value):
         raise FederalRegisterAuditError("Date must be YYYY-MM-DD") from exc
 
 
-def initial_url(start, end, per_page=100):
+def _today():
+    """Local calendar day for the publication window.
+
+    Tests replace this. Production uses ``date.today()``.
+    """
+    return date.today()
+
+
+def validate_window(start, end, today=None):
+    """Apply the four publication-window rules. No network.
+
+    Order is start after end, end after today, start before 1994-01-01,
+    then a span of more than 370 days. The first broken rule wins.
+    ``today`` defaults to ``_today()``. A span of exactly 370 days, a start
+    equal to the end, an end equal to today, and a start equal to
+    1994-01-01 all pass.
+    """
     a, b = _date(start), _date(end)
-    if not (date(1994, 1, 1) <= a <= b <= date.today() and (b-a).days <= MAX_WINDOW_DAYS):
-        raise FederalRegisterAuditError("Use a historical publication window of at most 370 days")
+    if today is None:
+        today = _today()
+    if a > b:
+        raise FederalRegisterAuditError(MSG_START_AFTER_END)
+    if b > today:
+        raise FederalRegisterAuditError(MSG_END_AFTER_TODAY)
+    if a < EARLIEST_PUBLICATION:
+        raise FederalRegisterAuditError(MSG_START_BEFORE_1994)
+    if (b - a).days > MAX_WINDOW_DAYS:
+        raise FederalRegisterAuditError(MSG_WINDOW_SPAN)
+    return a, b
+
+
+def initial_url(start, end, per_page=100, today=None):
+    # Defense in depth: ``main`` checks the window before any Request.
+    # Building this URL checks the same rules again and does not open a socket.
+    validate_window(start, end, today)
     if not (1 <= per_page <= 100):
         raise FederalRegisterAuditError("Page size must be between 1 and 100")
     return API + "?" + urlencode({
@@ -201,13 +240,11 @@ def main():
     parser.add_argument("--end", default="2024-01-02", help="YYYY-MM-DD calendar date")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    # Only calendar-text failures exit 2, and they do so before save_scan
-    # builds a client or calls urlopen. A start date after the end date still
-    # parses and still fails later in initial_url. Do not catch ValueError
-    # (FederalRegisterAuditError is the only date error) or KeyboardInterrupt.
+    # Calendar text and the four window rules exit 2 here, before save_scan
+    # builds a Request or calls urlopen. Catch only FederalRegisterAuditError.
+    # A bare ValueError and KeyboardInterrupt propagate.
     try:
-        _date(args.start)
-        _date(args.end)
+        validate_window(args.start, args.end)
     except FederalRegisterAuditError as exc:
         parser.error(str(exc))
     result = save_scan(args.out, args.start, args.end)

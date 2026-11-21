@@ -168,7 +168,7 @@ class FormulaFixtureTests(unittest.TestCase):
             for name, digest in MAIN_SHA256.items():
                 blob = (out / name).read_bytes()
                 self.assertEqual(hashlib.sha256(blob).hexdigest(), digest, name)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev18")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev20")
 
     def test_formula_fixture_matches_dev17_goldens(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -190,8 +190,8 @@ class FormulaFixtureTests(unittest.TestCase):
                 set(differing_paths(live, pinned)),
                 {"run_id", "code_version.package_version"},
             )
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev18")
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev18"))
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev20")
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev20"))
             self.assertNotEqual(manifest["run_id"], golden["run_id"])
             self.assertEqual(manifest["counts"]["written"], 180)
             self.assertEqual(manifest["events"]["stationary_candidates"], 18)
@@ -202,7 +202,7 @@ class FormulaFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
             manifest = run(FIXTURE, out)
-            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev18"))
+            self.assertEqual(manifest["run_id"], run_id_for(manifest, "0.2.0.dev20"))
             self.assertEqual(run_id_for(manifest, "0.2.0.dev16") != manifest["run_id"], True)
 
             _header, source_rows = read_csv(FIXTURE)
