@@ -30,6 +30,7 @@ from harborlens.multiday import main as multiday_main
 from harborlens.sensitivity import main as sensitivity_main
 from harborlens.fr_timeline import main as fr_main
 from harborlens.io_safe import AISInputError
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import main as verify_main
 from harborlens.segmentation import SegmentationParams
 
@@ -1801,6 +1802,224 @@ class SourceUrlAndGeoJsonShapeTests(unittest.TestCase):
             self.assertNotIn("wrong shape", err)
             self.assertNotIn("Traceback", err)
             self.assertFalse(broken.exists())
+
+
+def _nested_list(levels):
+    value = 1
+    for _ in range(levels):
+        value = [value]
+    return value
+
+
+def _publish_geo(geo_path, manifest, payload):
+    raw = payload.encode("utf-8")
+    geo_path.write_bytes(raw)
+    record = json.loads(manifest.read_text(encoding="utf-8"))
+    record["artifacts"]["stationary_candidates.geojson"] = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    }
+    manifest.write_text(json.dumps(record), encoding="utf-8")
+
+
+class JsonNestingReaderBoundaryTests(unittest.TestCase):
+    """Depth 512 is accepted and depth 513 is not valid JSON for each guard."""
+
+    def _run(self):
+        folder = tempfile.TemporaryDirectory()
+        root = Path(folder.name)
+        run_dir = root / "run"
+        code, _, err = _invoke(harborlens_main, [
+            "harborlens", "--input", str(FIXTURE), "--out", str(run_dir),
+        ])
+        self.assertEqual(code, 0, err)
+        self.addCleanup(folder.cleanup)
+        return root, run_dir
+
+    def _assert_rejected(self, code, stdout, err, phrase):
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn(phrase, err)
+        self.assertIn("is not valid JSON", err)
+        self.assertNotIn("wrong shape", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_evaluate_sampling_accepts_512_and_rejects_513(self):
+        root, run_dir = self._run()
+        manifest = run_dir / "manifest.json"
+        labels = root / "labels.csv"
+        labels.write_text(
+            "sample_id,label,evidence_level,duration_judgement,"
+            "true_start_utc,true_end_utc,adjudicator_id\n",
+            encoding="utf-8",
+        )
+        record = json.loads(manifest.read_text(encoding="utf-8"))
+
+        def plan(levels):
+            body = {
+                "key": [],
+                "frame": {"candidates": {}},
+                "run_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                "parameter_set": record["method_parameters"]["parameter_set"],
+                "pad": _nested_list(levels),
+            }
+            return json.dumps(body)
+
+        sampling = root / "plan.sampling.json"
+        accepted = plan(511)
+        self.assertEqual(max_container_depth(accepted), MAX_JSON_NESTING)
+        sampling.write_text(accepted, encoding="utf-8")
+        out = root / "ok.json"
+        code, stdout, err = _invoke(evaluate_main, [
+            "harborlens-evaluate", "--run", str(run_dir),
+            "--sampling", str(sampling), "--labels", str(labels),
+            "--out", str(out), "--label-provenance", "synthetic",
+        ])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("is not valid JSON", err)
+        self.assertTrue(out.is_file())
+        self.assertIn("validation_status", stdout)
+
+        rejected = plan(512)
+        self.assertEqual(max_container_depth(rejected), MAX_JSON_NESTING + 1)
+        sampling.write_text(rejected, encoding="utf-8")
+        bad = root / "bad.json"
+        code, stdout, err = _invoke(evaluate_main, [
+            "harborlens-evaluate", "--run", str(run_dir),
+            "--sampling", str(sampling), "--labels", str(labels),
+            "--out", str(bad), "--label-provenance", "synthetic",
+        ])
+        self._assert_rejected(code, stdout, err, f"sampling file '{sampling}' is not valid JSON")
+        self.assertFalse(bad.exists())
+
+    def test_agreement_sampling_accepts_512_and_rejects_513(self):
+        header = (
+            "sample_id,annotator_id,label,confidence,evidence_level,"
+            "evidence_sources,fragment_of_longer_stop,duration_judgement,notes\n"
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sheet_a = root / "a.csv"
+            sheet_b = root / "b.csv"
+            sheet_a.write_text(
+                header + "S0001,A1,at_anchor,medium,L2,ais_track,false,assessable,\n",
+                encoding="utf-8",
+            )
+            sheet_b.write_text(
+                header + "S0001,A2,at_anchor,medium,L2,ais_track,false,assessable,\n",
+                encoding="utf-8",
+            )
+            sampling = root / "sample.sampling.json"
+
+            def payload(levels):
+                return json.dumps({
+                    "key": [{"sample_id": "S0001", "kind": "candidate"}],
+                    "pad": _nested_list(levels),
+                })
+
+            accepted = payload(511)
+            self.assertEqual(max_container_depth(accepted), MAX_JSON_NESTING)
+            sampling.write_text(accepted, encoding="utf-8")
+            out = root / "ok.json"
+            code, stdout, err = _invoke(agreement_main, [
+                "harborlens-label-agreement",
+                "--sheets", str(sheet_a), str(sheet_b),
+                "--sampling", str(sampling), "--out", str(out),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("is not valid JSON", err)
+            self.assertTrue(out.is_file())
+
+            rejected = payload(512)
+            self.assertEqual(max_container_depth(rejected), MAX_JSON_NESTING + 1)
+            sampling.write_text(rejected, encoding="utf-8")
+            bad = root / "bad.json"
+            code, stdout, err = _invoke(agreement_main, [
+                "harborlens-label-agreement",
+                "--sheets", str(sheet_a), str(sheet_b),
+                "--sampling", str(sampling), "--out", str(bad),
+            ])
+            self._assert_rejected(
+                code, stdout, err, f"sampling file '{sampling}' is not valid JSON",
+            )
+            self.assertFalse(bad.exists())
+
+    def _geo_payloads(self, geo_path):
+        original = json.loads(geo_path.read_text(encoding="utf-8"))
+
+        def padded(levels):
+            document = json.loads(json.dumps(original))
+            document["features"][0]["properties"]["pad"] = _nested_list(levels)
+            return json.dumps(document)
+
+        one = padded(1)
+        levels = MAX_JSON_NESTING - (max_container_depth(one) - 1)
+        accepted = padded(levels)
+        rejected = padded(levels + 1)
+        self.assertEqual(max_container_depth(accepted), MAX_JSON_NESTING)
+        self.assertEqual(max_container_depth(rejected), MAX_JSON_NESTING + 1)
+        return accepted, rejected
+
+    def test_label_sample_geojson_accepts_512_and_rejects_513(self):
+        root, run_dir = self._run()
+        geo = run_dir / "stationary_candidates.geojson"
+        manifest = run_dir / "manifest.json"
+        accepted, rejected = self._geo_payloads(geo)
+        _publish_geo(geo, manifest, accepted)
+        sheet = root / "sheet.csv"
+        code, stdout, err = _invoke(sample_main, [
+            "harborlens-label-sample", "--run", str(run_dir),
+            "--sheet", str(sheet), "--seed", "1",
+        ])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("is not valid JSON", err)
+        self.assertTrue(sheet.is_file())
+        sheet.unlink()
+        sheet.with_name(sheet.name + ".sampling.json").unlink()
+        _publish_geo(geo, manifest, rejected)
+        code, stdout, err = _invoke(sample_main, [
+            "harborlens-label-sample", "--run", str(run_dir),
+            "--sheet", str(sheet), "--seed", "1",
+        ])
+        self._assert_rejected(code, stdout, err, f"candidate GeoJSON '{geo}' is not valid JSON")
+        self.assertFalse(sheet.exists())
+
+    def test_evaluate_geojson_accepts_512_and_rejects_513(self):
+        root, run_dir = self._run()
+        geo = run_dir / "stationary_candidates.geojson"
+        manifest = run_dir / "manifest.json"
+        labels = root / "labels.csv"
+        labels.write_text(
+            "sample_id,label,evidence_level,duration_judgement,"
+            "true_start_utc,true_end_utc,adjudicator_id\n",
+            encoding="utf-8",
+        )
+        accepted, rejected = self._geo_payloads(geo)
+
+        def evaluate_with(payload, out_name):
+            _publish_geo(geo, manifest, payload)
+            record = json.loads(manifest.read_text(encoding="utf-8"))
+            sampling = root / f"{out_name}.sampling.json"
+            sampling.write_text(json.dumps({
+                "key": [],
+                "frame": {"candidates": {}},
+                "run_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                "parameter_set": record["method_parameters"]["parameter_set"],
+            }), encoding="utf-8")
+            out = root / f"{out_name}.json"
+            return sampling, out, _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling), "--labels", str(labels),
+                "--out", str(out), "--label-provenance", "synthetic",
+            ])
+
+        _, out, (code, stdout, err) = evaluate_with(accepted, "ok")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("is not valid JSON", err)
+        self.assertTrue(out.is_file())
+        _, bad, (code, stdout, err) = evaluate_with(rejected, "bad")
+        self._assert_rejected(code, stdout, err, f"candidate GeoJSON '{geo}' is not valid JSON")
+        self.assertFalse(bad.exists())
 
 
 class RequestedWindowTests(unittest.TestCase):

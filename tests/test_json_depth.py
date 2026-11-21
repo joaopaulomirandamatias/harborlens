@@ -41,6 +41,11 @@ class JsonDepthTests(unittest.TestCase):
             self.assertIn("is not valid JSON", str(caught.exception))
             self.assertNotIn("Traceback", str(caught.exception))
 
+    def test_non_str_raises_type_error(self):
+        for value in (None, b"[]", 1):
+            with self.assertRaises(TypeError):
+                max_container_depth(value)
+
 
 if __name__ == "__main__":
     unittest.main()

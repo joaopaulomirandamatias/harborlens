@@ -487,10 +487,31 @@ class RightsGateTests(unittest.TestCase):
         self.write(over)
         over_text = self.path.read_text(encoding="utf-8")
         self.assertEqual(_max_container_depth(over_text), MAX_REGISTRY_NESTING + 1)
-        with self.assertRaisesRegex(ValueError, "unreadable"):
+        with self.assertRaises(ValueError) as caught:
             load_registry(self.path)
+        self.assertEqual(str(caught.exception), _UNREADABLE_REGISTER)
+        self.assertNotIn("schema", str(caught.exception))
         self.assertEqual(self.status(), PENDING)
         self.assertNotIn(self.status(), APPROVED_STATUSES)
+        uses = json.dumps(self.data["sources"][0]["permitted_uses"])
+        duplicated = uses.replace(
+            '"research": "allowed"',
+            '"research": "allowed", "research": "prohibited"',
+            1,
+        )
+        carrier = json.loads(json.dumps(self.data))
+        carrier["sources"][0]["permitted_uses"] = {"wrap": None}
+        duplicate_text = json.dumps(carrier).replace(
+            '"permitted_uses": {"wrap": null}',
+            '"permitted_uses": {"wrap": ' + duplicated + "}",
+            1,
+        )
+        self.assertEqual(_max_container_depth(duplicate_text), MAX_REGISTRY_NESTING + 1)
+        self.path.write_text(duplicate_text, encoding="utf-8")
+        with self.assertRaises(ValueError) as caught:
+            load_registry(self.path)
+        self.assertEqual(str(caught.exception), _UNREADABLE_REGISTER)
+        self.assertNotIn("duplicate key", str(caught.exception))
         receipt = rights_receipt(
             "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
             purpose="research", register_path=self.path,

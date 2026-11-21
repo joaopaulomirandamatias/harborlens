@@ -21,10 +21,14 @@ MAX_JSON_NESTING = 512
 def max_container_depth(text, *, limit=None):
     """Return the deepest object or array nesting in ``text``.
 
-    When ``limit`` is set, return as soon as the depth passes it. The
-    value is then ``limit + 1``, which is enough for a ``> limit`` check
-    and does not walk the rest of a very deep document.
+    ``text`` must be a ``str``. ``bytes``, ``None``, and other types raise
+    ``TypeError``. Callers decode the file first. When ``limit`` is set,
+    return as soon as the depth passes it. The value is then ``limit + 1``,
+    which is enough for a ``> limit`` check and does not walk the rest of
+    a very deep document.
     """
+    if not isinstance(text, str):
+        raise TypeError("JSON text must be a str")
     depth = 0
     maximum = 0
     in_string = False
