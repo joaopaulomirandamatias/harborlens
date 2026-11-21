@@ -21,7 +21,7 @@ from harborlens import __version__
 from harborlens.ais import REQUIRED_COLUMNS, header_alias
 from harborlens.cli import main as harborlens_main
 from harborlens.evaluation import _read_labels, evaluate, main as evaluate_main
-from harborlens.labeling import draw_sample, sample_main
+from harborlens.labeling import candidate_feature_collection, draw_sample, sample_main
 from harborlens.fr_timeline import main as fr_main
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import main as verify_main
@@ -513,8 +513,9 @@ class EvaluateAndVerifyCliTests(unittest.TestCase):
                              label_provenance="synthetic")
                 self.assertEqual(
                     str(caught.exception),
-                    f"candidate GeoJSON '{geo}' is not valid JSON",
+                    f"candidate GeoJSON '{geo}' is valid JSON but has the wrong shape",
                 )
+                self.assertNotIn("not valid JSON", str(caught.exception))
             sampling.write_text("[]", encoding="utf-8")
             code, stdout, err = _invoke(evaluate_main, [
                 "harborlens-evaluate", "--run", str(run_dir),
@@ -525,7 +526,10 @@ class EvaluateAndVerifyCliTests(unittest.TestCase):
             ])
             self.assertEqual(code, 2)
             self.assertEqual(stdout, "")
-            self.assertIn(f"sampling file '{sampling}' is not valid JSON", err)
+            self.assertIn(
+                f"sampling file '{sampling}' is valid JSON but has the wrong shape", err,
+            )
+            self.assertNotIn("not valid JSON", err)
             self.assertNotIn("Traceback", err)
 
     def test_control_in_input_path_is_escaped_on_stderr(self):
@@ -705,6 +709,287 @@ class ConsoleScriptVersionTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(out, f"{name} {__version__}\n")
                 self.assertEqual(err, "")
+
+
+_SOURCE_URL_ERROR = (
+    "source URL must be http or https, must name a host, and must not include credentials"
+)
+
+
+class SourceUrlAndGeoJsonShapeTests(unittest.TestCase):
+    """PR #99 follow-ups: invalid source URLs and GeoJSON shape exit 2.
+
+    Synthetic fixture only. A stationary candidate is not a berth, anchorage,
+    wait, or port call.
+    """
+
+    def test_invalid_source_url_exits_2_without_a_traceback(self):
+        cases = ("ftp://x", "", "http://", "https://user:secret@example.org")
+        for url in cases:
+            with self.subTest(url=url):
+                with tempfile.TemporaryDirectory() as folder:
+                    out = Path(folder) / "out"
+                    code, stdout, err = _invoke(harborlens_main, [
+                        "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                        "--source-url", url,
+                    ])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(stdout, "")
+                    self.assertIn(_SOURCE_URL_ERROR, err)
+                    self.assertNotIn("Traceback", err)
+                    self.assertFalse(out.exists())
+
+    def test_invalid_source_url_debug_still_exits_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                "--source-url", "ftp://x", "--debug",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(_SOURCE_URL_ERROR, err)
+            self.assertIn("Traceback", err)
+            self.assertLess(err.index("error:"), err.index("Traceback"))
+            self.assertFalse(out.exists())
+
+    def test_https_source_url_exits_0_and_stays_review_required(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                "--source-url", "https://example.org/ais.csv",
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("Traceback", err)
+            body = json.loads(stdout)
+            self.assertEqual(body["source_metadata"]["source_url"], "https://example.org/ais.csv")
+            self.assertEqual(body["source_metadata"]["metadata_origin"], "user_declared")
+            self.assertEqual(body["source_metadata"]["rights_status"], "review_required")
+            self.assertTrue((out / "manifest.json").is_file())
+
+    def test_http_source_url_is_the_accepted_scheme_boundary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+                "--source-url", "http://example.org",
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(stdout)["source_metadata"]["source_url"], "http://example.org")
+            self.assertEqual(json.loads(stdout)["source_metadata"]["rights_status"], "review_required")
+
+    def test_candidate_feature_collection_shape_boundaries(self):
+        path = Path("synthetic.geojson")
+        point = {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-95.0, 29.5]},
+            "properties": {"event_id": "abc"},
+        }
+        accepted = candidate_feature_collection(
+            {"type": "FeatureCollection", "features": [point]}, path,
+        )
+        self.assertEqual(accepted[0]["geometry"]["coordinates"][:2], [-95.0, 29.5])
+        self.assertEqual(
+            candidate_feature_collection({"type": "FeatureCollection", "features": []}, path),
+            [],
+        )
+        with_altitude = dict(point)
+        with_altitude["geometry"] = {"type": "Point", "coordinates": [-95, 29, 0]}
+        self.assertEqual(
+            len(candidate_feature_collection(
+                {"type": "FeatureCollection", "features": [with_altitude]}, path,
+            )),
+            1,
+        )
+        rejected = {
+            "features not a list": {"type": "FeatureCollection", "features": {"type": "Feature"}},
+            "feature is not an object": {"type": "FeatureCollection", "features": [1]},
+            "feature without geometry": {
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {"event_id": "abc"}}],
+            },
+            "coordinates are a string": {
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": "nope"},
+                    "properties": {"event_id": "abc"},
+                }],
+            },
+            "coordinates are one number": {
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-95.0]},
+                    "properties": {"event_id": "abc"},
+                }],
+            },
+            "top-level array": [],
+        }
+        for name, document in rejected.items():
+            with self.subTest(shape=name):
+                with self.assertRaises(AISInputError) as caught:
+                    candidate_feature_collection(document, path)
+                self.assertIn("valid JSON but has the wrong shape", str(caught.exception))
+                self.assertNotIn("not valid JSON", str(caught.exception))
+
+    def test_geojson_inner_shape_and_json_text_exit_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            run_dir = root / "run"
+            code, _, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(run_dir),
+            ])
+            self.assertEqual(code, 0, err)
+            manifest = run_dir / "manifest.json"
+            original_manifest = manifest.read_bytes()
+            geo = run_dir / "stationary_candidates.geojson"
+            original_geo = geo.read_bytes()
+            sheet = root / "sheet.csv"
+            draw_sample(run_dir, sheet, 7, candidates=1, negatives=0)
+            labels = root / "labels.csv"
+            sampling_path = Path(str(sheet) + ".sampling.json")
+            plan = json.loads(sampling_path.read_text(encoding="utf-8"))
+            with labels.open("w", newline="", encoding="utf-8") as handle:
+                handle.write(
+                    "sample_id,label,evidence_level,duration_judgement,"
+                    "true_start_utc,true_end_utc,adjudicator_id\n"
+                )
+                for unit in plan["key"]:
+                    handle.write(f"{unit['sample_id']},unknown,L2,not_assessable,,,J1\n")
+
+            def point_manifest_at(payload):
+                geo.write_bytes(payload)
+                record = json.loads(manifest.read_text(encoding="utf-8"))
+                record["artifacts"]["stationary_candidates.geojson"] = {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+                manifest.write_text(json.dumps(record), encoding="utf-8")
+                plan["run_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+                sampling_path.write_text(json.dumps(plan), encoding="utf-8")
+
+            shapes = {
+                "features not a list": b'{"type":"FeatureCollection","features":{"type":"Feature"}}',
+                "feature without geometry": (
+                    b'{"type":"FeatureCollection","features":[{"type":"Feature",'
+                    b'"properties":{"event_id":"abc"}}]}'
+                ),
+                "wrong coordinates type": (
+                    b'{"type":"FeatureCollection","features":[{"type":"Feature",'
+                    b'"geometry":{"type":"Point","coordinates":"nope"},'
+                    b'"properties":{"event_id":"abc"}}]}'
+                ),
+            }
+            for name, payload in shapes.items():
+                with self.subTest(shape=name):
+                    point_manifest_at(payload)
+                    out = root / f"{name.replace(' ', '-')}.json"
+                    code, stdout, err = _invoke(evaluate_main, [
+                        "harborlens-evaluate", "--run", str(run_dir),
+                        "--sampling", str(sampling_path),
+                        "--labels", str(labels),
+                        "--out", str(out),
+                        "--label-provenance", "synthetic",
+                    ])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(stdout, "")
+                    self.assertIn(
+                        f"candidate GeoJSON '{geo}' is valid JSON but has the wrong shape",
+                        err,
+                    )
+                    self.assertNotIn("not valid JSON", err)
+                    self.assertNotIn("Traceback", err)
+                    self.assertFalse(out.exists())
+                    sheet_out = root / f"{name.replace(' ', '-')}.csv"
+                    code, stdout, err = _invoke(sample_main, [
+                        "harborlens-label-sample", "--run", str(run_dir),
+                        "--sheet", str(sheet_out), "--seed", "3",
+                    ])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(stdout, "")
+                    self.assertIn(
+                        f"candidate GeoJSON '{geo}' is valid JSON but has the wrong shape",
+                        err,
+                    )
+                    self.assertNotIn("Traceback", err)
+                    self.assertFalse(sheet_out.exists())
+
+            point_manifest_at(b"{bad")
+            out = root / "not-json.json"
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling_path),
+                "--labels", str(labels),
+                "--out", str(out),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(f"candidate GeoJSON '{geo}' is not valid JSON", err)
+            self.assertNotIn("wrong shape", err)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(out.exists())
+
+            broken = root / "broken.sampling.json"
+            broken.write_text("{bad", encoding="utf-8")
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(broken),
+                "--labels", str(labels),
+                "--out", str(root / "sampling-text.json"),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertIn(f"sampling file '{broken}' is not valid JSON", err)
+            self.assertNotIn("wrong shape", err)
+            self.assertNotIn("Traceback", err)
+
+            point_manifest_at(
+                b'{"type":"FeatureCollection","features":[]}'
+            )
+            out = root / "empty-features.json"
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling_path),
+                "--labels", str(labels),
+                "--out", str(out),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("Traceback", err)
+            self.assertEqual(json.loads(stdout)["validation_status"], "unvalidated")
+            self.assertTrue(out.is_file())
+            with labels.open("w", newline="", encoding="utf-8") as handle:
+                handle.write(
+                    "sample_id,label,evidence_level,duration_judgement,"
+                    "true_start_utc,true_end_utc,adjudicator_id\n"
+                )
+                for unit in plan["key"]:
+                    label = "at_berth" if unit["kind"] == "candidate" else "transit"
+                    handle.write(f"{unit['sample_id']},{label},L2,not_assessable,,,J1\n")
+            missing = root / "missing-candidate.json"
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling_path),
+                "--labels", str(labels),
+                "--out", str(missing),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("is not in the run", err)
+            self.assertNotIn("wrong shape", err)
+            self.assertNotIn("not valid JSON", err)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(missing.exists())
+
+            geo.write_bytes(original_geo)
+            manifest.write_bytes(original_manifest)
+            fresh = draw_sample(run_dir, root / "fresh.csv", 7, candidates=1, negatives=0)
+            self.assertEqual(fresh["rights_status"], "review_required")
+            self.assertGreaterEqual(fresh["drawn"]["candidates"], 1)
 
 
 if __name__ == "__main__":

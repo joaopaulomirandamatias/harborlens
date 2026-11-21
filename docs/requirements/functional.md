@@ -4,7 +4,7 @@
 
 | ID | Priority | Requirement | Status | Spec |
 | --- | --- | --- | --- | --- |
-| FR-001 | P0 | Ingest NOAA-style UTF-8 CSV, gzip/ZIP, and optional zstd formats. A missing, empty, or header-invalid file exits 2 with one error line and no traceback unless `--debug` is set | Synthetic implementation | SPEC-001 |
+| FR-001 | P0 | Ingest NOAA-style UTF-8 CSV, gzip/ZIP, and optional zstd formats. A missing, empty, or header-invalid file exits 2 with one error line and no traceback unless `--debug` is set. An empty, host-less, non-HTTP, or credentialed `--source-url` exits 2 before any output file is written | Synthetic implementation | SPEC-001 |
 | FR-002 | P0 | Normalize AIS timestamps to UTC and reject invalid MMSI, coordinate and speed values. Naive NOAA clocks, `Z`, and `±HH:MM` use one ASCII grammar on Python 3.10 and 3.12 (`tests/test_timeparse.py`) | Synthetic implementation | SPEC-001 |
 | FR-003 | P0 | Use an explicit WGS84 bounding box; count invalid, duplicate and out-of-zone records separately | Synthetic implementation | SPEC-001 |
 | FR-004 | P0 | Generate SHA-256 source file fingerprint and record quality counters plus method parameters | Synthetic implementation | SPEC-001 |

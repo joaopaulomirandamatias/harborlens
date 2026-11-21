@@ -45,7 +45,10 @@ from pathlib import Path
 from harborlens.ais import parse_time, sha256
 from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
 from harborlens.io_safe import AISInputError
-from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum, read_csv_cell
+from harborlens.labeling import (
+    COLLAPSED, LABELS, candidate_feature_collection, censoring_status, parse_stratum,
+    read_csv_cell,
+)
 from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
@@ -170,6 +173,23 @@ def _timing(errors):
             "median_absolute_error_minutes": round(statistics.median(absolute), 2)}
 
 
+def _sampling_shape(plan):
+    """True when a parsed sampling document has the objects ``evaluate`` indexes.
+
+    A JSON array, ``null``, or an object whose ``key`` is not a list of
+    objects, or whose ``frame.candidates`` is not an object, is the wrong
+    shape. That is distinct from text that is not JSON.
+    """
+    if not isinstance(plan, dict):
+        return False
+    rows = plan.get("key")
+    frame = plan.get("frame")
+    candidates = frame.get("candidates") if isinstance(frame, dict) else None
+    if not isinstance(rows, list) or not isinstance(candidates, dict):
+        return False
+    return all(isinstance(item, dict) and "sample_id" in item for item in rows)
+
+
 def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"):
     """Write an evaluation report for one run, its sampling manifest and adjudicated labels.
 
@@ -208,11 +228,12 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     except json.JSONDecodeError as exc:
         raise AISInputError(manifest_invalid) from exc
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
-    sampling_invalid = f"sampling file '{sampling}' is not valid JSON"
+    sampling_not_json = f"sampling file '{sampling}' is not valid JSON"
+    sampling_wrong_shape = f"sampling file '{sampling}' is valid JSON but has the wrong shape"
     try:
         sampling_text = sampling.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise AISInputError(sampling_invalid) from exc
+        raise AISInputError(sampling_not_json) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read sampling file '{sampling}' ({_os_detail(exc)})."
@@ -220,9 +241,9 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     try:
         plan = json.loads(sampling_text)
     except json.JSONDecodeError as exc:
-        raise AISInputError(sampling_invalid) from exc
-    if not isinstance(plan, dict):
-        raise AISInputError(sampling_invalid)
+        raise AISInputError(sampling_not_json) from exc
+    if not _sampling_shape(plan):
+        raise AISInputError(sampling_wrong_shape)
     if (not digests_equal(plan.get("run_manifest_sha256"), sha256(manifest_path))
             or not digests_equal(plan.get("parameter_set"), params.parameter_set)):
         raise AISInputError("Sampling manifest was not drawn from this run")
@@ -243,9 +264,14 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         geo = json.loads(geo_text)
     except json.JSONDecodeError as exc:
         raise AISInputError(geo_invalid) from exc
-    if not isinstance(geo, dict):
-        raise AISInputError(geo_invalid)
-    candidates = {f["properties"]["event_id"]: f["properties"] for f in geo["features"]}
+    candidates = {}
+    for feature in candidate_feature_collection(geo, geo_path):
+        event_id = feature["properties"].get("event_id")
+        if not isinstance(event_id, str) or not event_id:
+            raise AISInputError(
+                f"candidate GeoJSON '{geo_path}' is valid JSON but has the wrong shape"
+            )
+        candidates[event_id] = feature["properties"]
 
     excluded = Counter()
     rows = []

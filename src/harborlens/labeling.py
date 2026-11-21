@@ -96,6 +96,39 @@ _SAMPLING_PYTHON_VERSION = re.compile(
 )
 
 
+def _json_number(value):
+    """True for a JSON number. ``bool`` is an ``int`` subclass and is rejected."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def candidate_feature_collection(document, path):
+    """Return the features of a parsed candidate GeoJSON document.
+
+    ``document`` is already decoded JSON. A file that is not a JSON object,
+    whose ``features`` value is not a list, or whose feature lacks a geometry
+    object with a coordinates list of at least two JSON numbers, raises
+    ``AISInputError``. The message says the file is valid JSON but has the
+    wrong shape. It does not say the file is not valid JSON.
+    """
+    message = f"candidate GeoJSON '{path}' is valid JSON but has the wrong shape"
+    if not isinstance(document, dict):
+        raise AISInputError(message)
+    features = document.get("features")
+    if not isinstance(features, list):
+        raise AISInputError(message)
+    for feature in features:
+        if not isinstance(feature, dict):
+            raise AISInputError(message)
+        geometry = feature.get("geometry")
+        coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+        if (not isinstance(coordinates, list) or len(coordinates) < 2
+                or not _json_number(coordinates[0]) or not _json_number(coordinates[1])):
+            raise AISInputError(message)
+        if not isinstance(feature.get("properties"), dict):
+            raise AISInputError(message)
+    return features
+
+
 def matches_sampling_python_version(value):
     """Return True when ``value`` is exactly ``major.minor.micro``.
 
@@ -450,9 +483,23 @@ def _load_run(run_dir):
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
-    geo = json.loads((run_dir / "stationary_candidates.geojson").read_text(encoding="utf-8"))
+    geo_path = run_dir / "stationary_candidates.geojson"
+    geo_not_json = f"candidate GeoJSON '{geo_path}' is not valid JSON"
+    try:
+        geo_text = geo_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(geo_not_json) from exc
+    except OSError as exc:
+        detail = exc.strerror if exc.strerror else type(exc).__name__
+        raise AISInputError(
+            f"cannot read candidate GeoJSON '{geo_path}' ({detail})."
+        ) from exc
+    try:
+        geo = json.loads(geo_text)
+    except json.JSONDecodeError as exc:
+        raise AISInputError(geo_not_json) from exc
     candidates = []
-    for feature in geo.get("features", []):
+    for feature in candidate_feature_collection(geo, geo_path):
         props = feature["properties"]
         if not digests_equal(props.get("parameter_set"), params.parameter_set):
             raise AISInputError("Candidate parameter_set differs from the run manifest")

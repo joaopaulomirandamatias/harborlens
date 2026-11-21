@@ -29,6 +29,7 @@
 ## Evaluator (issue #9)
 
 - [x] `harborlens-evaluate`, adjudicated-label and evaluation-report schemas, synthetic tests with hand-computed metrics (`tests/test_evaluation.py`)
+- [x] Distinguish `is not valid JSON` from `is valid JSON but has the wrong shape` for the sampling file and candidate GeoJSON. A feature list that is not a list, a feature without geometry, and coordinates that are not two JSON numbers exit 2 with no traceback. `harborlens-label-sample` uses the same candidate check. Package stays `0.2.0.dev22`. Evidence: `tests/test_cli_contract.py`. Refs #94 (stays open). Refs #82 (stays open).
 - [x] Report contract `evaluation-v0.2`: `validation_status` const `unvalidated`, `--label-provenance` `synthetic` or `unspecified` (default `unspecified`), fixed caveat, named refusal of `evaluation-v0.1` (`EvaluationReportError`), and an end-to-end synthetic harness whose expected rates are computed in the test (`tests/test_evaluation.py`, `tests/test_evaluation_harness.py`). Package `0.2.0.dev14`.
 - [ ] Evaluate the first adjudicated pilot (#8) and publish aggregate results only, with denominators and evidence basis
 - [ ] Repeat on a different period or port (L4 replication)
