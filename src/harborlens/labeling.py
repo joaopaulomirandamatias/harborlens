@@ -67,12 +67,13 @@ from datetime import timedelta
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, parse_time, sha256
+from harborlens.cli_usage import add_version_argument
 from harborlens.censoring import CENSORED, NOT_CENSORED, UNKNOWN, WindowCensoring
 from harborlens.csv_safe import (
     matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
 )
 from harborlens.io_safe import AISInputError
-from harborlens.provenance import digests_equal, verify_manifest
+from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -388,7 +389,12 @@ def _load_run(run_dir):
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.is_file():
         raise AISInputError("Run directory has no manifest.json")
-    check = verify_manifest(manifest_path)
+    try:
+        check = verify_manifest(manifest_path)
+    except ManifestFormatError as exc:
+        raise AISInputError(
+            f"manifest '{manifest_path}' is not a valid HarborLens manifest"
+        ) from exc
     if not check["ok"]:
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -769,6 +775,7 @@ def agreement(sheet_a, sheet_b, out, sampling=None):
 
 def sample_main():
     parser = argparse.ArgumentParser(description="Blinded, stratified labeling sample of unvalidated AIS intervals")
+    add_version_argument(parser)
     parser.add_argument("--run", type=Path, required=True, help="Run directory with manifest.json and outputs")
     parser.add_argument("--sheet", type=Path, required=True, help="New CSV labeling sheet")
     parser.add_argument("--seed", type=int, required=True)
@@ -787,6 +794,7 @@ def sample_main():
 
 def agreement_main():
     parser = argparse.ArgumentParser(description="Inter-annotator agreement for two completed label sheets")
+    add_version_argument(parser)
     parser.add_argument("--sheets", type=Path, nargs=2, required=True)
     parser.add_argument("--sampling", type=Path, default=None, help="Optional .sampling.json for by-kind results")
     parser.add_argument("--out", type=Path, required=True)

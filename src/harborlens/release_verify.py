@@ -15,6 +15,7 @@ import json
 import re
 from pathlib import Path
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.provenance import digests_equal
 from harborlens.publication import (
     CAUTION,
@@ -285,6 +286,7 @@ def main(argv=None):
             "are a fixed clock-skew allowance."
         )
     )
+    add_version_argument(parser)
     parser.add_argument("--release", required=True, type=Path)
     parser.add_argument("--rights-register", required=True, type=Path)
     parser.add_argument("--expected-rights-register-sha256", required=True)

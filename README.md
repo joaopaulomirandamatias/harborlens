@@ -20,7 +20,10 @@ Status per requirement: [functional requirements](docs/requirements/functional.m
 python -m pip install -e .
 python -m unittest discover -s tests -v
 harborlens --input tests/fixtures/synthetic_ais.csv --out results
+harborlens-verify --manifest results/manifest.json
 ```
+
+`harborlens --help` and `harborlens --version` exit 0. `--version` prints `harborlens` and the package version and does not require `--input`. Every console script accepts `-V` and `--version` in that form. A missing input, an empty file, or a header without a required AIS column exits 2: argparse prints a usage line and one `error:` line, and does not print a traceback. `--debug` prints the traceback after that line and still exits 2. The same exit applies when `harborlens-evaluate` cannot read its run manifest and when `harborlens-verify` cannot read `manifest.json`. A manifest that is present but does not match the artifact bytes still exits 1 and prints `{"ok": false}`. An unexpected exception still exits 1 with a traceback. A stationary candidate is not a berth, anchorage, wait, or port call.
 
 ## Synthetic evaluation harness (SPEC-003)
 

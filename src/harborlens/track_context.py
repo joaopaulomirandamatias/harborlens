@@ -19,6 +19,7 @@ from datetime import timezone
 from pathlib import Path
 
 from harborlens.ais import parse_time
+from harborlens.cli_usage import add_version_argument
 from harborlens.io_safe import AISInputError, stream_rows
 from harborlens.provenance import checksum, digests_equal
 from harborlens.segmentation import SegmentationParams
@@ -370,6 +371,7 @@ def run_track_context(cleaned, candidates, polygons, out, polygon_receipt=None,
 
 def main():
     p=argparse.ArgumentParser(description="Full observed AIS track/polygon evidence — NOT verified port events")
+    add_version_argument(p)
     p.add_argument("--cleaned",type=Path,required=True,help="Canonical cleaned AIS CSV")
     p.add_argument("--candidates",type=Path,required=True,help="Stationary candidates GeoJSON")
     p.add_argument("--polygons",type=Path,required=True,help="NOAA Polygon GeoJSON")

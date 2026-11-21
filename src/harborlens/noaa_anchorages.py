@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from harborlens.cli_usage import add_version_argument
 from harborlens.rights import PURPOSES, rights_receipt
 
 LAYER = "https://maps.coast.noaa.gov/arcgis/rest/services/OceanReports/DesignatedAnchorageAreas/MapServer/0"
@@ -214,6 +215,7 @@ def save_polygons(out,bbox=HOUSTON,max_features=MAX_FEATURES,opener=None,
 
 def main():
     p=argparse.ArgumentParser(description="Fetch NOAA current anchorage polygons for research; NOT FOR NAVIGATION")
+    add_version_argument(p)
     p.add_argument("--bbox",nargs=4,type=float,default=HOUSTON,metavar=("W","S","E","N"))
     p.add_argument("--out",required=True,type=Path)
     p.add_argument("--max-features",type=int,default=MAX_FEATURES)

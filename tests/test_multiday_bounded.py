@@ -539,7 +539,7 @@ class MultidayCliErrorTests(unittest.TestCase):
         code, text, _out = self._exit(["--input", str(bad), str(good), "--out", str(out)])
         self.assertEqual(code, 2)
         self.assertNotIn("Traceback", text)
-        self.assertIn("Missing", text)
+        self.assertIn("missing required column", text)
         self.assertFalse(out.exists())
         with self.assertRaises(AISInputError):
             header_alias(["foo", "bar"], "mmsi")
@@ -595,7 +595,7 @@ ARTIFACT_SHA256 = {
 class SingleDayByteIdentityTests(unittest.TestCase):
     """Cleaned CSV, candidate CSV and candidate GeoJSON match package 0.2.0.dev15.
 
-    Package 0.2.0.dev20 changes ``run_id`` because that digest includes
+    Package 0.2.0.dev21 changes ``run_id`` because that digest includes
     ``harborlens_version``. The three pipeline artifacts stay byte-identical,
     including the cleaned CSV the release recount reads. The fixture has no
     formula trigger, so the CSV neutralizer does not change a cell. A run
@@ -615,7 +615,7 @@ class SingleDayByteIdentityTests(unittest.TestCase):
             self.assertEqual(golden["code_version"]["package_version"], "0.2.0.dev15")
             self.assertEqual(_scrub(manifest), _scrub(golden))
             self.assertEqual(manifest["code_version"]["package_version"], harborlens.__version__)
-            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev20")
+            self.assertEqual(manifest["code_version"]["package_version"], "0.2.0.dev21")
             self.assertNotEqual(manifest["run_id"], golden["run_id"])
             with mock.patch.object(provenance, "__version__", "0.2.0.dev15"):
                 pinned = run(FIXTURE, root / "pinned")

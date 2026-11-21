@@ -10,6 +10,8 @@ import json
 import math
 from pathlib import Path
 
+from harborlens.cli_usage import add_version_argument
+
 MAX_INPUT_MIB = 32
 MAX_CANDIDATES = 50000
 MAX_ZONES = 500
@@ -152,6 +154,7 @@ def spatial_context(candidates, polygons, output):
 
 def main():
     p=argparse.ArgumentParser(description="Unverified spatial context for stationary candidate centroids")
+    add_version_argument(p)
     p.add_argument("--candidates",required=True,type=Path)
     p.add_argument("--polygons",required=True,type=Path)
     p.add_argument("--out",required=True,type=Path)
