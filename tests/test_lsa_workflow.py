@@ -5,7 +5,9 @@ The tests read workflow text. They do not download a PDF or call pip.
 
 from __future__ import annotations
 
+import builtins
 import re
+import shlex
 import unittest
 from pathlib import Path
 
@@ -51,6 +53,12 @@ SETUP_PYTHON_SHA = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e
 CHECKOUT_LINE = f"- uses: {CHECKOUT_SHA} # v7.0.1"
 SETUP_PYTHON_LINE = f"- uses: {SETUP_PYTHON_SHA} # v7.1.0"
 PYTHON_312_ONLY = "valid only for Python 3.12"
+GUARD_MESSAGE = "lsa-workflow.txt is valid only for Python 3.12"
+EXPECTED_GUARD_RUN = (
+    "python -c \"import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) "
+    "else 'lsa-workflow.txt is valid only for Python 3.12')\""
+)
+GUARD_VERSIONS = ((3, 10), (3, 11), (3, 12), (3, 13))
 PAGE_TREE_LIMITS = (
     "with apply_configuration("
     f"page_tree_maximum_entries={MAX_PDF_PAGES}, "
@@ -112,6 +120,183 @@ def python_312_lock_is_explicit(workflow: str, requirements: str) -> bool:
         return False
     versions = re.findall(r"python-version:\s*(\S+)", workflow)
     return versions == ["'3.12'"]
+
+
+def split_job_steps(text: str) -> list[str]:
+    """Return the raw step chunks of the first ``steps:`` block, in order."""
+    lines = text.splitlines(keepends=True)
+    start = None
+    base = None
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s+)steps:\s*$", line.rstrip("\n"))
+        if match:
+            start = index
+            base = len(match.group(1))
+            break
+    if start is None or base is None:
+        return []
+    step_column = base + 2
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        raw = lines[index]
+        if raw.strip() == "":
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if indent <= base and not raw.lstrip().startswith("#"):
+            end = index
+            break
+    block = lines[start + 1:end]
+    steps: list[str] = []
+    current: list[str] = []
+    pending: list[str] = []
+    step_start = " " * step_column + "- "
+    for line in block:
+        if line.startswith(step_start):
+            if current:
+                steps.append("".join(current))
+            current = pending + [line]
+            pending = []
+        elif current:
+            current.append(line)
+        else:
+            pending.append(line)
+    if current:
+        steps.append("".join(current))
+    return steps
+
+
+def step_scalar(chunk: str, key: str) -> str | None:
+    """Return a single-line ``key:`` value from one step chunk."""
+    for line in chunk.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
+        prefix = key + ":"
+        if stripped.startswith(prefix):
+            return stripped[len(prefix):].strip()
+    return None
+
+
+def step_runs_pip(chunk: str) -> bool:
+    run = step_scalar(chunk, "run") or ""
+    return bool(re.search(r"(^|[^\w])pip([^\w]|$)", run))
+
+
+def python_c_source(run: str) -> str | None:
+    try:
+        parts = shlex.split(run.strip())
+    except ValueError:
+        return None
+    if len(parts) == 3 and parts[0] in {"python", "python3"} and parts[1] == "-c":
+        return parts[2]
+    return None
+
+
+def execute_guard(code: str, version: tuple[int, int]) -> object:
+    """Run the extracted ``python -c`` source with a fake ``sys.version_info``.
+
+    Returns the ``SystemExit`` code, or ``None`` when the source returns.
+    """
+    fake_version = version + (0, "final", 0)
+
+    class _FakeSys:
+        version_info = fake_version
+
+    fake_sys = _FakeSys()
+    real_import = builtins.__import__
+
+    def hooked(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "sys" and level == 0:
+            return fake_sys
+        return real_import(name, globals, locals, fromlist, level)
+
+    builtins.__import__ = hooked
+    try:
+        try:
+            exec(compile(code, "<workflow-guard>", "exec"), {"__name__": "__main__"})
+        except SystemExit as exc:
+            return exc.code
+        return None
+    finally:
+        builtins.__import__ = real_import
+
+
+def guard_accepts_only_python_312(code: str) -> bool:
+    if "version_info" not in code:
+        return False
+    results = {version: execute_guard(code, version) for version in GUARD_VERSIONS}
+    if results[(3, 12)] != 0:
+        return False
+    for version in ((3, 10), (3, 11), (3, 13)):
+        outcome = results[version]
+        if outcome == 0 or outcome is None:
+            return False
+        if not isinstance(outcome, str) or GUARD_MESSAGE not in outcome:
+            return False
+    return True
+
+
+def python_312_guard_before_pip(text: str) -> bool:
+    """The extracted guard command runs before pip and accepts only Python 3.12."""
+    steps = split_job_steps(text)
+    pip_at = next((index for index, step in enumerate(steps) if step_runs_pip(step)), None)
+    if pip_at is None:
+        return False
+    found = False
+    for step in steps[:pip_at]:
+        run = step_scalar(step, "run")
+        if not run:
+            continue
+        code = python_c_source(run)
+        if code and guard_accepts_only_python_312(code):
+            if run != EXPECTED_GUARD_RUN:
+                return False
+            found = True
+    return found
+
+
+def permissions_are_contents_read_only(text: str) -> bool:
+    """Every permissions block is ``contents: read``, and the trigger is not ``pull_request_target``."""
+    if re.search(r"(?m)^[ \t]*pull_request_target\s*:", text):
+        return False
+    if "write-all" in text:
+        return False
+    blocks: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^([ \t]*)permissions\s*:(.*)$", lines[index])
+        if not match:
+            index += 1
+            continue
+        indent = len(match.group(1))
+        inline = match.group(2).strip()
+        if inline:
+            blocks.append(inline)
+            index += 1
+            continue
+        body: list[str] = []
+        index += 1
+        while index < len(lines):
+            nxt = lines[index]
+            if nxt.strip() == "":
+                index += 1
+                continue
+            nxt_indent = len(nxt) - len(nxt.lstrip(" "))
+            if nxt_indent <= indent:
+                break
+            body.append(nxt.strip())
+            index += 1
+        blocks.append("\n".join(body))
+    return blocks == ["contents: read"]
+
+
+def checkout_drops_credentials(text: str) -> bool:
+    steps = split_job_steps(text)
+    checkouts = [step for step in steps if "actions/checkout@" in step]
+    if len(checkouts) != 1:
+        return False
+    return bool(re.search(r"(?m)^\s*persist-credentials:\s*false\s*$", checkouts[0]))
 
 
 def permission_lines(text: str) -> list[str] | None:
@@ -218,7 +403,26 @@ class LsaWorkflowPinTests(unittest.TestCase):
         self.assertTrue(python_312_lock_is_explicit(self.text, requirements))
         self.assertIn("typing_extensions", requirements)
         self.assertIn('python_version < "3.11"', requirements)
-        self.assertIn("Require Python 3.12 for the hashed pypdf lock", self.text)
+        self.assertTrue(python_312_guard_before_pip(self.text))
+        guard = next(
+            step for step in split_job_steps(self.text)
+            if step_scalar(step, "run") == EXPECTED_GUARD_RUN
+        )
+        pip_steps = [step for step in split_job_steps(self.text) if step_runs_pip(step)]
+        self.assertEqual(step_scalar(guard, "run"), EXPECTED_GUARD_RUN)
+        self.assertLess(
+            split_job_steps(self.text).index(guard),
+            split_job_steps(self.text).index(pip_steps[0]),
+        )
+        code = python_c_source(EXPECTED_GUARD_RUN)
+        self.assertIsNotNone(code)
+        assert code is not None
+        self.assertEqual(execute_guard(code, (3, 12)), 0)
+        for version in ((3, 10), (3, 11), (3, 13)):
+            outcome = execute_guard(code, version)
+            self.assertIsInstance(outcome, str, version)
+            self.assertIn(GUARD_MESSAGE, outcome)
+            self.assertNotEqual(outcome, 0)
         resolved_only = "# Resolved on Python 3.12.3 from PyPI for pypdf==7.1.1\n"
         self.assertFalse(python_312_lock_is_explicit(self.text, resolved_only))
         for other in ("'3.10'", "'3.11'", "'3.12.0'", "'3.13'", '"3.12"'):
@@ -230,6 +434,41 @@ class LsaWorkflowPinTests(unittest.TestCase):
             1,
         )
         self.assertFalse(python_312_lock_is_explicit(doubled, requirements))
+
+    def test_python_312_guard_rejects_the_qa_mutations(self):
+        steps = split_job_steps(self.text)
+        guard_at = next(
+            index for index, step in enumerate(steps)
+            if step_scalar(step, "run") == EXPECTED_GUARD_RUN
+        )
+        pip_at = next(index for index, step in enumerate(steps) if step_runs_pip(step))
+        self.assertLess(guard_at, pip_at)
+
+        def render(order: list[str]) -> str:
+            # Rebuild only the steps block by swapping chunks inside the original text.
+            original = "".join(steps)
+            return self.text.replace(original, "".join(order), 1)
+
+        moved = steps[:]
+        moved[guard_at], moved[pip_at] = moved[pip_at], moved[guard_at]
+        self.assertFalse(python_312_guard_before_pip(render(moved)))
+
+        def replace_run(new_run: str) -> str:
+            old = step_scalar(steps[guard_at], "run")
+            assert old is not None
+            return self.text.replace(old, new_run, 1)
+
+        self.assertFalse(python_312_guard_before_pip(replace_run("pass")))
+        self.assertFalse(python_312_guard_before_pip(replace_run("true")))
+        self.assertFalse(python_312_guard_before_pip(replace_run(
+            EXPECTED_GUARD_RUN.replace("== (3, 12)", "== (3, 13)")
+        )))
+        self.assertFalse(python_312_guard_before_pip(replace_run(
+            EXPECTED_GUARD_RUN.replace("== (3, 12)", ">= (3, 12)")
+        )))
+        self.assertFalse(python_312_guard_before_pip(replace_run(
+            "python -c \"import sys; raise SystemExit(1)\""
+        )))
 
     def test_pdf_reader_uses_the_page_tree_limits(self):
         self.assertEqual(MAX_PDF_PAGES, 299)
@@ -342,7 +581,11 @@ class AllWorkflowPinTests(unittest.TestCase):
             for ref in uses_refs(text):
                 self.assertRegex(ref, ACTION_REF, path.name)
             self.assertEqual(permission_lines(text), ["  contents: read"], path.name)
+            self.assertTrue(permissions_are_contents_read_only(text), path.name)
+            self.assertTrue(checkout_drops_credentials(text), path.name)
             self.assertNotIn("contents: write", text, path.name)
+            self.assertNotIn("write-all", text, path.name)
+            self.assertNotIn("pull_request_target", text, path.name)
             self.assertIsNone(re.search(r"@[vV]\d+", text), path.name)
 
     def test_extra_permission_and_wrong_sha_are_rejected(self):
@@ -375,6 +618,26 @@ class AllWorkflowPinTests(unittest.TestCase):
         self.assertIsNone(ACTION_REF.fullmatch("actions/checkout@" + ("a" * 39)))
         self.assertIsNone(ACTION_REF.fullmatch("actions/checkout@" + ("a" * 41)))
         self.assertIsNone(ACTION_REF.fullmatch("actions/checkout@" + ("A" * 40)))
+        self.assertTrue(permissions_are_contents_read_only(pinned))
+        self.assertFalse(permissions_are_contents_read_only(write))
+        self.assertFalse(permissions_are_contents_read_only(extra))
+        job_write = pinned.replace(
+            "  test:\n",
+            "  test:\n    permissions: write-all\n",
+            1,
+        )
+        self.assertFalse(permissions_are_contents_read_only(job_write))
+        targeted = "on:\n  pull_request_target:\n" + pinned
+        self.assertFalse(permissions_are_contents_read_only(targeted))
+        self.assertIn("pull_request:", (WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+        self.assertTrue(permissions_are_contents_read_only((WORKFLOWS / "ci.yml").read_text(encoding="utf-8")))
+        dropped = pinned.replace(
+            f"      {CHECKOUT_LINE}\n",
+            f"      {CHECKOUT_LINE}\n        with:\n          persist-credentials: false\n",
+            1,
+        )
+        self.assertTrue(checkout_drops_credentials(dropped))
+        self.assertFalse(checkout_drops_credentials(pinned))
 
 
 if __name__ == "__main__":
