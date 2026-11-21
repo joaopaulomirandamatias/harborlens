@@ -143,7 +143,9 @@ def _fetch(opener, url):
     except (URLError, TimeoutError, OSError) as exc:
         raise FederalRegisterAuditError("Federal Register download failed") from exc
     try:
-        text = raw.decode("utf-8")
+        # ``utf-8-sig`` strips a leading UTF-8 BOM, matching ``json.loads``
+        # on the original bytes. The depth check then sees that text.
+        text = raw.decode("utf-8-sig")
     except UnicodeError as exc:
         raise FederalRegisterAuditError("Official API response is not valid JSON") from exc
     if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:

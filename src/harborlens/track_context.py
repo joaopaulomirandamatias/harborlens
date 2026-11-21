@@ -55,9 +55,12 @@ def _json_document(path):
     if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
         raise TrackEvidenceError("Invalid JSON input")
     try:
-        return json.loads(text)
+        document = json.loads(text)
     except (ValueError, RecursionError) as exc:
         raise TrackEvidenceError("Invalid JSON input") from exc
+    if not isinstance(document, dict):
+        raise TrackEvidenceError("Invalid JSON input")
+    return document
 
 
 def _epoch_microseconds(value):

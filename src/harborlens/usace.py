@@ -76,7 +76,9 @@ def _read_json(response):
     if len(data) > MAX_RESPONSE_BYTES:
         raise FacilityDataError("USACE response exceeds byte cap")
     try:
-        text = data.decode("utf-8")
+        # ``utf-8-sig`` strips a leading UTF-8 BOM, matching ``json.loads``
+        # on the original bytes. The depth check then sees that text.
+        text = data.decode("utf-8-sig")
     except UnicodeError as exc:
         raise FacilityDataError("USACE service returned non-JSON content") from exc
     if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:

@@ -67,7 +67,9 @@ def _json_file(path):
             raw = handle.read(MAX_DOCUMENT_BYTES + 1)
         if len(raw) > MAX_DOCUMENT_BYTES:
             raise ReleaseDenied("Input JSON exceeds bounded size")
-        text = raw.decode("utf-8")
+        # ``utf-8-sig`` strips a leading UTF-8 BOM, matching ``json.loads``
+        # on the original bytes. The depth check then sees that text.
+        text = raw.decode("utf-8-sig")
         if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
             raise ReleaseDenied("Missing or invalid JSON evidence")
         data = json.loads(text)
