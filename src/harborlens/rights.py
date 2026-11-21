@@ -14,6 +14,8 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from harborlens.json_depth import max_container_depth as _max_container_depth
+
 MAX_REGISTRY_BYTES = 256 * 1024
 # A schema-valid register nests four containers: the root object, the
 # sources array, one source object, and permitted_uses. Depth 4 is
@@ -175,37 +177,6 @@ def _valid_utc_time(value):
     return parsed.tzinfo is timezone.utc and parsed.utcoffset().total_seconds() == 0
 
 
-def _max_container_depth(text):
-    """Return the deepest object or array nesting in ``text``.
-
-    One forward pass. A top-level container is depth 1. Characters inside
-    a JSON string do not count, including a brace written after an escaped
-    quote. The scan does not call itself and does not parse the document.
-    """
-    depth = 0
-    maximum = 0
-    in_string = False
-    escaped = False
-    for character in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character in "{[":
-            depth += 1
-            if depth > maximum:
-                maximum = depth
-        elif character in "}]" and depth:
-            depth -= 1
-    return maximum
-
-
 def _object_without_duplicate_keys(pairs):
     """Reject a repeated object key at this depth.
 
@@ -246,7 +217,7 @@ def _load_registry_bytes(raw):
         text = blob.decode("utf-8")
     except UnicodeError as exc:
         raise ValueError(_UNREADABLE_REGISTER) from exc
-    if _max_container_depth(text) > MAX_REGISTRY_NESTING:
+    if _max_container_depth(text, limit=MAX_REGISTRY_NESTING) > MAX_REGISTRY_NESTING:
         raise ValueError(_UNREADABLE_REGISTER)
     try:
         data = json.loads(

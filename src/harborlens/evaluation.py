@@ -45,6 +45,7 @@ from pathlib import Path
 from harborlens.ais import parse_time, sha256
 from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
 from harborlens.io_safe import AISInputError
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.labeling import (
     COLLAPSED, LABELS, candidate_feature_collection, candidate_identity_shape,
     censoring_status, parse_stratum, read_csv_cell,
@@ -246,6 +247,8 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         raise AISInputError(
             f"cannot read sampling file '{sampling}' ({_os_detail(exc)})."
         ) from exc
+    if max_container_depth(sampling_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AISInputError(sampling_not_json)
     try:
         plan = json.loads(sampling_text)
     except (ValueError, RecursionError) as exc:
@@ -269,6 +272,8 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
         raise AISInputError(
             f"cannot read candidate GeoJSON '{geo_path}' ({_os_detail(exc)})."
         ) from exc
+    if max_container_depth(geo_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AISInputError(geo_invalid)
     try:
         geo = json.loads(geo_text)
     except (ValueError, RecursionError) as exc:
