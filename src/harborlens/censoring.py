@@ -55,16 +55,27 @@ def parse_utc(value, name="time") -> datetime:
 def _window(start, end, source, **extra):
     a, b = parse_utc(start, "window start"), parse_utc(end, "window end")
     if not a < b:
+        if source == "user_declared":
+            raise AnalysisWindowError("--window-start must precede --window-end")
         raise AnalysisWindowError("Analysis window start must precede its end")
     return {"start": a, "end": b, "source": source, **extra}
 
 
 def declared_window(start=None, end=None):
-    """Return a user-declared window, or None when neither bound is given."""
+    """Return a user-declared window, or None when neither bound is given.
+
+    The rules are the analysis-window rules: both bounds or neither, an ISO
+    instant with an explicit UTC offset, and a start that precedes the end.
+    Federal Register publication limits (1994, 370 days, end not after today)
+    are not applied. A bad instant names ``--window-start`` or
+    ``--window-end``. This does not read an input file or create a directory.
+    """
     if start is None and end is None:
         return None
     if start is None or end is None:
         raise AnalysisWindowError("Provide both --window-start and --window-end")
+    parse_utc(start, "--window-start")
+    parse_utc(end, "--window-end")
     return _window(start, end, "user_declared")
 
 

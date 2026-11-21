@@ -5,6 +5,7 @@ live traffic management, port-call truth, or certified emissions estimates.
 """
 from __future__ import annotations
 import csv
+import errno
 import gzip
 import hashlib
 import io
@@ -12,6 +13,7 @@ import itertools
 import json
 import math
 import os
+import stat
 import tempfile
 import zipfile
 from pathlib import Path
@@ -21,7 +23,8 @@ from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
 from harborlens.provenance import add_provenance, require_declared_source_url
 from harborlens.censoring import (
-    WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
+    WindowCensoring, declaration_record, declared_window, observed_range, parse_utc,
+    resolve_input_window,
 )
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes, parse_csv_attributes
 from harborlens.segmentation import (
@@ -99,37 +102,344 @@ def _cannot_write_directory(directory, exc):
     detail=exc.strerror if exc.strerror else type(exc).__name__
     return AISInputError(f"cannot write output directory '{directory}' ({detail}).")
 
-def _publish(path, write):
+def _absolute_lexical(path):
+    """Absolute path with ``.`` and ``..`` collapsed. Symlinks are not resolved."""
+    return Path(os.path.abspath(path))
+
+def _lstat_or_none(path):
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+
+def _followed_directory(path, requested):
+    """True when ``path`` is a directory, following one pre-existing symlink.
+
+    A dangling symlink and a symlink to a non-directory are refused. A real
+    directory is accepted. The symlink itself is not recorded as created.
+    """
+    info=_lstat_or_none(path)
+    if info is None:
+        raise AISInputError(f"cannot write output directory '{requested}' (missing).")
+    if stat.S_ISLNK(info.st_mode):
+        try:
+            followed=os.stat(path)
+        except OSError as exc:
+            raise AISInputError(
+                f"cannot write output directory '{requested}' (symlink)."
+            ) from exc
+        if not stat.S_ISDIR(followed.st_mode):
+            raise AISInputError(
+                f"cannot write output directory '{requested}' (not a directory)."
+            )
+        return True
+    if not stat.S_ISDIR(info.st_mode):
+        raise AISInputError(
+            f"cannot write output directory '{requested}' (not a directory)."
+        )
+    return False
+
+def _open_directory(path, requested):
+    """Open ``path`` for ``mkdir``. Follow a pre-existing symlink to a directory.
+
+    A real directory is opened with ``O_NOFOLLOW``. A symlink to a directory
+    is opened without that flag so the next component is created in the
+    target, which is what ``/tmp`` does on macOS.
+    """
+    follow=_followed_directory(path, requested)
+    flags=os.O_RDONLY|os.O_DIRECTORY
+    if not follow:
+        flags|=os.O_NOFOLLOW
+    try:
+        return os.open(path, flags)
+    except OSError as exc:
+        raise _cannot_write_directory(requested, exc) from exc
+
+def _same_directory(path, dev, ino):
+    """True when ``path`` is still the real directory recorded at ``mkdir``."""
+    info=_lstat_or_none(path)
+    if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return False
+    return info.st_dev==dev and info.st_ino==ino
+
+class _OwnedFile:
+    """One regular file this run created, identified after its final write.
+
+    ``st_dev`` and ``st_ino`` alone are not enough: an unlink can free the
+    inode, and the next create can reuse the number. Cleanup also compares
+    ``st_size``, ``st_mtime_ns``, and ``st_ctime_ns`` from the snapshot taken
+    after the last byte. A mismatch leaves the path in place. ``os.lstat``
+    does not follow the final component, so a symlink is left in place.
+    """
+
+    def __init__(self, path, info):
+        self.path=Path(path)
+        self.dev=info.st_dev
+        self.ino=info.st_ino
+        self.size=info.st_size
+        self.mtime_ns=info.st_mtime_ns
+        self.ctime_ns=info.st_ctime_ns
+
+    def adopt(self, info):
+        """Replace the snapshot with ``info`` from a later fstat or lstat."""
+        self.dev=info.st_dev
+        self.ino=info.st_ino
+        self.size=info.st_size
+        self.mtime_ns=info.st_mtime_ns
+        self.ctime_ns=info.st_ctime_ns
+
+    def matches(self, info):
+        return (stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
+                and info.st_dev==self.dev and info.st_ino==self.ino
+                and info.st_size==self.size and info.st_mtime_ns==self.mtime_ns
+                and info.st_ctime_ns==self.ctime_ns)
+
+def _unlink_owned(owned):
+    """Unlink ``owned`` only when the path still has its recorded identity."""
+    info=_lstat_or_none(owned.path)
+    if info is None or not owned.matches(info):
+        return
+    try:
+        os.unlink(owned.path)
+    except OSError:
+        return
+
+class _ExclusiveText:
+    """Text writer for an fd this run created. The snapshot is taken on close.
+
+    ``os.fdopen`` owns the fd. ``__exit__`` flushes, then ``fstat``s, then
+    closes, so the recorded size and timestamps include the bytes just written.
+    """
+
+    def __init__(self, owned, fd, newline):
+        self.owned=owned
+        self.handle=os.fdopen(fd, "w", encoding="utf-8", newline=newline)
+
+    def __enter__(self):
+        return self.handle
+
+    def __exit__(self, exc_type, exc, tb):
+        fd=self.handle.fileno()
+        try:
+            self.handle.flush()
+        except Exception:
+            pass
+        try:
+            self.owned.adopt(os.fstat(fd))
+        except OSError:
+            pass
+        self.handle.close()
+        return False
+
+def _rmdir_same_directory(path, dev, ino):
+    """Remove one empty directory this run created. False if it stays.
+
+    A symlink, or a directory whose identity changed, is not removed.
+    ``os.lstat`` does not follow the final component. A non-empty directory
+    stops the caller.
+    """
+    if not _same_directory(path, dev, ino):
+        return True
+    try:
+        with os.scandir(path) as found:
+            if any(True for _ in found):
+                return False
+        os.rmdir(path)
+    except OSError:
+        return False
+    return True
+
+class OutputScope:
+    """Directories this call created, and files this call created.
+
+    The path is lexical (``os.path.abspath``), not ``Path.resolve()``, so
+    ``nope/../results`` is the existing ``results`` and not a new ``nope``.
+    Each new component is created with ``os.mkdir``. A pre-existing symlink
+    to a directory is followed, so a symlinked parent such as macOS ``/tmp``
+    still receives the new directory. A dangling symlink and a symlink to a
+    non-directory are refused. ``FileExistsError`` means the component is
+    not ours and is not recorded. Cleanup unlinks a recorded file only when
+    its device, inode, size, and timestamps still match, and does not unlink
+    a symlink. It then ``rmdir``s recorded directories
+    that are still empty, deepest first, and does not remove the pre-existing
+    symlink.
+    """
+
+    def __init__(self, directory):
+        self.directory=_absolute_lexical(directory)
+        self.created_dirs=[]
+        self.owned_files=[]
+
+    def ensure(self):
+        directory=self.directory
+        anchor=Path(directory.anchor)
+        relative=directory.relative_to(anchor)
+        created=[]
+        current=anchor
+        try:
+            if str(relative)!=".":
+                for part in relative.parts:
+                    nxt=current/part
+                    parent_fd=_open_directory(current, directory)
+                    try:
+                        try:
+                            os.mkdir(part, dir_fd=parent_fd)
+                        except FileExistsError:
+                            _followed_directory(nxt, directory)
+                        except OSError as exc:
+                            raise _cannot_write_directory(directory, exc) from exc
+                        else:
+                            info=os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                                raise AISInputError(
+                                    f"cannot write output directory '{directory}' (symlink)."
+                                )
+                            created.append((nxt, info.st_dev, info.st_ino))
+                    finally:
+                        os.close(parent_fd)
+                    current=nxt
+        except BaseException:
+            _rollback_created(created)
+            raise
+        self.created_dirs=created
+        return self.directory
+
+    def verify_created(self):
+        """Refuse when a directory this run created was replaced by a symlink."""
+        for path, dev, ino in self.created_dirs:
+            if not _same_directory(path, dev, ino):
+                raise AISInputError(
+                    f"cannot write output directory '{self.directory}' (symlink)."
+                )
+
+    def artifact_is_new(self, path):
+        """Refuse a symlink final component. True when the path is absent."""
+        self.refuse_artifact_symlink(path)
+        return _lstat_or_none(path) is None
+
+    def refuse_artifact_symlink(self, path):
+        """Refuse to write or delete through a symlink at the final component."""
+        info=_lstat_or_none(path)
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            raise AISInputError(f"cannot write output file '{path}' (symlink).")
+
+    def claim_file(self, path):
+        """Record identity after this run's final write of an existing path.
+
+        The snapshot includes size and timestamps, not only the inode number.
+        """
+        path=Path(path)
+        info=os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise AISInputError(f"cannot write output file '{path}' (symlink).")
+        self.owned_files.append(_OwnedFile(path, info))
+
+    def open_exclusive(self, path, newline=""):
+        """Create ``path`` with ``O_CREAT|O_EXCL`` and record it before any write.
+
+        The returned context manager seals size and timestamps when it closes,
+        including when the write raises. A symlink at ``path`` is not followed.
+        ``FileExistsError`` propagates so the caller can keep its own message.
+        """
+        path=Path(path)
+        flags=os.O_CREAT|os.O_EXCL|os.O_WRONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags|=os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags|=os.O_NOFOLLOW
+        try:
+            fd=os.open(os.fspath(path), flags, 0o644)
+        except FileExistsError:
+            raise
+        except OSError as exc:
+            if exc.errno==errno.ELOOP:
+                raise AISInputError(f"cannot write output file '{path}' (symlink).") from exc
+            detail=exc.strerror if exc.strerror else type(exc).__name__
+            raise AISInputError(
+                f"cannot write output directory '{self.directory}' ({detail})."
+            ) from exc
+        try:
+            info=os.fstat(fd)
+        except OSError:
+            os.close(fd)
+            raise
+        owned=_OwnedFile(path, info)
+        self.owned_files.append(owned)
+        return _ExclusiveText(owned, fd, newline)
+
+    def cleanup(self):
+        for owned in self.owned_files:
+            _unlink_owned(owned)
+        _rollback_created(self.created_dirs)
+
+def _rollback_created(created):
+    for path, dev, ino in reversed(created):
+        if not _rmdir_same_directory(path, dev, ino):
+            return
+
+def _publish(path, write, scope=None):
     """Write ``path`` via a private temp file and ``os.replace`` this one file.
 
     The temp name is random (``tempfile.mkstemp``), so a pre-planted symlink
     at ``<name>.partial`` is not opened. The file mode is ``0o644`` before
-    the replace. A failure deletes the temp file and leaves ``path`` in place.
-    This replaces one file, not the whole output set.
+    the replace. A failure deletes the temp file only when its ``st_dev``,
+    ``st_ino``, ``st_size``, ``st_mtime_ns``, and ``st_ctime_ns`` still match
+    the snapshot taken after the last byte, and leaves ``path`` in place.
+    This replaces one file, not the whole output set. ``os.replace`` replaces
+    a symlink at ``path`` and does not write the link target; that is the
+    case main already accepts. A file that did not exist before the replace
+    is recorded with that same snapshot after ``os.replace``. ``OSError``,
+    including ``FileNotFoundError`` and ``NotADirectoryError``, becomes one
+    domain-error line.
     """
     path=Path(path)
+    if scope is not None:
+        scope.verify_created()
+    # ``os.replace`` replaces a symlink node and does not follow it. A
+    # pre-existing symlink at this name is the case main already accepts.
+    existed=_lstat_or_none(path) is not None
     fd=None
     partial=None
     published=False
+    owned=None
     try:
         try:
             fd, raw=tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".partial")
+            partial=Path(raw)
+            owned=_OwnedFile(partial, os.fstat(fd))
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                fd=None
+                try:
+                    write(handle)
+                finally:
+                    try:
+                        handle.flush()
+                    except Exception:
+                        pass
+                    try:
+                        owned.adopt(os.fstat(handle.fileno()))
+                    except OSError:
+                        pass
+            info=_lstat_or_none(partial)
+            if info is None or not owned.matches(info):
+                raise AISInputError(
+                    f"cannot write output directory '{path.parent}' (temp file was replaced)."
+                )
+            os.chmod(partial, 0o644)
+            owned.adopt(os.lstat(partial))
+            os.replace(partial, path)
+            published=True
+            if scope is not None and not existed:
+                scope.claim_file(path)
+        except AISInputError:
+            raise
         except OSError as exc:
             raise _cannot_write_directory(path.parent, exc) from exc
-        partial=Path(raw)
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-            fd=None
-            write(handle)
-        if partial.is_symlink():
-            raise AISInputError(f"cannot write output directory '{path.parent}' (temp file was replaced).")
-        os.chmod(partial, 0o644)
-        os.replace(partial, path)
-        published=True
     finally:
         if fd is not None:
             os.close(fd)
-        if partial is not None and not published:
-            partial.unlink(missing_ok=True)
+        if owned is not None and not published:
+            _unlink_owned(owned)
 
 def _resolve_columns(header, source):
     """Map logical columns. The first missing required name follows REQUIRED_COLUMNS."""
@@ -162,7 +472,7 @@ def parse_time(value):
     """
     return parse_observation_time(value)
 
-def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
+def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None, scope=None):
     if max_rows is not None and max_rows < 0:
         raise AISInputError("max_rows must not be negative")
     if len(bbox) != 4 or not all(math.isfinite(float(x)) for x in bbox):
@@ -248,7 +558,11 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                     "input_truncated":truncated,"limits":{"max_rows":max_rows},
                     "mmsi_categories":dict(sorted(categories.items())),
                     "observed_time_range":observed_range(first,last)}
-        _publish(output, write_cleaned)
+            # A refusal here runs before ``os.replace``, so an existing cleaned
+            # CSV is left byte-for-byte. The temp file is deleted by ``_publish``.
+            if before_publish is not None:
+                before_publish(holder["result"])
+        _publish(output, write_cleaned, scope)
         return holder["result"]
     finally:
         row_iter.close()
@@ -345,7 +659,7 @@ def read_candidates_csv(path):
         return [{k:convert(k,v) for k,v in row.items() if k in EVENT_FIELDS}
                 for row in csv.DictReader(stream)]
 
-def write_events(events,out,params=None):
+def write_events(events,out,params=None,scope=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
 
@@ -363,20 +677,8 @@ def write_events(events,out,params=None):
         collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
         handle.write(json.dumps(collection,indent=2))
 
-    _publish(out/"stationary_candidates.csv", write_csv)
-    _publish(out/"stationary_candidates.geojson", write_geojson)
-
-def _discard_new_directory(path):
-    """Remove files this failed run wrote, then the directory it created."""
-    if not path.is_dir():
-        return
-    for child in list(path.iterdir()):
-        if child.is_file():
-            child.unlink()
-    try:
-        path.rmdir()
-    except OSError:
-        pass
+    _publish(out/"stationary_candidates.csv", write_csv, scope)
+    _publish(out/"stationary_candidates.geojson", write_geojson, scope)
 
 def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=None,window_end=None,
         params=None):
@@ -387,20 +689,35 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
     ``max_rows`` reports censoring as unknown, because its effective end is unknown.
     ``params`` (SegmentationParams) defaults to the documented BR-003 thresholds.
     An invalid ``source_url`` is refused before any output file is written.
-    An ``AISInputError`` removes the output directory when this call created it.
+    A requested ``--window-start``/``--window-end`` is checked, with
+    ``declared_window``, before any directory is created and before ingest.
+    On failure, only files this call created are removed, then only
+    directories this call created that are still empty. A pre-existing
+    file, including one inside a directory this call created, is not deleted.
+    The original error is re-raised.
     """
     params=params or SegmentationParams()
     require_declared_source_url(source_url)
+    # No ingest, download, or write until the requested window is acceptable.
+    declared_window(window_start, window_end)
     src=Path(src)
-    out=Path(out)
-    created_out=not out.exists()
+    scope=OutputScope(out)
+    failed=True
     try:
-        try:
-            out.mkdir(parents=True,exist_ok=True)
-        except OSError as exc:
-            raise _cannot_write_directory(out, exc) from exc
+        scope.ensure()
+        out=scope.directory
         cleaned=out/"houston_clean.csv"
-        manifest=ingest(src,cleaned,bbox,max_rows)
+
+        def before_publish(partial):
+            pending=resolve_input_window(src,partial["input_sha256"],window_start,window_end)
+            if pending is not None and partial["input_truncated"]:
+                return
+            observed=partial["observed_time_range"]
+            if pending is not None and observed["start_utc"]:
+                WindowCensoring([pending],params.max_gap_minutes).check_observed(
+                    parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
+
+        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish, scope=scope)
         window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
         declaration=declaration_record(src.name,window)
         if window is not None and manifest["input_truncated"]:
@@ -411,18 +728,15 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
         if observed["start_utc"]:
             censoring.check_observed(parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
         events,stats=infer_candidates(cleaned,censoring=censoring,params=params)
-        write_events(events,out,params)
+        write_events(events,out,params,scope)
         manifest["events"]=stats
         manifest["method_parameters"]=params.manifest()
         manifest["analysis_window"]=censoring.summary(observed)
         manifest = add_provenance(out, manifest, source_url=source_url)
         body=json.dumps(manifest,indent=2)
-        _publish(out/"manifest.json", lambda handle: handle.write(body))
+        _publish(out/"manifest.json", lambda handle: handle.write(body), scope)
+        failed=False
         return manifest
-    except AISInputError:
-        if created_out:
-            try:
-                _discard_new_directory(out)
-            except OSError:
-                pass
-        raise
+    finally:
+        if failed:
+            scope.cleanup()

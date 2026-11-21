@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 
 from harborlens.ais import load_cleaned, segment_rows, sha256
-from harborlens.cli_usage import add_version_argument
+from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.censoring import CENSORED, WindowCensoring, declared_window
 from harborlens.io_safe import AISInputError
 from harborlens.segmentation import METHOD_VERSION, SegmentationParams
@@ -115,7 +115,10 @@ def main():
                             help="One or more values; default is the BR-003 value")
     args = parser.parse_args()
     grid = {name: getattr(args, name) for name in GRID_FIELDS if getattr(args, name)}
-    report = run_sensitivity(args.cleaned, args.out, grid, args.window_start, args.window_end)
+    try:
+        report = run_sensitivity(args.cleaned, args.out, grid, args.window_start, args.window_end)
+    except AISInputError as exc:
+        report_domain_error(parser, exc)
     summary = [{"parameter_set": s["parameters"]["parameter_set"],
                 **{k: s["parameters"][k] for k in GRID_FIELDS},
                 "stationary_candidates": s["stationary_candidates"]} for s in report["settings"]]
