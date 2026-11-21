@@ -750,6 +750,19 @@ class GovInfoLSATests(unittest.TestCase):
         self.assertEqual(state["entered"], 0)
         self.assertEqual(report["legal_effect_on_study_date"], "NOT_DETERMINED")
 
+    def test_lsa_extra_requires_pypdf_7_1_1(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('lsa = ["pypdf>=7.1.1,<8"]', pyproject)
+        if _PYPDF is None:
+            return
+        numbers = []
+        for part in _PYPDF.__version__.split("."):
+            digits = "".join(character for character in part if character.isdigit())
+            if not digits:
+                break
+            numbers.append(int(digits))
+        self.assertGreaterEqual(tuple(numbers[:3]), (7, 1, 1))
+
     def test_module_does_not_join_ais_or_add_a_console_script(self):
         source = Path(lsa_compare.__file__).read_text(encoding="utf-8")
         self.assertNotIn("harborlens.ais", source)
