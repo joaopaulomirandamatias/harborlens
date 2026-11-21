@@ -77,6 +77,12 @@ class RightsAdapterTests(unittest.TestCase):
         self.archive_schema = json.loads(
             (ROOT / "schemas/v1/noaa-archive-extract-source.schema.json").read_text()
         )
+        self.usace_schema = json.loads(
+            (ROOT / "schemas/v1/usace-facility-source.schema.json").read_text()
+        )
+        self.anchorage_schema = json.loads(
+            (ROOT / "schemas/v1/noaa-anchorage-source.schema.json").read_text()
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -357,6 +363,94 @@ class RightsAdapterTests(unittest.TestCase):
         full_input = deepcopy(archive)
         full_input["input_sha256"] = "b" * 64
         archive_validator.validate(full_input)
+
+    def test_sidecar_status_agrees_with_the_receipt(self):
+        digest = "ab" * 32
+        statuses = (
+            "review_required",
+            "reviewed_public_domain_attribution_required",
+            "reviewed_permitted_with_conditions",
+            "use_restricted",
+        )
+        decided = statuses[1:]
+        pending = (
+            ("not_supplied", None),
+            ("invalid_registry", None),
+            ("invalid_registry", digest),
+            ("pending_or_unmatched", digest),
+        )
+        documents = {
+            name: doc for name, doc, _schema in self.writer_sidecars("agree")
+        }
+        usace = save_catalog(self.root / "agree-usace.geojson", opener=usace_mock)
+        anchorage = save_polygons(
+            self.root / "agree-anchorage.geojson", opener=noaa_polygon_mock
+        )
+        cases = (
+            ("erddap", documents["erddap"], self.erddap_schema, "rights_status",
+             ("raw_sha256", "csv_sha256")),
+            ("archive", documents["archive"], self.archive_schema, "rights_status",
+             ("input_sha256", "output_sha256")),
+            ("anchorage", anchorage, self.anchorage_schema, "rights_status",
+             ("output_sha256",)),
+            ("usace", usace, self.usace_schema, "license_status",
+             ("output_sha256",)),
+        )
+        for name, original, schema, top, digest_fields in cases:
+            validator = Draft202012Validator(schema)
+            validator.validate(original)
+            self.assertEqual(original[top], "review_required", name)
+            self.assertEqual(original["rights_review"]["rights_status"], "review_required")
+            omitted = deepcopy(original)
+            omitted.pop("rights_review")
+            validator.validate(omitted)
+
+            def with_receipt(status, evaluation, registry_sha, *, top_status):
+                doc = deepcopy(original)
+                doc[top] = top_status
+                doc["rights_review"]["rights_status"] = status
+                doc["rights_review"]["evaluation"] = evaluation
+                doc["rights_review"]["registry_sha256"] = registry_sha
+                return doc
+
+            for evaluation, registry_sha in pending:
+                validator.validate(with_receipt(
+                    "review_required", evaluation, registry_sha, top_status="review_required"
+                ))
+                for other in decided:
+                    self.assertFalse(validator.is_valid(with_receipt(
+                        "review_required", evaluation, registry_sha, top_status=other
+                    )), (name, evaluation, other))
+            for status in decided:
+                validator.validate(with_receipt(
+                    status, "reviewed_record", digest, top_status=status
+                ))
+                for other in statuses:
+                    if other == status:
+                        continue
+                    self.assertFalse(validator.is_valid(with_receipt(
+                        status, "reviewed_record", digest, top_status=other
+                    )), (name, status, other))
+            for field in digest_fields:
+                for bad in ("A" * 64, "a" * 65, "g" * 64):
+                    doc = deepcopy(original)
+                    doc[field] = bad
+                    self.assertFalse(validator.is_valid(doc), (name, field, bad[:8]))
+            base = with_receipt(
+                "review_required", "pending_or_unmatched", digest,
+                top_status="review_required",
+            )
+            validator.validate(base)
+            for bad in ("AB" * 32, "a" * 65, "g" + "a" * 63):
+                doc = deepcopy(base)
+                doc["rights_review"]["registry_sha256"] = bad
+                self.assertFalse(validator.is_valid(doc), (name, "registry", bad[:8]))
+            extra = deepcopy(original)
+            extra["not_a_rights_field"] = True
+            self.assertFalse(validator.is_valid(extra), name)
+            nested = deepcopy(original)
+            nested["rights_review"]["not_a_rights_field"] = True
+            self.assertFalse(validator.is_valid(nested), name)
 
     def test_sidecar_receipt_block_matches_the_receipt_schema(self):
         receipt = json.loads(

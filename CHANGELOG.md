@@ -2,10 +2,10 @@
 
 ## [Unreleased]
 
-### Added (SPEC-003: sidecar schema boundary tests)
-- Package version stays `0.2.0.dev20`. `schemas/v1/erddap-ais-source.schema.json` and `schemas/v1/noaa-archive-extract-source.schema.json` are unchanged. Adapters do not load them at runtime. Ordinary `harborlens` artifacts are unchanged, so `run_id` is unchanged.
-- Both sidecar schemas accept writer output and still accept that output when `rights_review` is omitted. Both reject `evaluation=reviewed_record` paired with `rights_status=review_required`, a status of `approved`, a trailing space on `review_required`, and a missing `rights_status`. A `not_supplied` receipt with a 64-character `registry_sha256` does not validate. A warning of 9 characters does not validate; 10 does.
-- ERDDAP `rows` and archive `counts.selected` reject 0 and accept 1. A digest of 63 hex characters does not validate; 64 does.
+### Changed (SPEC-003: sidecar status agrees with its rights receipt)
+- Package version stays `0.2.0.dev20`. CONTRIBUTING.md bumps the version when a change can alter an output that is part of `run_id`. These four schemas are research contracts. The adapters do not load them, and the writers still copy one status string into both places. Cleaned CSV, candidate CSV, candidate GeoJSON, manifest JSON, messages, and exit codes stay the same, so `run_id` stays the same. `0.2.0.dev21` remains reserved.
+- When `rights_review` is present, `rights_status` on the ERDDAP, archive-extract, and NOAA anchorage sidecars equals `rights_review.rights_status`. On the USACE facility sidecar the same rule binds `license_status`. A `reviewed_record` receipt cannot sit under `review_required`. A `not_supplied`, `invalid_registry`, or `pending_or_unmatched` receipt cannot sit under any other top-level status. A matching decided status on both sides stays valid. Omitting `rights_review` stays valid. This does not approve a source.
+- Digests stay lowercase hex of length 64. Uppercase hex, a 65-character digest, and a non-hex digest do not validate. An extra property on the sidecar or on the receipt does not validate. ERDDAP `rows` and archive `counts.selected` still reject 0 and accept 1.
 - `docs/data/rights-register.json` is not modified. All five checked-in sources stay `decision=pending` and `rights_status=review_required`. No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call. Refs #69 (stays open). Refs #67 (stays open). Refs #42 (stays open).
 
 ### Security (SPEC-004: pypdf floor for the lsa extra)
