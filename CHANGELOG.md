@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added (SPEC-006: static UI prototype, fictional data)
+- `prototypes/ui/HarborLensPrototype.jsx`: one React component (Tailwind CSS, `lucide-react`, Recharts) with five tabs: overview, illustrative historical map, stop detail, provenance and quality, and a visual guide. User-facing copy is pt-BR. Every number and vessel is fictional example data with unassigned MID 199 ids (`199000101`–`199000112`). It reads no AIS and validates nothing. FR-017 and FR-018 stay Proposed.
+- Every stop shows the "Não validada" badge with the tooltip "Ainda sem confirmação independente". A fixed NOT FOR NAVIGATION banner is on every tab. Window-edge and gap-adjacent stops show a duration lower bound and are reported separately (BR-019). The data gap is hatched and never filled (BR-007).
+- Accessibility target WCAG 2.2 AA (NFR-016): focus rings, shape + colour + label for each state, `prefers-reduced-motion` disables the marker pulse and transitions, and the map triangle is light violet `#c4b5fd` (at least 3:1 against the map background).
+- The "Detalhes técnicos" section shows the README command `harborlens --input tests/fixtures/synthetic_ais.csv --out results` and says the prototype numbers are not its output.
+- `tests/test_ui_prototype_copy.py` checks the banner, forbidden terms outside the negated banner, the unvalidated badge, MID 199 ids, reduced-motion handling, triangle contrast, and the README command. No package code, schema, or golden output changes. No source is approved. A stationary candidate is not a berth, anchorage, wait, or port call.
+
 ### Changed (SPEC-001: Federal Register window rules exit 2)
 - Package version `0.2.0.dev20` in `pyproject.toml`, `src/harborlens/__init__.py`, and `CITATION.cff`. This change is `0.2.0.dev20`, on top of the `0.2.0.dev19` formula slice. `harborlens-fr-timeline` checks the publication window in `main` before `save_scan` builds a `Request` or calls `urlopen`.
 - `validate_publication_window(start, end, today=...)` is the window check. `main` calls `_date` on `--start` and `--end`, then that function, before `save_scan` builds a `Request` or calls `urlopen`. `initial_url` calls it again.

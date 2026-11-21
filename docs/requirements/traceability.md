@@ -9,7 +9,7 @@
 | FR-011..012, FR-015; BR-009..010 | SPEC-004 | `usace.py`, `noaa_anchorages.py`, `zone_context.py`, `track_context.py`, `vintage.py`, `cfr_anchorages.py`, `fr_timeline.py`, `fr_fulltext.py` | synthetic and schema tests plus source-pinned real-source smokes; invalid `harborlens-fr-timeline` dates and window-rule violations exit 2 before any network call; no reviewed dated polygons or labels | Partial: reference geometry and source audits only |
 | FR-011, FR-012; NFR-001, NFR-003, NFR-006, NFR-010, NFR-011, NFR-015, NFR-019, NFR-020; BR-001, BR-009, BR-015, BR-018 | SPEC-004 | `lsa_compare.py` opt-in December 2023 / January 2024 GovInfo LSA index comparison; not a console script | offline synthetic tests in `tests/test_lsa_compare.py` and `schemas/v1/govinfo-lsa-dec-jan-comparison.schema.json`; no live PDF hash | Partial: index contract only. Legal effect stays NOT_DETERMINED. Does not load geofences or label events |
 | FR-016; BR-014 | SPEC-005 | EPA methodology design | emissions validation pending | Proposed |
-| FR-017..018 | SPEC-006 | future read-only API/map | contract and accessibility tests pending | Proposed |
+| FR-017..018 | SPEC-006 | future read-only API/map; static UI prototype with fictional data in `prototypes/ui/` (design input only) | prototype copy checks in `tests/test_ui_prototype_copy.py`; API contract and accessibility tests pending | Proposed |
 | FR-019..020 | SPEC-007 | managed service hypothesis | buyers, security, license and SLA gates pending | Proposed |
 
 No row marked **Partial** or **Proposed** is evidence of delivered functionality. Reference SPEC IDs in issues and PRs; update this matrix on every change.

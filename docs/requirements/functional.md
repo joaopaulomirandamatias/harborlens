@@ -21,7 +21,7 @@
 | FR-015 | P1 | Aggregate candidate/validated metrics by port zone, period and vessel category without misleading scope | Proposed | SPEC-004 |
 | FR-016 | P1 | Estimate transparent EPA-method scenarios including factors, units and uncertainty; never imply measured savings | Proposed | SPEC-005 |
 | FR-017 | P1 | Expose optional read-only historical API contract with schema versions and provenance | Proposed | SPEC-006 |
-| FR-018 | P1 | Provide accessible reference map with explicit state/uncertainty and not-for-navigation warnings | Proposed | SPEC-006 |
+| FR-018 | P1 | Provide accessible reference map with explicit state/uncertainty and not-for-navigation warnings | Proposed. A static UI prototype with fictional data exists in `prototypes/ui/`; it is design input, not an implementation | SPEC-006 |
 | FR-019 | P2 | Support optional commercial tenant isolation, SSO, permission rules and private data integration | Commercial hypothesis | SPEC-007 |
 | FR-020 | P2 | Support optional managed refresh, reporting, monitoring, SLA and billing after customer validation | Commercial hypothesis | SPEC-007 |
 | FR-021 | P0 | Record the analysis window and flag left/right window-edge censoring per candidate, with run-level counts and internal-gap reporting | Synthetic implementation | SPEC-002 |
