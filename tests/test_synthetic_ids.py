@@ -8,15 +8,21 @@ that are not gitignored, so a planted negative uses the same path. Paths are
 classified relative to the repository root. A binary file (a NUL byte, or
 bytes that are not UTF-8) is skipped and counted.
 
-A candidate is nine digits bounded by a non-digit. A longer digit run does
-not match. Nine digits are a decimal fraction only when a digit precedes the
-dot (``29.123456789``). A dot that is not part of a decimal (``id.`` before
-nine digits) still matches. The MID is the first three digits. The previous
-guard did not read digits 2-4 of a leading-0 or leading-9 form, and this
-guard does not either.
+A candidate is nine digits bounded by a non-digit. A run of eight digits
+does not match, because it is shorter than nine. A run of ten or more
+digits does not match. Nine digits are a decimal fraction only when a digit
+precedes the dot (``29.123456789``). A dot that is not part of a decimal
+(``id.`` before nine digits) still matches. The MID is the first three
+digits. The previous guard did not read digits 2-4 of a leading-0 or
+leading-9 form, and this guard does not either.
 
 The repository scan applies that rule to the raw text. It is not limited to
 an ``mmsi`` column, a ``vessel_id`` column, or a JSON key named ``mmsi``.
+A notebook and a module under ``src/`` use the same rule. Those negative
+tests write the plant in a temporary directory inside the work tree, so
+``git ls-files --others`` sees it, and remove the directory when the test
+ends. The identifier is assembled from digit parts, so this file has no
+nine-digit assigned-MID literal.
 
 Exclusions are file-exact or context-based. Each one has a written reason.
 
@@ -746,6 +752,19 @@ class TokenRuleTests(unittest.TestCase):
         self.assertEqual(text_hits(bare), [bare])
         self.assertEqual(text_hits(f"{ten} {bare}"), [bare])
 
+    def test_eight_digit_run_does_not_fire(self):
+        """Eight digits are shorter than a token. Nine digits still match."""
+        eight = "367" + "12345"
+        nine = eight + "6"
+        ten = nine + "7"
+        self.assertEqual((len(eight), len(nine), len(ten)), (8, 9, 10))
+        self.assertTrue(mid_is_assigned(int(eight[:3])))
+        self.assertEqual(text_hits(eight), [])
+        self.assertEqual(text_hits("id " + eight + " next"), [])
+        self.assertEqual(text_hits(nine), [nine])
+        self.assertEqual(text_hits(ten), [])
+        self.assertEqual(text_hits(" ".join((eight, nine, ten))), [nine])
+
     def test_decimal_fraction_does_not_fire(self):
         planted = "367" + "123456"
         self.assertEqual(text_hits("29.123456789"), [])
@@ -989,6 +1008,22 @@ class GuardCoverageTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def _scan_temp_file(self, parent, name, text):
+        """Write ``name`` under a temporary directory inside ``parent``.
+
+        ``parent`` is inside the repository. ``git ls-files`` does not see a
+        directory outside the work tree, so the plant has to live here for
+        the scan to read it. The directory is removed when this method
+        returns. The caller asserts on the path and the hits.
+        """
+        with tempfile.TemporaryDirectory(dir=parent) as folder:
+            path = Path(folder) / name
+            path.write_text(text, encoding="utf-8")
+            relative = relative_posix(path)
+            hits, coverage = scan_repository()
+            matched = [item for item in hits if item[0] == relative]
+            return relative, matched, coverage
+
     def test_planted_assigned_mid_inside_tests_is_reported(self):
         planted = "367" + "123456"
         self._assert_planted(
@@ -1021,6 +1056,76 @@ class GuardCoverageTests(unittest.TestCase):
         self.assertEqual(json_mmsi_hits(body), [])
         self.assertEqual(text_hits(body), [planted])
         self._assert_planted("schemas/_qa_planted_value.json", body, planted)
+
+    def test_planted_notebook_cell_is_reported(self):
+        planted = "367" + "123456"
+        notebook = json.dumps(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {},
+                "cells": [
+                    {
+                        "cell_type": "markdown",
+                        "metadata": {},
+                        "source": ["Synthetic plant " + planted + "\n"],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(json_mmsi_hits(notebook), [])
+        self.assertEqual(text_hits(notebook), [planted])
+        relative, matched, coverage = self._scan_temp_file(
+            ROOT / "docs", "_qa_planted.ipynb", notebook
+        )
+        self.assertTrue(relative.startswith("docs/"))
+        self.assertTrue(relative.endswith("/_qa_planted.ipynb"))
+        self.assertNotIn(relative, coverage["tracked"])
+        self.assertIn(relative, coverage["visited"])
+        self.assertEqual(matched, [(relative, planted)])
+
+    def test_planted_src_module_is_reported(self):
+        planted = "367" + "123456"
+        source = 'mmsi = "' + planted + '"\n'
+        self.assertEqual(text_hits(source), [planted])
+        relative, matched, coverage = self._scan_temp_file(
+            ROOT / "src", "_qa_planted_assigned_mid.py", source
+        )
+        self.assertTrue(relative.startswith("src/"))
+        self.assertTrue(relative.endswith("/_qa_planted_assigned_mid.py"))
+        self.assertNotIn(relative, coverage["tracked"])
+        self.assertIn(relative, coverage["visited"])
+        self.assertEqual(matched, [(relative, planted)])
+
+    def test_sha256_eight_and_ten_digit_runs_pass_the_scan(self):
+        """A 64-hex digest, an 8-digit run, and a 10-digit run are not tokens.
+
+        The digest is the SHA-256 length and contains a nine-digit
+        assigned-MID run. That run stays inside the hex blob. The same file
+        fails when a standalone nine-digit token is added beside it.
+        """
+        nine = "367" + "123456"
+        eight = nine[:8]
+        ten = nine + "7"
+        digest = ("ab" * 20) + nine + ("cd" * 7) + "e"
+        self.assertEqual(len(digest), 64)
+        self.assertEqual((len(eight), len(ten)), (8, 10))
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        self.assertIn(nine, digest)
+        passing = digest + "\n" + eight + "\n" + ten + "\n"
+        self.assertEqual(text_hits(passing), [])
+        relative, matched, coverage = self._scan_temp_file(
+            ROOT / "docs", "_qa_boundary.md", passing
+        )
+        self.assertIn(relative, coverage["visited"])
+        self.assertEqual(matched, [])
+        failing = passing + nine + "\n"
+        self.assertEqual(text_hits(failing), [nine])
+        relative, matched, coverage = self._scan_temp_file(
+            ROOT / "docs", "_qa_boundary.md", failing
+        )
+        self.assertIn(relative, coverage["visited"])
+        self.assertEqual(matched, [(relative, nine)])
 
     def test_binary_file_is_skipped_and_counted(self):
         planted = "367" + "123456"
