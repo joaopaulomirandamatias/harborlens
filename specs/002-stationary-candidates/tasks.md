@@ -50,6 +50,7 @@
 - [x] Show single-file cleaned CSV, candidate CSV, and candidate GeoJSON on `tests/fixtures/synthetic_ais.csv` are byte-identical to package `0.2.0.dev9` (`tests/fixtures/single_day_0.2.0.dev9/`). Manifest differs in package version and `run_id` only.
 - [ ] Stream the release-path recount past 256 MiB. Proposal only, in the SPEC-002 design. The 256 MiB recount is unchanged. Refs #70 (stays open).
 - [x] Report an unreadable multi-day input and a missing required column as `AISInputError` so the CLI exits 2 with no traceback. Remove an output directory this command created when that run fails and the directory is empty (`tests/test_multiday_bounded.py`). Refs #77 (stays open).
+- [x] Check a requested `--window-start`/`--window-end` with `validate_publication_window` before ingest or a directory is created. Remove empty parent directories this run created for `--out a/b/c`. A pre-existing directory and a pre-existing file stay. Package stays `0.2.0.dev23`. Evidence: `tests/test_cli_contract.py`, `tests/test_censoring.py`. Refs #94 (stays open).
 - [x] Skip the mapped-RSS assertions when `/proc/self/smaps` is absent, and fail them on Linux when smaps exists and the probe returns None. Refs #77 (stays open).
 - [ ] Rename `fixed-sqlite-heap-v1` / `sqlite_soft_heap_bytes`, and assert live PRAGMAs in the memory probe, wait for a later schema bump. Refs #77 (stays open).
 - [ ] Measure this working set on another authorized seasonal NOAA sample. The 2026-11-09 seven-day run predates the soft-heap pin.

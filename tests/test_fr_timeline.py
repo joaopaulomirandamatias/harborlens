@@ -427,6 +427,46 @@ class FederalRegisterWindowRuleTests(unittest.TestCase):
                 self.assertEqual(summary["documents_for_review"], 1)
                 self.assertFalse(summary["ais_spatial_join_permitted"])
 
+    def test_invalid_window_does_not_create_nested_parents(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "keep.txt").write_text("stay", encoding="utf-8")
+            out = root / "a" / "b" / "fr.json"
+            client = mock.Mock(side_effect=_forbid_network)
+            request = mock.Mock(side_effect=_forbid_network)
+            with mock.patch("harborlens.fr_timeline.urlopen", client), \
+                    mock.patch("harborlens.fr_timeline.Request", request):
+                with self.assertRaises(FederalRegisterAuditError) as caught:
+                    save_scan(out, "2024-01-02", "2023-07-01")
+            self.assertEqual(str(caught.exception), _START_AFTER_END)
+            self.assertEqual(client.call_count, 0)
+            self.assertEqual(request.call_count, 0)
+            self.assertFalse((root / "a").exists())
+            self.assertEqual((root / "keep.txt").read_text(encoding="utf-8"), "stay")
+
+            stderr = io.StringIO()
+            stdout = io.StringIO()
+            argv = [
+                "harborlens-fr-timeline", "--start", "2024-01-02",
+                "--end", "2023-07-01", "--out", str(out),
+            ]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch("harborlens.fr_timeline.urlopen", client), \
+                    mock.patch("harborlens.fr_timeline.Request", request), \
+                    mock.patch("harborlens.fr_timeline._today", return_value=FROZEN_TODAY), \
+                    contextlib.redirect_stderr(stderr), \
+                    contextlib.redirect_stdout(stdout):
+                with self.assertRaises(SystemExit) as caught_exit:
+                    main()
+            self.assertEqual(caught_exit.exception.code, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn(_START_AFTER_END, stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertEqual(client.call_count, 0)
+            self.assertEqual(request.call_count, 0)
+            self.assertFalse((root / "a").exists())
+            self.assertFalse(out.exists())
+
     def test_clock_interrupt_and_bare_value_error_propagate(self):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "fr.json"

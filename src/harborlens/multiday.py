@@ -26,6 +26,7 @@ from pathlib import Path
 from harborlens.cli_usage import add_version_argument, report_domain_error
 from harborlens.ais import (
     ALIASES, BBOX_HOUSTON, CLEAN_FIELDS, EVENT_FIELDS, OPTIONAL_COLUMNS, header_alias, parse_time, sha256,
+    _missing_directories, _remove_empty_created_directories,
 )
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes
@@ -374,7 +375,11 @@ def run_multiday(
     when ``soft_heap_limit_enforced`` is true. Scratch disk may grow until
     ``max_scratch_mib``. Python keeps counters and one open candidate.
     ``Segmenter.feed`` still rejects a descending (mmsi, timestamp) key.
+    A requested window is checked before any directory is created and before
+    any input is read.
     """
+    # Same four publication-window rules as ``declared_window``. No ingest yet.
+    declared_window(window_start, window_end)
     paths = tuple(sorted((Path(p).resolve() for p in inputs), key=str))
     if not 2 <= len(paths) <= MAX_FILES or len(set(paths)) != len(paths):
         raise AISInputError(f"Provide 2–{MAX_FILES} distinct AIS files")
@@ -391,7 +396,12 @@ def run_multiday(
                                     max_radius_m, min_points, max_jump_knots)
     out = Path(out).resolve()
     created_out = not out.exists()
-    out.mkdir(parents=True, exist_ok=True)
+    created = _missing_directories(out)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        _remove_empty_created_directories(created)
+        raise
     files = _output_files(out)
     try:
         if any(path in paths or path.exists() for path in files.values()):
@@ -455,13 +465,15 @@ def run_multiday(
                 db.close()
     except Exception:
         # A failure during the load (unreadable file, bad header, row cap,
-        # header-only file) used to leave the directory mkdir created.
-        # Parent directories created with parents=True are left in place.
+        # header-only file) removes the directory this call created, then
+        # any parent directory this call created that is still empty.
+        # A pre-existing directory is not removed. No file is unlinked here.
         if created_out:
             try:
                 out.rmdir()
             except OSError:
                 pass
+        _remove_empty_created_directories(created)
         raise
 
 

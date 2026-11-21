@@ -11,7 +11,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from harborlens import __version__
 from harborlens.cli_usage import add_version_argument, escape_error_text
@@ -70,45 +70,101 @@ _SOURCE_URL_MESSAGE = (
 )
 
 
+# Variation selectors and the combining grapheme joiner. Fixed code points,
+# not a Unicode-category test: U+FE0F is Mn, and other Mn characters are not
+# in this set. Membership is a table lookup.
+_SOURCE_URL_IGNORABLE_RANGES = (
+    (0xFE00, 0xFE0F),    # variation selectors
+    (0xE0100, 0xE01EF),  # variation selectors supplement
+    (0x180B, 0x180D),    # Mongolian free variation selectors
+    (0x034F, 0x034F),    # combining grapheme joiner
+)
+_SOURCE_URL_IGNORABLE = frozenset(
+    chr(code)
+    for start, end in _SOURCE_URL_IGNORABLE_RANGES
+    for code in range(start, end + 1)
+)
+
+
 def _raw_source_url_forbidden(value):
-    """True when ``value`` has whitespace, a control, or a format character.
+    """True when ``value`` has whitespace, a control, a format character, or an ignorable.
 
     Checked on the raw string. ``urlsplit`` removes tab, CR, and LF before
     it parses, so a check after the split would see a different value.
     Category Cc is C0, DEL, and C1. Category Cf includes bidi controls such
-    as U+202E and zero-width characters.
+    as U+202E and zero-width characters. Variation selectors and U+034F are
+    the fixed set ``_SOURCE_URL_IGNORABLE``, not a category Mn scan.
     """
     for character in value:
-        if character.isspace() or unicodedata.category(character) in ("Cc", "Cf"):
+        if (character.isspace() or character in _SOURCE_URL_IGNORABLE
+                or unicodedata.category(character) in ("Cc", "Cf")):
             return True
     return False
 
 
-# Exact query or fragment names, compared case-insensitively after decoding.
-# ``x-amz-`` is a prefix. This is a heuristic: names not on the list are kept.
+# Exact query or fragment names, compared case-insensitively after '-' and
+# '_' are treated as the same character. ``x-amz-`` / ``x_amz_`` is a prefix.
+# This is a heuristic: names not on the list are kept.
 _CREDENTIAL_PARAMETER_NAMES = frozenset({
     "token",
     "access_token",
     "api_key",
+    "apikey",
     "secret",
+    "client_secret",
+    "private_token",
+    "id_token",
+    "refresh_token",
     "password",
+    "passwd",
+    "pwd",
     "sig",
     "signature",
     "auth",
+    "authorization",
+    "session",
+    "jwt",
+    "key",
+    "x_goog_signature",
+    "x_goog_credential",
 })
 
 
 def _parameter_name_is_credential(name):
     lowered = name.lower()
-    return lowered in _CREDENTIAL_PARAMETER_NAMES or lowered.startswith("x-amz-")
+    normalized = lowered.replace("-", "_")
+    if normalized in _CREDENTIAL_PARAMETER_NAMES:
+        return True
+    return lowered.startswith("x-amz-") or normalized.startswith("x_amz_")
+
+
+def _parameter_pairs(text):
+    """Query or fragment pairs. ``&`` and ``;`` are both separators."""
+    if not text:
+        return []
+    return parse_qsl(text.replace(";", "&"), keep_blank_values=True, separator="&")
+
+
+def _decoded_parameter_names(name):
+    """The name ``parse_qsl`` returned, then one further percent-decode.
+
+    ``parse_qsl`` already decoded once. A second ``unquote`` catches a
+    double-encoded name (``%2574oken`` becomes ``token``). A third encoding
+    is not decoded again.
+    """
+    yield name
+    again = unquote(name)
+    if again != name:
+        yield again
 
 
 def _has_credential_parameter(parts):
     """True when a query or fragment name is on the credential heuristic."""
     for text in (parts.query, parts.fragment):
-        for name, _value in parse_qsl(text, keep_blank_values=True, separator="&"):
-            if _parameter_name_is_credential(name):
-                return True
+        for name, _value in _parameter_pairs(text):
+            for decoded in _decoded_parameter_names(name):
+                if _parameter_name_is_credential(decoded):
+                    return True
     return False
 
 
@@ -126,10 +182,14 @@ def require_declared_source_url(source_url):
       port is 0;
     - the scheme is not ``http`` or ``https``, there is no host, or a
       username or password is present;
-    - a query or fragment parameter name, after decoding, is
-      ``token``, ``access_token``, ``api_key``, ``secret``, ``password``,
-      ``sig``, ``signature``, or ``auth`` (any case), or starts with
-      ``x-amz-``.
+    - the raw value contains a character in the fixed set
+      ``_SOURCE_URL_IGNORABLE`` (U+FE00–U+FE0F, U+E0100–U+E01EF,
+      U+180B–U+180D, U+034F), including U+FE0F;
+    - a query or fragment parameter name, after one percent-decode and
+      again after a second decode, and after ``-`` and ``_`` are treated
+      as the same character, is on the credential heuristic (any case),
+      or starts with ``x-amz-`` / ``x_amz_``. ``&`` and ``;`` both separate
+      parameters.
 
     An omitted port and an empty port (``http://example.org:``, where
     ``.port`` is ``None``) are accepted. Port 1 and port 65535 are the
@@ -138,8 +198,8 @@ def require_declared_source_url(source_url):
 
     The parameter-name check is a heuristic, the same idea as rejecting
     ``user:pass@``. ``http://example.org:443/path?q=1`` stays accepted.
-    A name that is not on the list, such as ``apikey`` or ``key``, stays
-    accepted. ``rights_status`` stays ``review_required``.
+    A value of ``token`` (``?q=token``) stays accepted. The list is not a
+    complete secret detector. ``rights_status`` stays ``review_required``.
     """
     if source_url is None:
         return

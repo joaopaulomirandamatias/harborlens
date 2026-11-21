@@ -857,6 +857,28 @@ def cohen_kappa(pairs):
     return round((observed - expected) / (1 - expected), 4)
 
 
+def _agreement_sampling_kinds(record, path):
+    """Map ``sample_id`` to ``kind`` when the sampling document has that shape.
+
+    Text that ``json.loads`` rejects is not this function's job. A document
+    that parses but is not an object, whose ``key`` is not a list, or whose
+    list item is not an object with ``sample_id`` and ``kind``, is valid JSON
+    with the wrong shape.
+    """
+    wrong = f"sampling file '{path}' is valid JSON but has the wrong shape"
+    if not isinstance(record, dict):
+        raise AISInputError(wrong)
+    key_rows = record.get("key")
+    if not isinstance(key_rows, list):
+        raise AISInputError(wrong)
+    kinds = {}
+    for item in key_rows:
+        if not isinstance(item, dict) or "sample_id" not in item or "kind" not in item:
+            raise AISInputError(wrong)
+        kinds[item["sample_id"]] = item["kind"]
+    return kinds
+
+
 def agreement(sheet_a, sheet_b, out, sampling=None):
     """Compare two annotators' sheets; write a JSON report. Agreement is not accuracy."""
     out = Path(out)
@@ -887,15 +909,7 @@ def agreement(sheet_a, sheet_b, out, sampling=None):
             record = json.loads(sampling_text)
         except (ValueError, RecursionError) as exc:
             raise AISInputError(sampling_not_json) from exc
-        if not isinstance(record, dict):
-            raise AISInputError(sampling_not_json)
-        key_rows = record.get("key", [])
-        if not isinstance(key_rows, list):
-            raise AISInputError(sampling_not_json)
-        try:
-            kinds = {k["sample_id"]: k["kind"] for k in key_rows}
-        except (KeyError, TypeError) as exc:
-            raise AISInputError(sampling_not_json) from exc
+        kinds = _agreement_sampling_kinds(record, sampling_path)
         if set(kinds) != set(a):
             raise AISInputError("Sampling manifest does not describe the labeled sample_ids")
     ids = sorted(a)

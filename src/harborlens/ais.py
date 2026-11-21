@@ -21,7 +21,8 @@ from harborlens.io_safe import stream_rows, AISInputError
 from harborlens.timeparse import parse_observation_time
 from harborlens.provenance import add_provenance, require_declared_source_url
 from harborlens.censoring import (
-    WindowCensoring, declaration_record, observed_range, parse_utc, resolve_input_window,
+    WindowCensoring, declaration_record, declared_window, observed_range, parse_utc,
+    resolve_input_window,
 )
 from harborlens.vessel import csv_value, mmsi_category, normalize_attributes, parse_csv_attributes
 from harborlens.segmentation import (
@@ -99,6 +100,40 @@ def _cannot_write_directory(directory, exc):
     detail=exc.strerror if exc.strerror else type(exc).__name__
     return AISInputError(f"cannot write output directory '{directory}' ({detail}).")
 
+def _missing_directories(path):
+    """Directories that do not exist yet, from ``path`` up to an existing ancestor.
+
+    Deepest first. The existing ancestor is not included. A pre-existing
+    directory is never listed, so a later cleanup cannot remove it.
+    """
+    path=Path(path)
+    missing=[]
+    current=path
+    while not current.exists():
+        missing.append(current)
+        parent=current.parent
+        if parent==current:
+            break
+        current=parent
+    return missing
+
+def _remove_empty_created_directories(created):
+    """Remove empty directories this run created. Never unlinks a file.
+
+    Deepest first. The first directory that is not empty stops the walk, so
+    a parent that still holds that directory stays. A path that is not a
+    directory is skipped.
+    """
+    for directory in created:
+        try:
+            if not directory.is_dir():
+                continue
+            if any(directory.iterdir()):
+                return
+            directory.rmdir()
+        except OSError:
+            return
+
 def _publish(path, write):
     """Write ``path`` via a private temp file and ``os.replace`` this one file.
 
@@ -162,7 +197,7 @@ def parse_time(value):
     """
     return parse_observation_time(value)
 
-def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
+def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None, *, before_publish=None):
     if max_rows is not None and max_rows < 0:
         raise AISInputError("max_rows must not be negative")
     if len(bbox) != 4 or not all(math.isfinite(float(x)) for x in bbox):
@@ -248,6 +283,10 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
                     "input_truncated":truncated,"limits":{"max_rows":max_rows},
                     "mmsi_categories":dict(sorted(categories.items())),
                     "observed_time_range":observed_range(first,last)}
+            # A refusal here runs before ``os.replace``, so an existing cleaned
+            # CSV is left byte-for-byte. The temp file is deleted by ``_publish``.
+            if before_publish is not None:
+                before_publish(holder["result"])
         _publish(output, write_cleaned)
         return holder["result"]
     finally:
@@ -387,20 +426,37 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
     ``max_rows`` reports censoring as unknown, because its effective end is unknown.
     ``params`` (SegmentationParams) defaults to the documented BR-003 thresholds.
     An invalid ``source_url`` is refused before any output file is written.
-    An ``AISInputError`` removes the output directory when this call created it.
+    A requested ``--window-start``/``--window-end`` is checked, with
+    ``declared_window``, before any directory is created and before ingest.
+    An ``AISInputError`` removes the output directory when this call created
+    it, and removes parent directories this call created when they are still
+    empty. It does not delete a pre-existing directory or any pre-existing file.
     """
     params=params or SegmentationParams()
     require_declared_source_url(source_url)
+    # No ingest, download, or write until the requested window is acceptable.
+    declared_window(window_start, window_end)
     src=Path(src)
     out=Path(out)
     created_out=not out.exists()
+    created=_missing_directories(out)
     try:
         try:
             out.mkdir(parents=True,exist_ok=True)
         except OSError as exc:
             raise _cannot_write_directory(out, exc) from exc
         cleaned=out/"houston_clean.csv"
-        manifest=ingest(src,cleaned,bbox,max_rows)
+
+        def before_publish(partial):
+            pending=resolve_input_window(src,partial["input_sha256"],window_start,window_end)
+            if pending is not None and partial["input_truncated"]:
+                return
+            observed=partial["observed_time_range"]
+            if pending is not None and observed["start_utc"]:
+                WindowCensoring([pending],params.max_gap_minutes).check_observed(
+                    parse_utc(observed["start_utc"]),parse_utc(observed["end_utc"]))
+
+        manifest=ingest(src,cleaned,bbox,max_rows,before_publish=before_publish)
         window=resolve_input_window(src,manifest["input_sha256"],window_start,window_end)
         declaration=declaration_record(src.name,window)
         if window is not None and manifest["input_truncated"]:
@@ -425,4 +481,5 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
                 _discard_new_directory(out)
             except OSError:
                 pass
+        _remove_empty_created_directories(created)
         raise

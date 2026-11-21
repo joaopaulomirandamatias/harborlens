@@ -16,6 +16,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from harborlens.fr_timeline import FederalRegisterAuditError, validate_publication_window
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import digests_equal
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
@@ -60,11 +61,28 @@ def _window(start, end, source, **extra):
 
 
 def declared_window(start=None, end=None):
-    """Return a user-declared window, or None when neither bound is given."""
+    """Return a user-declared window, or None when neither bound is given.
+
+    Instants use the existing ISO grammar (``parse_utc``). Their UTC calendar
+    dates then use ``validate_publication_window``, the same four rules and
+    the same limits: start after end, start before 1994-01-01, end after
+    today, then a span of more than 370 days. The first true rule wins and
+    the message is that validator's sentence. A same-day window whose start
+    instant is not strictly before its end still fails here, because equal
+    calendar dates pass the publication rule. Today is ``fr_timeline._today``
+    (UTC). This does not read an input file or create a directory.
+    """
     if start is None and end is None:
         return None
     if start is None or end is None:
         raise AnalysisWindowError("Provide both --window-start and --window-end")
+    # Parse first so a bad instant keeps the ISO error, not a publication rule.
+    start_at = parse_utc(start, "window start")
+    end_at = parse_utc(end, "window end")
+    try:
+        validate_publication_window(start_at.date(), end_at.date())
+    except FederalRegisterAuditError as exc:
+        raise AnalysisWindowError(str(exc)) from None
     return _window(start, end, "user_declared")
 
 

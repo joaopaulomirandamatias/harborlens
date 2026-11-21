@@ -5,7 +5,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from harborlens.ais import run
 from harborlens.io_safe import AISInputError
-from harborlens.provenance import digests_equal, require_declared_source_url, verify_manifest
+from harborlens.provenance import (
+    _SOURCE_URL_IGNORABLE, _SOURCE_URL_IGNORABLE_RANGES, digests_equal,
+    require_declared_source_url, verify_manifest,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_ais.csv"
 
@@ -51,9 +54,16 @@ class ProvenanceTests(unittest.TestCase):
             "http://example.org:",
             "http://[::1]:443",
             "http://[::1]:65535",
-            "http://example.org/path?apikey=example",
             "http://example.org/path?tokenizer=1",
             "http://example.org/path?q=token",
+            "http://example.org/path?keys=1",
+            "http://example.org/path?apikeys=1",
+            "http://example.org/path;token=example",
+            "http://example.org/path#/token=example",
+            "http://example.org/a\u0301",
+            "http://example.org/path?q=1;note=plain",
+            "http://example.org/path?x-goog-api=1",
+            "http://example.org/path?%252574oken=example",
         ):
             with self.subTest(url=accepted):
                 require_declared_source_url(accepted)
@@ -95,12 +105,38 @@ class ProvenanceTests(unittest.TestCase):
             "http://example.org/path?signature=example",
             "http://example.org/path?auth=example",
             "http://example.org/path?x-amz-signature=example",
+            "http://example.org/path?x_amz_signature=example",
             "http://example.org/path?X-Amz-Security-Token=example",
             "http://example.org/path?%74oken=example",
+            "http://example.org/path?%2574oken=example",
             "http://example.org/path#access_token=example",
+            "http://example.org/path?client_secret=example",
+            "http://example.org/path?Client_Secret=example",
+            "http://example.org/path?apikey=example",
+            "http://example.org/path?API-KEY=example",
+            "http://example.org/path?private_token=example",
+            "http://example.org/path?id_token=example",
+            "http://example.org/path?refresh_token=example",
+            "http://example.org/path?key=example",
+            "http://example.org/path?passwd=example",
+            "http://example.org/path?pwd=example",
+            "http://example.org/path?authorization=example",
+            "http://example.org/path?session=example",
+            "http://example.org/path?jwt=example",
+            "http://example.org/path?x-goog-signature=example",
+            "http://example.org/path?X-Goog-Credential=example",
+            "http://example.org/path?access-token=example",
+            "http://example.org/path?q=1;token=example",
+            "http://example.org/path#q=1;jwt=example",
             "http://example.org/\u202e",
             "http://example.org/\u200b",
             "http://example.org/\ufeff",
+            "http://example.org/\ufe0f",
+            "http://ex\ufe0fample.org",
+            "http://example.org/\ufe00",
+            "http://example.org/\U000e0100",
+            "http://example.org/\u180b",
+            "http://example.org/\u034f",
         ):
             with self.subTest(url=rejected):
                 with self.assertRaises(AISInputError) as caught:
@@ -111,6 +147,24 @@ class ProvenanceTests(unittest.TestCase):
                 if rejected:
                     self.assertNotIn(rejected, message)
                 self.assertFalse(self.out.exists())
+
+    def test_source_url_ignorable_set_is_the_named_ranges(self):
+        expected = set()
+        for start, end in _SOURCE_URL_IGNORABLE_RANGES:
+            expected.update(chr(code) for code in range(start, end + 1))
+        self.assertEqual(_SOURCE_URL_IGNORABLE, frozenset(expected))
+        self.assertEqual(len(_SOURCE_URL_IGNORABLE), 16 + 240 + 3 + 1)
+        self.assertIn("\ufe0f", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\ufe00", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\U000e0100", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\U000e01ef", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\u180b", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\u180d", _SOURCE_URL_IGNORABLE)
+        self.assertIn("\u034f", _SOURCE_URL_IGNORABLE)
+        # U+0301 is category Mn and is not in the fixed set.
+        self.assertNotIn("\u0301", _SOURCE_URL_IGNORABLE)
+        self.assertNotIn(chr(0xE01F0), _SOURCE_URL_IGNORABLE)
+        self.assertNotIn("\ufdff", _SOURCE_URL_IGNORABLE)
 
     def test_whitespace_is_rejected_before_urlsplit_strips_it(self):
         raw = "http://example.org\t/ais.csv"
