@@ -1,0 +1,143 @@
+{
+  "mode": "multi_day_historical",
+  "schema_version": "multi-day-1.1",
+  "input_files": [
+    {
+      "source_id": 0,
+      "filename": "day-a.csv",
+      "sha256": "9c29bf95e2e2adc217ffd7997029f6d10165928585ede49f3c08b063b787d77d",
+      "size_bytes": 3781,
+      "rights_status": "review_required",
+      "source_ref": "day-a.csv@9c29bf95e2e2",
+      "rows_scanned": 63
+    },
+    {
+      "source_id": 1,
+      "filename": "day-b.csv",
+      "sha256": "9c29bf95e2e2adc217ffd7997029f6d10165928585ede49f3c08b063b787d77d",
+      "size_bytes": 3781,
+      "rights_status": "review_required",
+      "source_ref": "day-b.csv@9c29bf95e2e2",
+      "rows_scanned": 63
+    }
+  ],
+  "bbox_lon_lat": [
+    -95.7,
+    29.1,
+    -94.2,
+    30.1
+  ],
+  "counts": {
+    "total": 126,
+    "missing_value": 0,
+    "invalid": 2,
+    "outside_bbox": 2,
+    "duplicate": 62,
+    "duplicate_across_files": 61,
+    "written": 60
+  },
+  "events": {
+    "vessels": 3,
+    "points": 60,
+    "moving_points": 10,
+    "timestamp_conflicts": 0,
+    "gap_splits": 1,
+    "identity_conflicts": 0,
+    "implausible_jumps": 0,
+    "spatial_splits": 0,
+    "discarded_groups": 2,
+    "discarded_by_reason": {
+      "too_few_points": 2,
+      "too_short": 0,
+      "radius_exceeded": 0
+    },
+    "stationary_candidates": 1,
+    "candidates_per_mmsi": {
+      "max": 1,
+      "mmsi_with_multiple": 0
+    },
+    "cross_day_candidates": 0,
+    "censoring": {
+      "rule_version": "window-edge-v1",
+      "left_censored": 0,
+      "right_censored": 0,
+      "both_censored": 0,
+      "uncensored": 0,
+      "unknown": 1
+    },
+    "warning": "Only unvalidated stationary candidates, not confirmed berths or waiting vessels."
+  },
+  "method_parameters": {
+    "method_version": "stationary-v0.2",
+    "max_sog_knots": 0.5,
+    "min_duration_minutes": 30.0,
+    "max_gap_minutes": 15.0,
+    "max_radius_m": 1000.0,
+    "min_points": 8,
+    "max_jump_knots": 65.0,
+    "parameter_set": "dc3727719ee7"
+  },
+  "source_rights_status": "review_required",
+  "code_version": {
+    "package_version": "0.2.0.dev23",
+    "git_commit": null
+  },
+  "analysis_window": {
+    "status": "unknown",
+    "rule_version": "window-edge-v1",
+    "edge_tolerance_minutes": 15.0,
+    "blocks": [],
+    "internal_gaps": 0,
+    "declarations": [
+      {
+        "input": "day-a.csv",
+        "source": "none"
+      },
+      {
+        "input": "day-b.csv",
+        "source": "none"
+      }
+    ],
+    "observed_time_range": {
+      "start_utc": "2024-01-02T00:00:00Z",
+      "end_utc": "2024-01-02T00:45:00Z"
+    }
+  },
+  "mmsi_categories": {
+    "other": 60
+  },
+  "limits": {
+    "max_points": 6000000,
+    "max_scratch_mib": 2048,
+    "max_export_mib": 1024
+  },
+  "resources": {
+    "scratch_peak_bytes": 36864,
+    "scratch_measurement": "sampled at commits; includes rollback journal",
+    "memory_bound": {
+      "policy": "fixed-sqlite-heap-v1",
+      "sqlite_cache_kib": 8192,
+      "sqlite_soft_heap_bytes": 8388608,
+      "soft_heap_limit_enforced": false,
+      "mmap_bytes": 0,
+      "temp_store": "FILE",
+      "grows_with_input_rows": false
+    }
+  },
+  "run_id": "886b7a3c9ffd2bf655e823fb75dccca70e35e8f8710f032061313b248a1effb0",
+  "artifacts": {
+    "houston_clean.csv": {
+      "sha256": "0116951743267092965acd0c8e1967357062baec0ed22e810b27913921c4b655",
+      "size_bytes": 4422
+    },
+    "stationary_candidates.csv": {
+      "sha256": "312961ea69024aecc2e07ca2e000f3cb399eaad0d4725a000715074896d6ce62",
+      "size_bytes": 553
+    },
+    "stationary_candidates.geojson": {
+      "sha256": "bada44e2c515d30903cefb413ee600f579fac341c00fed7742f51a8af923f864",
+      "size_bytes": 934
+    }
+  },
+  "warning": "Input file hashes are integrity evidence, not authenticated NOAA origin or validated vessel activity."
+}
