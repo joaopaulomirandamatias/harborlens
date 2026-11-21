@@ -46,7 +46,7 @@ from harborlens.ais import parse_time, sha256
 from harborlens.cli_usage import add_debug_argument, add_version_argument, report_domain_error
 from harborlens.io_safe import AISInputError
 from harborlens.labeling import COLLAPSED, LABELS, censoring_status, parse_stratum, read_csv_cell
-from harborlens.provenance import digests_equal, verify_manifest
+from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 
 SCHEMA_VERSION = "evaluation-v0.2"
@@ -182,6 +182,7 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     if out.suffix.lower() != ".json" or out.exists():
         raise AISInputError("Output must be a new .json file")
     manifest_path = run_dir / "manifest.json"
+    manifest_invalid = f"manifest '{manifest_path}' is not a valid HarborLens manifest"
     try:
         check = verify_manifest(manifest_path)
     except OSError as exc:
@@ -189,29 +190,37 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
             f"cannot read run manifest '{manifest_path}' ({_os_detail(exc)}). "
             "--run must be a directory written by harborlens, containing manifest.json."
         ) from exc
-    except ValueError as exc:
-        # Invalid manifest text or artifact record. AISInputError is a ValueError
-        # and is not rewritten. A bare ValueError elsewhere is not caught.
-        if isinstance(exc, AISInputError):
-            raise
-        raise AISInputError(str(exc)) from exc
+    except ManifestFormatError as exc:
+        raise AISInputError(manifest_invalid) from exc
     if not check["ok"]:
         raise AISInputError(f"Run artifacts fail integrity verification: {check['artifacts']}")
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(manifest_invalid) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read run manifest '{manifest_path}' ({_os_detail(exc)}). "
             "--run must be a directory written by harborlens, containing manifest.json."
         ) from exc
+    try:
+        manifest = json.loads(manifest_text)
+    except json.JSONDecodeError as exc:
+        raise AISInputError(manifest_invalid) from exc
     params = SegmentationParams.from_manifest(manifest.get("method_parameters"))
+    sampling_invalid = f"sampling file '{sampling}' is not valid JSON"
     try:
         sampling_text = sampling.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(sampling_invalid) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read sampling file '{sampling}' ({_os_detail(exc)})."
         ) from exc
-    plan = json.loads(sampling_text)
+    try:
+        plan = json.loads(sampling_text)
+    except json.JSONDecodeError as exc:
+        raise AISInputError(sampling_invalid) from exc
     if (not digests_equal(plan.get("run_manifest_sha256"), sha256(manifest_path))
             or not digests_equal(plan.get("parameter_set"), params.parameter_set)):
         raise AISInputError("Sampling manifest was not drawn from this run")
@@ -219,13 +228,19 @@ def evaluate(run_dir, sampling, labels_path, out, label_provenance="unspecified"
     schema_version = plan.get("schema_version")
     labels = _read_labels(labels_path, set(key))
     geo_path = run_dir / "stationary_candidates.geojson"
+    geo_invalid = f"candidate GeoJSON '{geo_path}' is not valid JSON"
     try:
         geo_text = geo_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AISInputError(geo_invalid) from exc
     except OSError as exc:
         raise AISInputError(
             f"cannot read candidate GeoJSON '{geo_path}' ({_os_detail(exc)})."
         ) from exc
-    geo = json.loads(geo_text)
+    try:
+        geo = json.loads(geo_text)
+    except json.JSONDecodeError as exc:
+        raise AISInputError(geo_invalid) from exc
     candidates = {f["properties"]["event_id"]: f["properties"] for f in geo["features"]}
 
     excluded = Counter()
@@ -393,9 +408,9 @@ def main():
                         help="synthetic or unspecified. Default: unspecified. Any other value is rejected.")
     add_debug_argument(parser)
     args = parser.parse_args()
-    if args.label_provenance not in CAVEATS:
-        parser.error("label_provenance must be synthetic or unspecified")
     try:
+        if args.label_provenance not in CAVEATS:
+            raise AISInputError("label_provenance must be synthetic or unspecified")
         report = evaluate(args.run, args.sampling, args.labels, args.out,
                           label_provenance=args.label_provenance)
     except AISInputError as exc:

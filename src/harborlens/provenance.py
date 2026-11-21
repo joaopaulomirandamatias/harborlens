@@ -17,6 +17,9 @@ from urllib.parse import urlsplit
 
 FILES = ("houston_clean.csv", "stationary_candidates.csv", "stationary_candidates.geojson")
 
+class ManifestFormatError(ValueError):
+    """``manifest.json`` is not a HarborLens artifact manifest."""
+
 def checksum(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -95,28 +98,44 @@ def verify_manifest(path, preloaded=None):
     """
     path = Path(path)
     preloaded = {} if preloaded is None else preloaded
-    record = json.loads(path.read_text(encoding="utf-8"))
-    items = record.get("artifacts")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ManifestFormatError("Invalid artifact manifest") from exc
+    try:
+        record = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ManifestFormatError("Invalid artifact manifest") from exc
+    items = record.get("artifacts") if isinstance(record, dict) else None
     if not isinstance(items, dict) or set(items) != set(FILES):
-        raise ValueError("Invalid artifact manifest")
+        raise ManifestFormatError("Invalid artifact manifest")
     results = {}
     for name in FILES:
         expected = items[name]
         if not isinstance(expected, dict) or not isinstance(expected.get("sha256"), str):
-            raise ValueError("Invalid artifact hash entry")
+            raise ManifestFormatError("Invalid artifact hash entry")
         if name in preloaded:
             raw = preloaded[name]
             if not isinstance(raw, (bytes, bytearray)):
-                raise ValueError("Invalid preloaded artifact bytes")
+                raise ManifestFormatError("Invalid preloaded artifact bytes")
             actual = hashlib.sha256(bytes(raw)).hexdigest()
             size = len(raw)
         else:
             file = path.parent / name
-            if not file.is_file():
+            try:
+                is_file = file.is_file()
+            except OSError:
+                results[name] = "unreadable"
+                continue
+            if not is_file:
                 results[name] = "missing"
                 continue
-            actual = checksum(file)
-            size = file.stat().st_size
+            try:
+                actual = checksum(file)
+                size = file.stat().st_size
+            except OSError:
+                results[name] = "unreadable"
+                continue
         if digests_equal(actual, expected["sha256"]) and size == expected.get("size_bytes"):
             results[name] = "verified"
         else:
@@ -139,6 +158,8 @@ def main():
     args = parser.parse_args()
     try:
         result = verify_manifest(args.manifest)
+    except ManifestFormatError:
+        parser.error(f"manifest '{args.manifest}' is not a valid HarborLens manifest")
     except OSError as exc:
         detail = exc.strerror if exc.strerror else type(exc).__name__
         parser.error(

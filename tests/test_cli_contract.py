@@ -5,6 +5,7 @@ Expected domain errors exit 2 through argparse, with no traceback unless
 is not caught. Synthetic fixtures only.
 """
 import contextlib
+import hashlib
 import importlib
 import inspect
 import io
@@ -18,7 +19,8 @@ from unittest import mock
 from harborlens import __version__
 from harborlens.ais import REQUIRED_COLUMNS, header_alias
 from harborlens.cli import main as harborlens_main
-from harborlens.evaluation import _read_labels, main as evaluate_main
+from harborlens.evaluation import _read_labels, evaluate, main as evaluate_main
+from harborlens.labeling import draw_sample
 from harborlens.fr_timeline import main as fr_main
 from harborlens.io_safe import AISInputError
 from harborlens.provenance import main as verify_main
@@ -73,6 +75,23 @@ class ColumnMessageTests(unittest.TestCase):
         self.assertEqual(header_alias(["MMSI", "lat"], "mmsi", source="x.csv"), "MMSI")
         with self.assertRaisesRegex(AISInputError, "missing required column 'timestamp'"):
             header_alias(["MMSI", "lat"], "timestamp", source="x.csv")
+
+    def test_header_controls_are_escaped_and_capped(self):
+        hostile = ["\x1b[31m", "\x1b]0;PWNED\x07", "\u202e", "A" * 50]
+        hostile.extend(f"col{i}" for i in range(12))
+        with self.assertRaises(AISInputError) as caught:
+            header_alias(hostile, "mmsi", source="x.csv")
+        message = str(caught.exception)
+        self.assertNotIn("\x1b", message)
+        self.assertNotIn("\x07", message)
+        self.assertNotIn("\u202e", message)
+        self.assertIn("\\x1b", message)
+        self.assertIn("\\x07", message)
+        self.assertIn("\\u202e", message)
+        self.assertIn("... (+6 more)", message)
+        self.assertIn("A" * 40 + "...", message)
+        self.assertNotIn("A" * 41, message)
+        self.assertLess(len(message), 2000)
 
 
 class HarborlensCliTests(unittest.TestCase):
@@ -230,6 +249,53 @@ class HarborlensCliTests(unittest.TestCase):
             left["output"] = right["output"] = "OUTPUT"
             self.assertEqual(left, right)
 
+    def test_stderr_drops_header_controls_and_keeps_a_previous_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            hostile = root / "hostile.csv"
+            names = ["\x1b[31m", "\x1b]0;PWNED\x07"] + [f"n{i:02d}" for i in range(100)]
+            hostile.write_text(",".join(names) + "\n1\n", encoding="utf-8")
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(hostile), "--out", str(root / "hostile-out"),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("\x1b", err)
+            self.assertNotIn("\x07", err)
+            self.assertIn("\\x1b", err)
+            self.assertIn("... (+92 more)", err)
+            self.assertLess(len(err), 8000)
+            self.assertFalse((root / "hostile-out").exists())
+
+            out = root / "out"
+            code, _, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+            ])
+            self.assertEqual(code, 0, err)
+            before = {path.name: path.read_bytes() for path in out.iterdir() if path.is_file()}
+            bad = root / "bad.csv"
+            bad.write_text(
+                "MMSI,BaseDateTime,LAT,LON,SOG\n"
+                "199080001,2024-01-02T00:00:00Z,29.7,-95.1,0.1\n"
+                "199080001,2024-01-02T00:01:00Z,29.7,-95.1,0.1,EXTRA\n",
+                encoding="utf-8",
+            )
+            code, stdout, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(bad), "--out", str(out),
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", err)
+            self.assertIn("more values than header", err)
+            after = {path.name: path.read_bytes() for path in out.iterdir() if path.is_file()}
+            self.assertEqual(before, after)
+            self.assertFalse(any(name.endswith(".partial") for name in after))
+            code, stdout, err = _invoke(verify_main, [
+                "harborlens-verify", "--manifest", str(out / "manifest.json"),
+            ])
+            self.assertEqual(code, 0, err)
+            self.assertIn('"ok": true', stdout)
+
     def test_main_does_not_catch_broad_errors(self):
         source = inspect.getsource(harborlens_main)
         self.assertNotIn("except Exception", source)
@@ -261,6 +327,149 @@ class EvaluateAndVerifyCliTests(unittest.TestCase):
             self.assertNotIn("Traceback", err)
             self.assertNotIn("FileNotFoundError", err)
             self.assertFalse(out.exists())
+
+    def test_rejected_label_provenance_debug_prints_a_traceback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "eval.json"
+            argv = [
+                "harborlens-evaluate",
+                "--run", str(Path(folder) / "missing-run"),
+                "--sampling", str(Path(folder) / "missing.sampling.json"),
+                "--labels", str(Path(folder) / "missing-labels.csv"),
+                "--out", str(out),
+                "--label-provenance", "real-labels",
+                "--debug",
+            ]
+            code, stdout, err = _invoke(evaluate_main, argv)
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("label_provenance must be synthetic or unspecified", err)
+            self.assertIn("Traceback", err)
+            self.assertLess(err.index("error:"), err.index("Traceback"))
+            self.assertFalse(out.exists())
+
+    def test_invalid_manifest_sampling_and_geojson_exit_2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            run_dir = root / "run"
+            code, _, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(run_dir),
+            ])
+            self.assertEqual(code, 0, err)
+            manifest = run_dir / "manifest.json"
+            original = manifest.read_bytes()
+            for body in (b"{bad", b"[]", b"\xff"):
+                manifest.write_bytes(body)
+                code, stdout, err = _invoke(verify_main, [
+                    "harborlens-verify", "--manifest", str(manifest),
+                ])
+                self.assertEqual(code, 2, body)
+                self.assertEqual(stdout, "")
+                self.assertIn(
+                    f"manifest '{manifest}' is not a valid HarborLens manifest", err,
+                )
+                self.assertNotIn("Traceback", err)
+                code, stdout, err = _invoke(evaluate_main, [
+                    "harborlens-evaluate", "--run", str(run_dir),
+                    "--sampling", str(root / "missing.sampling.json"),
+                    "--labels", str(root / "missing-labels.csv"),
+                    "--out", str(root / "eval.json"),
+                    "--label-provenance", "synthetic",
+                ])
+                self.assertEqual(code, 2, body)
+                self.assertEqual(stdout, "")
+                self.assertIn(
+                    f"manifest '{manifest}' is not a valid HarborLens manifest", err,
+                )
+                self.assertNotIn("Traceback", err)
+            manifest.write_bytes(original)
+
+            sampling = root / "broken.sampling.json"
+            sampling.write_text("{bad", encoding="utf-8")
+            code, stdout, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling),
+                "--labels", str(root / "missing-labels.csv"),
+                "--out", str(root / "eval.json"),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn(f"sampling file '{sampling}' is not valid JSON", err)
+            self.assertNotIn("Traceback", err)
+            sampling.write_bytes(b"\xff")
+            code, _, err = _invoke(evaluate_main, [
+                "harborlens-evaluate", "--run", str(run_dir),
+                "--sampling", str(sampling),
+                "--labels", str(root / "missing-labels.csv"),
+                "--out", str(root / "eval.json"),
+                "--label-provenance", "synthetic",
+            ])
+            self.assertEqual(code, 2)
+            self.assertIn(f"sampling file '{sampling}' is not valid JSON", err)
+            self.assertNotIn("Traceback", err)
+
+            sheet = root / "sheet.csv"
+            draw_sample(run_dir, sheet, 7, candidates=1, negatives=0)
+            labels = root / "labels.csv"
+            sampling_path = Path(str(sheet) + ".sampling.json")
+            plan = json.loads(sampling_path.read_text(encoding="utf-8"))
+            with labels.open("w", newline="", encoding="utf-8") as handle:
+                handle.write(
+                    "sample_id,label,evidence_level,duration_judgement,"
+                    "true_start_utc,true_end_utc,adjudicator_id\n"
+                )
+                for unit in plan["key"]:
+                    handle.write(f"{unit['sample_id']},unknown,L2,not_assessable,,,J1\n")
+            geo = run_dir / "stationary_candidates.geojson"
+
+            def point_manifest_at(payload):
+                geo.write_bytes(payload)
+                record = json.loads(manifest.read_text(encoding="utf-8"))
+                record["artifacts"]["stationary_candidates.geojson"] = {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+                manifest.write_text(json.dumps(record), encoding="utf-8")
+                plan["run_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+                sampling_path.write_text(json.dumps(plan), encoding="utf-8")
+
+            point_manifest_at(b"{bad")
+            with self.assertRaises(AISInputError) as caught:
+                evaluate(run_dir, sampling_path, labels, root / "geo.json",
+                         label_provenance="synthetic")
+            self.assertEqual(
+                str(caught.exception),
+                f"candidate GeoJSON '{geo}' is not valid JSON",
+            )
+            point_manifest_at(b"\xff")
+            with self.assertRaisesRegex(AISInputError, "is not valid JSON"):
+                evaluate(run_dir, sampling_path, labels, root / "geo-utf8.json",
+                         label_provenance="synthetic")
+
+    def test_unreadable_artifact_stays_a_verification_result(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            code, _, err = _invoke(harborlens_main, [
+                "harborlens", "--input", str(FIXTURE), "--out", str(out),
+            ])
+            self.assertEqual(code, 0, err)
+            from harborlens.provenance import checksum as real_checksum
+
+            def boom(path):
+                if Path(path).name == "houston_clean.csv":
+                    raise PermissionError(13, "Permission denied", str(path))
+                return real_checksum(path)
+
+            with mock.patch("harborlens.provenance.checksum", boom):
+                code, stdout, err = _invoke(verify_main, [
+                    "harborlens-verify", "--manifest", str(out / "manifest.json"),
+                ])
+            self.assertEqual(code, 1)
+            self.assertNotIn("Traceback", err)
+            body = json.loads(stdout)
+            self.assertFalse(body["ok"])
+            self.assertEqual(body["artifacts"]["houston_clean.csv"], "unreadable")
 
     def test_rejected_label_provenance_is_unchanged(self):
         with tempfile.TemporaryDirectory() as folder:

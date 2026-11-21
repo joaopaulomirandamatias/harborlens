@@ -11,6 +11,8 @@ import io
 import itertools
 import json
 import math
+import os
+import unicodedata
 import zipfile
 from pathlib import Path
 from harborlens.csv_safe import CsvDictWriter, neutralize_text_cell, recover_text_cell
@@ -55,13 +57,53 @@ EVENT_FIELDS = ["event_id","mmsi","start_utc","end_utc","duration_min","point_co
                 "confidence_label","left_censoring","right_censoring",
                 "vessel_type","transceiver_class","length_m","draft_m","mmsi_category"]
 
+# How many header names a missing-column error shows, and how long each shown name is.
+_FOUND_NAME_LIMIT = 10
+_FOUND_NAME_CHARS = 40
+
+def _escape_shown_text(value):
+    """Render one header name without terminal or bidi controls.
+
+    Ordinary text is kept. C0/C1 controls, DEL, and format characters
+    (including bidi controls) use ``ascii()``-style escapes. Line and
+    paragraph separators are escaped too, so the error stays one line.
+    """
+    parts=[]
+    for character in str(value):
+        category=unicodedata.category(character)
+        if category in ("Cc", "Cf", "Zl", "Zp"):
+            code=ord(character)
+            if code < 0x100:
+                parts.append(f"\\x{code:02x}")
+            elif code < 0x10000:
+                parts.append(f"\\u{code:04x}")
+            else:
+                parts.append(f"\\U{code:08x}")
+        else:
+            parts.append(character)
+    rendered="".join(parts)
+    if len(rendered) > _FOUND_NAME_CHARS:
+        return rendered[:_FOUND_NAME_CHARS] + "..."
+    return rendered
+
+def _format_found_columns(header):
+    """First names of a header, escaped and capped, for an error line."""
+    names=list(header)
+    shown=[_escape_shown_text(column) for column in names[:_FOUND_NAME_LIMIT]]
+    text=", ".join(shown)
+    extra=len(names) - len(shown)
+    if extra:
+        suffix=f"... (+{extra} more)"
+        text=f"{text}, {suffix}" if text else suffix
+    return text
+
 def header_alias(header, name, required=True, source=None):
     indexed={x.lower().strip():x for x in header}
     for candidate in ALIASES[name]:
         if candidate.lower() in indexed:
             return indexed[candidate.lower()]
     if required:
-        found=", ".join(str(column) for column in header)
+        found=_format_found_columns(header)
         where=f"input file '{source}'" if source is not None else "input file"
         expected=", ".join(REQUIRED_COLUMNS)
         raise AISInputError(
@@ -69,6 +111,21 @@ def header_alias(header, name, required=True, source=None):
             f"Expected required AIS columns: {expected} (aliases are listed in the data dictionary)."
         )
     return None
+
+def _publish(path, write):
+    """Write ``path`` via a sibling temp file and ``os.replace`` on success.
+
+    A failure deletes the temp file and leaves an existing ``path`` in place.
+    """
+    partial=path.with_name(path.name + ".partial")
+    published=False
+    try:
+        write(partial)
+        os.replace(partial, path)
+        published=True
+    finally:
+        if not published:
+            partial.unlink(missing_ok=True)
 
 def _resolve_columns(header, source):
     """Map logical columns. The first missing required name follows REQUIRED_COLUMNS."""
@@ -121,65 +178,76 @@ def ingest(source, output, bbox=BBOX_HOUSTON, max_rows=None):
             peeked=None
         cols=_resolve_columns(list(peeked), source) if peeked is not None else None
         output.parent.mkdir(parents=True,exist_ok=True)
+        # Publish only after the whole file is written, so a mid-stream error
+        # cannot truncate an existing cleaned CSV.
+        partial=output.with_name(output.name + ".partial")
+        published=False
         counts=dict(total=0,in_bbox=0,missing_value=0,invalid=0,outside_bbox=0,duplicate=0,written=0)
         seen=set()
         first=last=None
         truncated=False
         categories={}
-        with output.open("w",newline="",encoding="utf-8") as stream:
-            writer=CsvDictWriter(stream,CLEAN_FIELDS)
-            rows=() if peeked is None else itertools.chain((peeked,), row_iter)
-            for row in rows:
-                if max_rows is not None and counts["total"]>=max_rows:
-                    truncated=True
-                    break
-                counts["total"]+=1
-                if any(not str(row.get(cols[k]) or "").strip() for k in ("mmsi","timestamp","lat","lon","sog")):
-                    # Empty required field: "not available" (2025+ archives write nulls), not corrupt data.
-                    counts["missing_value"]+=1
-                    continue
-                try:
-                    mmsi=str(row[cols["mmsi"]]).strip()
-                    t=parse_time(row[cols["timestamp"]])
-                    lat=float(row[cols["lat"]])
-                    lon=float(row[cols["lon"]])
-                    sog=float(row[cols["sog"]])
-                    if not mmsi.isdigit() or len(mmsi) not in (8,9):
-                        raise ValueError("invalid MMSI")
-                    if not (math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)) or not (-90<=lat<=90 and -180<=lon<=180 and 0<=sog<=100):
-                        raise ValueError("coordinate or speed out of range")
-                except (ValueError,TypeError,KeyError,OverflowError):
-                    counts["invalid"]+=1
-                    continue
-                if not (bbox[0]<=lon<=bbox[2] and bbox[1]<=lat<=bbox[3]):
-                    counts["outside_bbox"]+=1
-                    continue
-                counts["in_bbox"]+=1
-                key=(mmsi,t.isoformat(),round(lat,6),round(lon,6))
-                if key in seen:
-                    counts["duplicate"]+=1
-                    continue
-                seen.add(key)
-                get=lambda name:row.get(cols[name],"") if cols[name] else ""  # noqa: E731
-                attributes=normalize_attributes(get("cog"),get("heading"),get("length"),get("width"),
-                                                get("draft"),get("transceiver"))
-                category=mmsi_category(mmsi)
-                categories[category]=categories.get(category,0)+1
-                writer.writerow({
-                    "mmsi":mmsi,"timestamp_utc":t.isoformat().replace("+00:00","Z"),
-                    "lat":lat,"lon":lon,"sog_knots":sog,
-                    "vessel_type":neutralize_text_cell(get("vessel_type")),
-                    "nav_status":neutralize_text_cell(get("nav_status")),
-                    **{k:csv_value(v) for k,v in attributes.items()},"mmsi_category":category,
-                })
-                counts["written"]+=1
-                first=t if first is None or t<first else first
-                last=t if last is None or t>last else last
-        return {"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
-                "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
-                "input_truncated":truncated,"limits":{"max_rows":max_rows},
-                "mmsi_categories":dict(sorted(categories.items())),
-                "observed_time_range":observed_range(first,last)}
+        try:
+            with partial.open("w",newline="",encoding="utf-8") as stream:
+                writer=CsvDictWriter(stream,CLEAN_FIELDS)
+                rows=() if peeked is None else itertools.chain((peeked,), row_iter)
+                for row in rows:
+                    if max_rows is not None and counts["total"]>=max_rows:
+                        truncated=True
+                        break
+                    counts["total"]+=1
+                    if any(not str(row.get(cols[k]) or "").strip() for k in ("mmsi","timestamp","lat","lon","sog")):
+                        # Empty required field: "not available" (2025+ archives write nulls), not corrupt data.
+                        counts["missing_value"]+=1
+                        continue
+                    try:
+                        mmsi=str(row[cols["mmsi"]]).strip()
+                        t=parse_time(row[cols["timestamp"]])
+                        lat=float(row[cols["lat"]])
+                        lon=float(row[cols["lon"]])
+                        sog=float(row[cols["sog"]])
+                        if not mmsi.isdigit() or len(mmsi) not in (8,9):
+                            raise ValueError("invalid MMSI")
+                        if not (math.isfinite(lat) and math.isfinite(lon) and math.isfinite(sog)) or not (-90<=lat<=90 and -180<=lon<=180 and 0<=sog<=100):
+                            raise ValueError("coordinate or speed out of range")
+                    except (ValueError,TypeError,KeyError,OverflowError):
+                        counts["invalid"]+=1
+                        continue
+                    if not (bbox[0]<=lon<=bbox[2] and bbox[1]<=lat<=bbox[3]):
+                        counts["outside_bbox"]+=1
+                        continue
+                    counts["in_bbox"]+=1
+                    key=(mmsi,t.isoformat(),round(lat,6),round(lon,6))
+                    if key in seen:
+                        counts["duplicate"]+=1
+                        continue
+                    seen.add(key)
+                    get=lambda name:row.get(cols[name],"") if cols[name] else ""  # noqa: E731
+                    attributes=normalize_attributes(get("cog"),get("heading"),get("length"),get("width"),
+                                                    get("draft"),get("transceiver"))
+                    category=mmsi_category(mmsi)
+                    categories[category]=categories.get(category,0)+1
+                    writer.writerow({
+                        "mmsi":mmsi,"timestamp_utc":t.isoformat().replace("+00:00","Z"),
+                        "lat":lat,"lon":lon,"sog_knots":sog,
+                        "vessel_type":neutralize_text_cell(get("vessel_type")),
+                        "nav_status":neutralize_text_cell(get("nav_status")),
+                        **{k:csv_value(v) for k,v in attributes.items()},"mmsi_category":category,
+                    })
+                    counts["written"]+=1
+                    first=t if first is None or t<first else first
+                    last=t if last is None or t>last else last
+            result={"input_file":str(source),"input_sha256":sha256(source),"output":str(output),
+                    "bbox_lon_lat":list(bbox),"counts":counts,"note":"QA counts, not port-call statistics",
+                    "input_truncated":truncated,"limits":{"max_rows":max_rows},
+                    "mmsi_categories":dict(sorted(categories.items())),
+                    "observed_time_range":observed_range(first,last)}
+            os.replace(partial, output)
+            published=True
+            return result
+        finally:
+            if not published:
+                partial.unlink(missing_ok=True)
     finally:
         row_iter.close()
 
@@ -278,17 +346,24 @@ def read_candidates_csv(path):
 def write_events(events,out,params=None):
     params=params or SegmentationParams()
     out.mkdir(parents=True,exist_ok=True)
-    with (out/"stationary_candidates.csv").open("w",newline="",encoding="utf-8") as stream:
-        writer=CsvDictWriter(stream,EVENT_FIELDS)
-        for event in events:
-            # Copy so GeoJSON keeps the logical vessel_type. JSON strings are not formulas.
-            row={field:event[field] for field in EVENT_FIELDS}
-            row["vessel_type"]=neutralize_text_cell(row["vessel_type"])
-            writer.writerow(row)
-    features=[{"type":"Feature","geometry":{"type":"Point","coordinates":[e["centroid_lon"],e["centroid_lat"]]},
-               "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
-    collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
-    (out/"stationary_candidates.geojson").write_text(json.dumps(collection,indent=2),encoding="utf-8")
+
+    def write_csv(path):
+        with path.open("w",newline="",encoding="utf-8") as stream:
+            writer=CsvDictWriter(stream,EVENT_FIELDS)
+            for event in events:
+                # Copy so GeoJSON keeps the logical vessel_type. JSON strings are not formulas.
+                row={field:event[field] for field in EVENT_FIELDS}
+                row["vessel_type"]=neutralize_text_cell(row["vessel_type"])
+                writer.writerow(row)
+
+    def write_geojson(path):
+        features=[{"type":"Feature","geometry":{"type":"Point","coordinates":[e["centroid_lon"],e["centroid_lat"]]},
+                   "properties":{k:v for k,v in e.items() if k not in ("centroid_lon","centroid_lat")}} for e in events]
+        collection={"type":"FeatureCollection","harborlens_method":geojson_method_member(params),"features":features}
+        path.write_text(json.dumps(collection,indent=2),encoding="utf-8")
+
+    _publish(out/"stationary_candidates.csv", write_csv)
+    _publish(out/"stationary_candidates.geojson", write_geojson)
 
 def _discard_new_directory(path):
     """Remove files this failed run wrote, then the directory it created."""
@@ -335,9 +410,13 @@ def run(src,out,bbox=BBOX_HOUSTON,max_rows=None,source_url=None,window_start=Non
         manifest["method_parameters"]=params.manifest()
         manifest["analysis_window"]=censoring.summary(observed)
         manifest = add_provenance(out, manifest, source_url=source_url)
-        (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+        body=json.dumps(manifest,indent=2)
+        _publish(out/"manifest.json", lambda path: path.write_text(body, encoding="utf-8"))
         return manifest
     except AISInputError:
+        for name in ("houston_clean.csv", "stationary_candidates.csv",
+                     "stationary_candidates.geojson", "manifest.json"):
+            (out / (name + ".partial")).unlink(missing_ok=True)
         if created_out:
             try:
                 _discard_new_directory(out)

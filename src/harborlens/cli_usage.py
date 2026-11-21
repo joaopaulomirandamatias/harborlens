@@ -29,22 +29,15 @@ def add_debug_argument(parser):
 def report_domain_error(parser, exc, debug=False):
     """Exit 2 with argparse's usage line and one error line.
 
-    The message is ``str(exc)`` with no program prefix; ``parser.error`` adds
-    ``{prog}: error:``. With ``debug``, the traceback is printed after that
-    line. The process still exits 2.
+    The message is ``str(exc)`` with no program prefix. Without ``debug``,
+    ``parser.error`` prints the usage line and ``{prog}: error: {message}``.
+    With ``debug``, the same bytes are written with the public API, then the
+    traceback, and the process still exits 2.
     """
+    message = str(exc)
     if not debug:
-        parser.error(str(exc))
-    original_exit = parser.exit
-
-    def _exit(status=0, message=None):
-        if message:
-            parser._print_message(message, sys.stderr)
-        traceback.print_exception(type(exc), exc, exc.__traceback__)
-        raise SystemExit(status)
-
-    parser.exit = _exit
-    try:
-        parser.error(str(exc))
-    finally:
-        parser.exit = original_exit
+        parser.error(message)
+    parser.print_usage(sys.stderr)
+    sys.stderr.write(f"{parser.prog}: error: {message}\n")
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    raise SystemExit(2)
