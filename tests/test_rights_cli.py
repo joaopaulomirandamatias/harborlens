@@ -11,8 +11,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from harborlens.rights import (
-    APPROVED_STATUSES, _DUPLICATE_KEY_ERROR, _MISSING_JSONSCHEMA, _NOTICE,
-    _UNREADABLE_REGISTER, _UTF8_BOM_ERROR, main,
+    APPROVED_STATUSES, MAX_REGISTRY_NESTING, _DUPLICATE_KEY_ERROR,
+    _MISSING_JSONSCHEMA, _NOTICE, _UNREADABLE_REGISTER, _UTF8_BOM_ERROR,
+    _max_container_depth, main,
 )
 
 
@@ -253,6 +254,91 @@ class RightsCLITests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(result["error"], _UNREADABLE_REGISTER)
             self.assertEqual(result["rights_status"], "review_required")
+            self.assertNotIn("\n", result["error"])
+            completed = subprocess.run(
+                [sys.executable, "-m", "harborlens.rights",
+                 "--register", str(path), "--source-id", "noaa_pmel_erddap",
+                 "--dataset-version", "AIS2024_AIS"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(completed.returncode, 2, completed.stderr)
+            self.assertEqual(completed.stderr, "")
+            self.assertNotIn("Traceback", completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual(payload["error"], _UNREADABLE_REGISTER)
+            self.assertEqual(payload["rights_status"], "review_required")
+
+    def test_nesting_limit_boundary_exits_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rights.json"
+            exact = _reviewed_register()
+            path.write_text(json.dumps(exact), encoding="utf-8")
+            self.assertEqual(
+                _max_container_depth(path.read_text(encoding="utf-8")),
+                MAX_REGISTRY_NESTING,
+            )
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(code, 0)
+            self.assertIn(result["rights_status"], APPROVED_STATUSES)
+            self.assertNotIn("error", result)
+            accepted = subprocess.run(
+                [sys.executable, "-m", "harborlens.rights",
+                 "--register", str(path), "--source-id", "noaa_pmel_erddap",
+                 "--dataset-version", "AIS2024_AIS", "--purpose", "research"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(accepted.stderr, "")
+            self.assertNotIn("Traceback", accepted.stdout)
+
+            over = json.loads(json.dumps(exact))
+            over["sources"][0]["permitted_uses"] = {
+                "wrap": over["sources"][0]["permitted_uses"],
+            }
+            path.write_text(json.dumps(over), encoding="utf-8")
+            self.assertEqual(
+                _max_container_depth(path.read_text(encoding="utf-8")),
+                MAX_REGISTRY_NESTING + 1,
+            )
+            code, result = self._invoke([
+                "--register", str(path),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(result["error"], _UNREADABLE_REGISTER)
+            self.assertNotIn("\n", result["error"])
+            self.assertEqual(result["rights_status"], "review_required")
+            self.assertNotIn(result["rights_status"], APPROVED_STATUSES)
+            rejected = subprocess.run(
+                [sys.executable, "-m", "harborlens.rights",
+                 "--register", str(path), "--source-id", "noaa_pmel_erddap",
+                 "--dataset-version", "AIS2024_AIS", "--purpose", "research"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            self.assertEqual(rejected.stderr, "")
+            self.assertNotIn("Traceback", rejected.stderr)
+            payload = json.loads(rejected.stdout)
+            self.assertEqual(payload["error"], _UNREADABLE_REGISTER)
+            self.assertEqual(payload["rights_status"], "review_required")
+
+            official = ROOT / "docs/data/rights-register.json"
+            pending_code, pending = self._invoke([
+                "--register", str(official),
+                "--source-id", "noaa_pmel_erddap",
+                "--dataset-version", "AIS2024_AIS",
+                "--purpose", "research",
+            ])
+            self.assertEqual(pending_code, 1)
+            self.assertEqual(pending["rights_status"], "review_required")
+            self.assertNotIn(pending["rights_status"], APPROVED_STATUSES)
 
     def test_yaml_exits_2_and_does_not_approve(self):
         with tempfile.TemporaryDirectory() as tmp:

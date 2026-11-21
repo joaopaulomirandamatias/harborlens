@@ -10,10 +10,10 @@ from importlib.resources import files
 from unittest.mock import patch
 
 from harborlens.rights import (
-    APPROVED_STATUSES, PENDING, RESTRICTED, _DUPLICATE_KEY_ERROR,
-    _MISSING_JSONSCHEMA, _UNREADABLE_REGISTER, _UTF8_BOM_ERROR,
-    _is_https_url, _valid_utc_time, load_registry, rights_receipt,
-    rights_status_for,
+    APPROVED_STATUSES, MAX_REGISTRY_NESTING, PENDING, RESTRICTED,
+    _DUPLICATE_KEY_ERROR, _MISSING_JSONSCHEMA, _UNREADABLE_REGISTER,
+    _UTF8_BOM_ERROR, _is_https_url, _max_container_depth, _valid_utc_time,
+    load_registry, rights_receipt, rights_status_for,
 )
 
 
@@ -421,9 +421,108 @@ class RightsGateTests(unittest.TestCase):
             self.assertIsNone(receipt["registry_sha256"], name)
         self.assertEqual(_DUPLICATE_KEY_ERROR, "Rights register has a duplicate key")
 
+    def test_main_accepted_maximum_depth_still_loads(self):
+        # On main b92a49e, load_registry returned this schema-valid register
+        # and no deeper one. Python 3.12.3 loaded depth 4. Depth 5
+        # (permitted_uses wrapped once) and pure nests at 5 and 50 raised
+        # ValueError and were not loaded. additionalProperties is false, so
+        # a schema-valid register cannot pass permitted_uses.
+        self.write()
+        text = self.path.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(text), 4)
+        loaded = load_registry(self.path)
+        self.assertEqual(loaded["schema_version"], 1)
+        self.assertEqual(len(loaded["sources"]), 1)
+        self.assertEqual(loaded["sources"][0]["source_id"], "noaa_pmel_erddap")
+        self.assertIn(self.status(), APPROVED_STATUSES)
+
+    def test_nesting_limit_accepts_depth_4_and_rejects_depth_5(self):
+        # permitted_uses is the fourth container. The checked-in register
+        # is exactly there and stays review_required. One more container
+        # is unreadable on every supported interpreter.
+        self.assertEqual(MAX_REGISTRY_NESTING, 4)
+        official = Path(__file__).resolve().parents[1] / "docs/data/rights-register.json"
+        official_text = official.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(official_text), MAX_REGISTRY_NESTING)
+        registry = load_registry(official)
+        self.assertGreaterEqual(len(registry["sources"]), 1)
+        for source in registry["sources"]:
+            status = rights_status_for(
+                source["source_id"], dataset_version=source["dataset_version"],
+                purpose="research", register_path=official,
+            )
+            self.assertEqual(status, PENDING, source["source_id"])
+            self.assertNotIn(status, APPROVED_STATUSES)
+
+        self.write()
+        exact = self.path.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(exact), MAX_REGISTRY_NESTING)
+        loaded = load_registry(self.path)
+        self.assertEqual(loaded["schema_version"], 1)
+        self.assertIn(self.status(), APPROVED_STATUSES)
+
+        # Braces inside strings, including an escaped quote, are not containers.
+        copy = deepcopy(self.data)
+        copy["sources"][0]["review_note"] = (
+            '{"k":' * 20 + 'he said "still a string" {not nesting}'
+        )
+        self.write(copy)
+        quoted = self.path.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(quoted), MAX_REGISTRY_NESTING)
+        self.assertEqual(load_registry(self.path)["schema_version"], 1)
+        self.assertIn(self.status(), APPROVED_STATUSES)
+
+        # Depth 4 that is not a register keeps the version error.
+        shallow = '{"k":' * MAX_REGISTRY_NESTING + "1" + "}" * MAX_REGISTRY_NESTING
+        self.assertEqual(_max_container_depth(shallow), MAX_REGISTRY_NESTING)
+        self.path.write_text(shallow, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Unsupported rights register version"):
+            load_registry(self.path)
+        self.assertEqual(self.status(), PENDING)
+
+        over = deepcopy(self.data)
+        over["sources"][0]["permitted_uses"] = {
+            "wrap": over["sources"][0]["permitted_uses"],
+        }
+        self.write(over)
+        over_text = self.path.read_text(encoding="utf-8")
+        self.assertEqual(_max_container_depth(over_text), MAX_REGISTRY_NESTING + 1)
+        with self.assertRaises(ValueError) as caught:
+            load_registry(self.path)
+        self.assertEqual(str(caught.exception), _UNREADABLE_REGISTER)
+        self.assertNotIn("schema", str(caught.exception))
+        self.assertEqual(self.status(), PENDING)
+        self.assertNotIn(self.status(), APPROVED_STATUSES)
+        uses = json.dumps(self.data["sources"][0]["permitted_uses"])
+        duplicated = uses.replace(
+            '"research": "allowed"',
+            '"research": "allowed", "research": "prohibited"',
+            1,
+        )
+        carrier = json.loads(json.dumps(self.data))
+        carrier["sources"][0]["permitted_uses"] = {"wrap": None}
+        duplicate_text = json.dumps(carrier).replace(
+            '"permitted_uses": {"wrap": null}',
+            '"permitted_uses": {"wrap": ' + duplicated + "}",
+            1,
+        )
+        self.assertEqual(_max_container_depth(duplicate_text), MAX_REGISTRY_NESTING + 1)
+        self.path.write_text(duplicate_text, encoding="utf-8")
+        with self.assertRaises(ValueError) as caught:
+            load_registry(self.path)
+        self.assertEqual(str(caught.exception), _UNREADABLE_REGISTER)
+        self.assertNotIn("duplicate key", str(caught.exception))
+        receipt = rights_receipt(
+            "noaa_pmel_erddap", dataset_version="AIS2024_AIS",
+            purpose="research", register_path=self.path,
+        )
+        self.assertEqual(receipt["evaluation"], "invalid_registry")
+        self.assertEqual(receipt["rights_status"], PENDING)
+        self.assertIsNone(receipt["registry_sha256"])
+
     def test_deeply_nested_register_is_unreadable(self):
-        # About 1000 objects overflow CPython 3.10. 3.12 needs more.
-        # Either depth must be an unreadable register, never a grant.
+        # 10000 objects used to depend on the interpreter recursion limit.
+        # The explicit limit rejects them before json.loads.
         nested = '{"k":' * 10000 + "1" + "}" * 10000
         self.path.write_text(nested, encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "unreadable"):

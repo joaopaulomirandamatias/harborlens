@@ -726,6 +726,10 @@ class PypdfAdvisoryDocTests(unittest.TestCase):
 
 
 class AllWorkflowPinTests(unittest.TestCase):
+    def test_ci_matrix_includes_python_3_10_3_12_and_3_14(self):
+        ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("python-version: ['3.10', '3.12', '3.14']", ci)
+
     def test_every_workflow_matches_the_lsa_pin_and_read_permission(self):
         paths = sorted(WORKFLOWS.glob("*.yml"))
         names = [path.name for path in paths]

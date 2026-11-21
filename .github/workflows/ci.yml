@@ -11,8 +11,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Minimum supported (pyproject requires-python) and current.
-        python-version: ['3.10', '3.12']
+        # 3.10 is the requires-python minimum. 3.12 is the development
+        # interpreter. 3.14 is inside that range and runs this same job.
+        python-version: ['3.10', '3.12', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harborlens.io_safe import AISInputError
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import digests_equal
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
 
@@ -104,6 +105,12 @@ def sidecar_window(path, input_sha256):
         raise AnalysisWindowError(
             f"Acquisition sidecar is not valid UTF-8: {side.name}"
         ) from exc
+    # Counted before ``json.loads``. Above ``MAX_JSON_NESTING`` the
+    # message is the same one a ``RecursionError`` used to produce.
+    if max_container_depth(text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AnalysisWindowError(
+            f"Acquisition sidecar is not valid JSON: {side.name}"
+        )
     try:
         # ``JSONDecodeError`` is a ``ValueError``. A long integer literal
         # raises a plain ``ValueError`` (the digit limit), and a very deep

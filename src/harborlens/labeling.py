@@ -80,6 +80,7 @@ from harborlens.csv_safe import (
     matches_formula_pattern, neutralize_text_cell, quote_csv_field, recover_text_cell,
 )
 from harborlens.io_safe import AISInputError
+from harborlens.json_depth import MAX_JSON_NESTING, max_container_depth
 from harborlens.provenance import ManifestFormatError, digests_equal, verify_manifest
 from harborlens.segmentation import SegmentationParams
 from harborlens.timeparse import ExplicitOffsetRequired, parse_explicit_utc
@@ -535,6 +536,8 @@ def _load_run(run_dir):
         raise AISInputError(
             f"cannot read candidate GeoJSON '{geo_path}' ({detail})."
         ) from exc
+    if max_container_depth(geo_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+        raise AISInputError(geo_not_json)
     try:
         geo = json.loads(geo_text)
     except (ValueError, RecursionError) as exc:
@@ -905,6 +908,8 @@ def agreement(sheet_a, sheet_b, out, sampling=None):
             raise AISInputError(
                 f"cannot read sampling file '{sampling_path}' ({detail})."
             ) from exc
+        if max_container_depth(sampling_text, limit=MAX_JSON_NESTING) > MAX_JSON_NESTING:
+            raise AISInputError(sampling_not_json)
         try:
             record = json.loads(sampling_text)
         except (ValueError, RecursionError) as exc:
