@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/joaopaulomirandamatias/harborlens/main/schemas/v1/erddap-ais-source.schema.json",
   "title": "NOAA PMEL ERDDAP AIS subset source receipt",
-  "description": "Sidecar written by harborlens-fetch-erddap (SPEC-003, FR-010, NFR-013, NFR-019, BR-015, BR-016). rights_review is optional. A recorded rights_status is not permission to redistribute the source, and it is not a navigation or event label. The checked-in register stays review_required.",
+  "description": "Sidecar written by harborlens-fetch-erddap (SPEC-003, FR-010, NFR-013, NFR-019, BR-015, BR-016). rights_review is optional. A recorded rights_status is not permission to redistribute the source, and it is not a navigation or event label. The checked-in register stays review_required. When rights_review is present, rights_status equals rights_review.rights_status. A reviewed_record receipt cannot appear while rights_status is review_required.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -233,5 +233,111 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "rights_review"
+        ],
+        "properties": {
+          "rights_review": {
+            "required": [
+              "rights_status"
+            ],
+            "properties": {
+              "rights_status": {
+                "const": "review_required"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "review_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "rights_review"
+        ],
+        "properties": {
+          "rights_review": {
+            "required": [
+              "rights_status"
+            ],
+            "properties": {
+              "rights_status": {
+                "const": "reviewed_public_domain_attribution_required"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "reviewed_public_domain_attribution_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "rights_review"
+        ],
+        "properties": {
+          "rights_review": {
+            "required": [
+              "rights_status"
+            ],
+            "properties": {
+              "rights_status": {
+                "const": "reviewed_permitted_with_conditions"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "reviewed_permitted_with_conditions"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "rights_review"
+        ],
+        "properties": {
+          "rights_review": {
+            "required": [
+              "rights_status"
+            ],
+            "properties": {
+              "rights_status": {
+                "const": "use_restricted"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights_status": {
+            "const": "use_restricted"
+          }
+        }
+      }
+    }
+  ]
 }
